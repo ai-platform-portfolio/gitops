@@ -18,4 +18,4 @@ spec:
           resourceGroupName: ${AZURE_DNS_RESOURCE_GROUP}
           hostedZoneName: ${DNS_ZONE}
           managedIdentity:
-            clientID: ${AZURE_DNS_CLIENT_ID}
+            clientID: ${AZURE_CLIENT_ID}

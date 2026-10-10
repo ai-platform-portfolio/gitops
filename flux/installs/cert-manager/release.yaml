@@ -19,5 +19,5 @@ spec:
       azure.workload.identity/use: 'true'
     serviceAccount:
       annotations:
-        azure.workload.identity/client-id: ${AZURE_DNS_CLIENT_ID}
+        azure.workload.identity/client-id: ${AZURE_CLIENT_ID}
       name: cert-manager

@@ -41,8 +41,8 @@ metrics and pod logs. There is no separate Alloy release
 or copied collector configuration.
 
 Grafana, Loki, Mimir and Tempo reuse one `lgtm` service account. The configuration
-phase creates it before the charts start; Terraform creates its Azure storage
-identity and single federated credential before connecting Flux. No chart owns
+phase creates it before the charts start; Terraform creates the shared Azure
+identity and LGTM federated credential before connecting Flux. No chart owns
 the shared account, so Grafana can still wait for its backends without a cycle.
 
 Loki and Tempo run as single replicas. Mimir uses its supported classic architecture
@@ -88,11 +88,33 @@ Terraform passes non-secret deployment values through `post_build.substitute` in
 `flux/flux-system/cluster-settings.yaml`:
 
 - `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`
-- `AZURE_DNS_CLIENT_ID` for ExternalDNS and cert-manager
-- `AZURE_KEY_VAULT_CLIENT_ID` for External Secrets
-- `AZURE_STORAGE_CLIENT_ID` and `AZURE_STORAGE_ACCOUNT` for LGTM
+- `AZURE_CLIENT_ID` for the single shared managed identity
+- `AZURE_STORAGE_ACCOUNT` for LGTM
 - `AZURE_KEY_VAULT_URI` and `AZURE_DNS_RESOURCE_GROUP` for shared Azure resources
 - `DNS_ZONE`, `ACME_EMAIL` and `CLUSTER_NAME` for domain, certificates and monitoring
+
+Terraform automatically reads `terraform.tfvars` from the infrastructure working
+directory when you run `terraform plan` or `terraform apply`. Start with the
+committed `terraform.tfvars.example` and fill in your actual deployment values;
+the real file is ignored by Git. The generated identity client ID, storage account
+name and Key Vault URL are taken from Terraform resources and data sources.
+
+The input flow is:
+
+```text
+portfolio-infra/terraform.tfvars
+  -> main.tf variables and resource outputs
+  -> Azure-managed Flux post_build.substitute
+  -> flux-system/cluster-settings ConfigMap
+  -> package postBuild.substituteFrom
+  -> Helm values and Kubernetes manifests
+```
+
+The same user-assigned identity serves the AKS control plane, kubelet, DNS, Key Vault
+and LGTM storage. Four federation bindings allow the service accounts in
+`external-dns`, `cert-manager`, `external-secrets` and `lgtm` to use it; they do not
+create additional managed identities. Each workload using it has the combined
+Azure permissions assigned to that identity.
 
 The configured Key Vault must contain enabled `grafana-sso-client-id` and
 `grafana-sso-client-secret` secrets. The existing Entra application needs the callback
@@ -106,7 +128,7 @@ The configured Key Vault must contain enabled `grafana-sso-client-id` and
    subsequent rebuilds. Review the old Terraform state before retiring its cluster
    resources so it cannot later recreate or manage the replacement cluster.
 3. In `portfolio-infra`, initialize Terraform, review the plan and apply it when ready.
-   The configuration creates the cluster, identities, roles and federation before
+   The configuration creates the cluster, identity, roles and federation before
    connecting managed Flux. Use an AKS version supported by the pinned charts
    (Kubernetes 1.32 or newer).
 4. Confirm Flux readiness, Gateway/TLS, Grafana Entra login, and metrics/log ingestion:

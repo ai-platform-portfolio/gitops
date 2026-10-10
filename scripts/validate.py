@@ -18,9 +18,7 @@ GUID = "00000000-0000-0000-0000-000000000001"
 SETTINGS = {
     "AZURE_TENANT_ID": GUID,
     "AZURE_SUBSCRIPTION_ID": GUID,
-    "AZURE_DNS_CLIENT_ID": GUID,
-    "AZURE_KEY_VAULT_CLIENT_ID": GUID,
-    "AZURE_STORAGE_CLIENT_ID": GUID,
+    "AZURE_CLIENT_ID": GUID,
     "AZURE_STORAGE_ACCOUNT": "gitopsvalidation",
     "AZURE_KEY_VAULT_URI": "https://example-vault.vault.azure.net/",
     "AZURE_DNS_RESOURCE_GROUP": "example-resource-group",
@@ -199,7 +197,7 @@ def validate(cache):
 
     services = {identity(doc)[1:]: doc for doc in rendered if doc["kind"] == "Service"}
     shared_account = next(doc for doc in objects if identity(doc) == ("ServiceAccount", "lgtm", "lgtm"))
-    assert shared_account["metadata"]["annotations"]["azure.workload.identity/client-id"] == SETTINGS["AZURE_STORAGE_CLIENT_ID"]
+    assert shared_account["metadata"]["annotations"]["azure.workload.identity/client-id"] == SETTINGS["AZURE_CLIENT_ID"]
     for name in ("grafana", "loki", "mimir", "tempo"):
         account = releases[("lgtm", name)]["spec"]["values"]["serviceAccount"]
         assert account == {"create": False, "name": "lgtm"}, f"{name} must reuse the shared LGTM account"
