@@ -225,7 +225,8 @@ def validate(cache):
                 f"{release_key} can install {doc['kind']} before {producer} provides its CRD"
             )
 
-    services = {identity(doc)[1:]: doc for doc in rendered if doc["kind"] == "Service"}
+    services = {(doc["metadata"].get("namespace", key[0]), doc["metadata"]["name"]): doc
+                for doc, key in rendered_releases if doc["kind"] == "Service"}
     accounts = {identity(doc)[1:]: doc for doc in objects + rendered if doc["kind"] == "ServiceAccount"}
     for doc in objects:
         if doc["kind"] == "ClusterSecretStore":

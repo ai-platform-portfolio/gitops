@@ -65,4 +65,5 @@ spec:
     pg_hba:
     - hostnossl all all all reject
     - hostssl app app all scram-sha-256
+    - hostssl sonarqube sonarqube all scram-sha-256
     - host all all all reject

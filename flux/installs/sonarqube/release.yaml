@@ -1,0 +1,69 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: sonarqube
+  namespace: sonarqube
+spec:
+  interval: 10m
+  timeout: 30m
+  releaseName: sonarqube
+  install:
+    strategy:
+      name: RetryOnFailure
+  chart:
+    spec:
+      chart: sonarqube
+      version: 2026.5.1002
+      sourceRef:
+        kind: HelmRepository
+        name: sonarqube
+  values:
+    fullnameOverride: sonarqube
+    edition: developer
+    jdbcOverwrite:
+      enabled: true
+      jdbcUrl: jdbc:postgresql://platform-rw.postgres.svc.cluster.local:5432/sonarqube?sslmode=verify-full&sslrootcert=/etc/sonarqube-jdbc/ca.crt
+      jdbcUsername: sonarqube
+      jdbcSecretName: sonarqube-jdbc
+      jdbcSecretPasswordKey: jdbc-password
+    monitoringPasscodeSecretName: sonarqube-monitoring
+    monitoringPasscodeSecretKey: passcode
+    setAdminPassword:
+      passwordSecretName: sonarqube-admin
+    sonarProperties:
+      sonar.core.serverBaseURL: https://sonarqube.${DNS_ZONE}
+    extraVolumes:
+    - name: jdbc-ca
+      secret:
+        secretName: sonarqube-jdbc
+        items:
+        - key: ca.crt
+          path: ca.crt
+    extraVolumeMounts:
+    - name: jdbc-ca
+      mountPath: /etc/sonarqube-jdbc
+      readOnly: true
+  # Upstream's hook ignores HTTP errors. Make it idempotent after restore and
+  # fail installation if neither the retained password nor bootstrap login works.
+  postRenderers:
+  - kustomize:
+      patches:
+      - target:
+          kind: Job
+          name: sonarqube-change-admin-password-hook
+        patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/command
+            value:
+            - sh
+            - -ec
+            - |
+              url=http://sonarqube:9000
+              if curl -fsS -u "admin:$ADMIN_PASSWORD" "$url/api/authentication/validate" | grep -q '"valid":true'; then
+                exit 0
+              fi
+              curl -fsS -u "admin:$CURRENT_ADMIN_PASSWORD" -X POST "$url/api/users/change_password" \
+                --data-urlencode "login=admin" \
+                --data-urlencode "previousPassword=$CURRENT_ADMIN_PASSWORD" \
+                --data-urlencode "password=$ADMIN_PASSWORD"
+              curl -fsS -u "admin:$ADMIN_PASSWORD" "$url/api/authentication/validate" | grep -q '"valid":true'
