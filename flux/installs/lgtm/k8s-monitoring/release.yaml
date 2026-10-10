@@ -1,0 +1,67 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: k8s-monitoring
+  namespace: monitoring
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: k8s-monitoring
+      version: 4.5.3
+      sourceRef:
+        kind: HelmRepository
+        name: k8s-monitoring
+  values:
+    cluster:
+      name: localk8scluster
+    destinations:
+      mimir:
+        type: prometheus
+        url: http://mimir-gateway.lgtm.svc.cluster.local/api/v1/push
+      loki:
+        type: loki
+        url: http://loki-gateway.lgtm.svc.cluster.local/loki/api/v1/push
+      tempo:
+        type: otlp
+        url: http://tempo.lgtm.svc.cluster.local:4317
+        protocol: grpc
+        tls:
+          insecure: true
+        metrics:
+          enabled: false
+        logs:
+          enabled: false
+    clusterMetrics:
+      enabled: true
+      collector: telemetry
+    podLogsViaKubernetesApi:
+      enabled: true
+      collector: telemetry
+    applicationObservability:
+      enabled: true
+      collector: telemetry
+      receivers:
+        otlp:
+          grpc:
+            enabled: true
+          http:
+            enabled: true
+    collectors:
+      telemetry:
+        enabled: true
+        controller:
+          type: deployment
+    telemetryServices:
+      kube-state-metrics:
+        deploy: true
+  upgrade:
+    crds: CreateReplace
+  dependsOn:
+  - name: loki
+    namespace: lgtm
+  - name: mimir
+    namespace: lgtm
+  - name: tempo
+    namespace: lgtm
+  releaseName: k8s-monitoring

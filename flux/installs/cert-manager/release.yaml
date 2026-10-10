@@ -1,0 +1,23 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: cert-manager
+      version: v1.21.2
+      sourceRef:
+        kind: HelmRepository
+        name: cert-manager
+  values:
+    crds:
+      enabled: true
+    podLabels:
+      azure.workload.identity/use: 'true'
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: ${AZURE_DNS_CLIENT_ID}
+      name: cert-manager

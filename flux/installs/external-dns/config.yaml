@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: external-dns-azure
+  namespace: external-dns
+data:
+  azure.json: "{\n  \"tenantId\": \"${AZURE_TENANT_ID}\",\n  \"subscriptionId\": \"${AZURE_SUBSCRIPTION_ID}\",\n\
+    \  \"resourceGroup\": \"kubernetes\",\n  \"useWorkloadIdentityExtension\": true\n}\n"

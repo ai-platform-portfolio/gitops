@@ -1,0 +1,21 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-azuredns
+spec:
+  acme:
+    email: michaelalinks@gmail.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-azuredns-account
+    solvers:
+    - selector:
+        dnsZones:
+        - dev.michaelalinks.com
+      dns01:
+        azureDNS:
+          subscriptionID: ${AZURE_SUBSCRIPTION_ID}
+          resourceGroupName: kubernetes
+          hostedZoneName: dev.michaelalinks.com
+          managedIdentity:
+            clientID: ${AZURE_DNS_CLIENT_ID}

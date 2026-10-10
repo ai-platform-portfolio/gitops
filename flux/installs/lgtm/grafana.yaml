@@ -1,0 +1,63 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: lgtm
+spec:
+  interval: 10m
+  timeout: 15m
+  chart:
+    spec:
+      chart: grafana
+      version: 13.5.0
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-community
+  values:
+    persistence:
+      enabled: true
+    deploymentStrategy:
+      type: Recreate
+    envFromSecrets:
+    - name: grafana-azuread-app
+    grafana.ini:
+      server:
+        root_url: https://grafana.dev.michaelalinks.com
+      auth.azuread:
+        enabled: true
+        allowed_organizations: ${AZURE_TENANT_ID}
+        scopes: openid profile email User.Read
+        auth_url: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize
+        token_url: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token
+        allow_assign_grafana_admin: true
+        role_attribute_path: contains(roles[*], 'GrafanaAdmin') && 'GrafanaAdmin' || contains(roles[*], 'Admin')
+          && 'Admin' || contains(roles[*], 'Editor') && 'Editor' || 'Viewer'
+      auth.basic:
+        enabled: false
+      auth:
+        disable_login_form: true
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+        - name: Mimir
+          uid: mimir
+          type: prometheus
+          url: http://mimir-gateway.lgtm.svc.cluster.local/prometheus
+          isDefault: true
+        - name: Loki
+          uid: loki
+          type: loki
+          url: http://loki-gateway.lgtm.svc.cluster.local
+        - name: Tempo
+          uid: tempo
+          type: tempo
+          url: http://tempo.lgtm.svc.cluster.local:3200
+  releaseName: grafana
+  dependsOn:
+  - name: loki
+    namespace: lgtm
+  - name: mimir
+    namespace: lgtm
+  - name: tempo
+    namespace: lgtm

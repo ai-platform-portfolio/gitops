@@ -1,0 +1,51 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-dev
+  namespace: envoy-gateway-system
+spec:
+  secretName: wildcard-dev-tls
+  dnsNames:
+  - '*.dev.michaelalinks.com'
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-azuredns
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: envoy
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            dev.michaelalinks.com/gateway: public
+  - name: https
+    hostname: '*.dev.michaelalinks.com'
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: wildcard-dev-tls
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            dev.michaelalinks.com/gateway: public
