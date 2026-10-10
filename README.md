@@ -247,6 +247,20 @@ CI runs the same checks: Kustomize builds, chart lint/rendering, custom-resource
 schemas, dependency cycles, CRD prerequisites (including Helm dependency ordering) and HTTPRoute backend service/port.
 Validation downloads pinned charts and Flux schemas and does not contact AKS.
 
+## Linear issue check
+
+Pull requests call the pinned `ops-shared/linear-issue.yml` workflow. Every Linear
+issue ID in the source branch must resolve to an accessible issue in the connected
+workspace. Use Linear's copied branch name, such as `michaelalinks/ai-28-postgres`.
+The caller passes `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` from Actions secrets;
+the shared validator obtains a read-only OAuth token for each run. Missing issue
+IDs, inaccessible issues, missing credentials, and API errors fail the check.
+
+The `linear-issue-required` gate fails if validation fails or is skipped. Require
+that check in the default-branch merge rules to enforce it at merge time. Give this
+repository access to the organization's Linear Actions secrets. No broader shared
+engineering policy or lint workflow is enabled by this integration.
+
 ## Existing extension migration
 
 The replacement Terraform removes the managed extension and Azure Flux configuration.
