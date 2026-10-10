@@ -57,4 +57,6 @@ spec:
         create: false
     lokiCanary:
       enabled: false
+    test:
+      enabled: false
   releaseName: loki
