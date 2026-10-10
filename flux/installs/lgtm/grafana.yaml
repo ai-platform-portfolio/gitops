@@ -30,8 +30,9 @@ spec:
         auth_url: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize
         token_url: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token
         allow_assign_grafana_admin: true
-        role_attribute_path: contains(roles[*], 'GrafanaAdmin') && 'GrafanaAdmin' || contains(roles[*], 'Admin')
-          && 'Admin' || contains(roles[*], 'Editor') && 'Editor' || 'Viewer'
+        role_attribute_path: contains(roles[*], 'GrafanaAdmin') && 'GrafanaAdmin'
+          || contains(roles[*], 'Admin') && 'Admin' || contains(roles[*], 'Editor')
+          && 'Editor' || 'Viewer'
       auth.basic:
         enabled: false
       auth:
@@ -53,6 +54,9 @@ spec:
           uid: tempo
           type: tempo
           url: http://tempo.lgtm.svc.cluster.local:3200
+    serviceAccount:
+      create: false
+      name: lgtm
   releaseName: grafana
   dependsOn:
   - name: loki

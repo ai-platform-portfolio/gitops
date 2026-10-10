@@ -198,6 +198,18 @@ def validate(cache):
             )
 
     services = {identity(doc)[1:]: doc for doc in rendered if doc["kind"] == "Service"}
+    shared_account = next(doc for doc in objects if identity(doc) == ("ServiceAccount", "lgtm", "lgtm"))
+    assert shared_account["metadata"]["annotations"]["azure.workload.identity/client-id"] == SETTINGS["AZURE_STORAGE_CLIENT_ID"]
+    for name in ("grafana", "loki", "mimir", "tempo"):
+        account = releases[("lgtm", name)]["spec"]["values"]["serviceAccount"]
+        assert account == {"create": False, "name": "lgtm"}, f"{name} must reuse the shared LGTM account"
+        workloads = [doc for doc, key in rendered_releases if key == ("lgtm", name)
+                     and doc["kind"] in ("Deployment", "StatefulSet", "DaemonSet")]
+        assert workloads, f"No workloads rendered for {name}"
+        for workload in workloads:
+            template = workload["spec"]["template"]
+            if name == "grafana" or template["metadata"].get("labels", {}).get("azure.workload.identity/use") == "true":
+                assert template["spec"]["serviceAccountName"] == "lgtm", f"{identity(workload)} uses the wrong account"
     for doc in objects:
         if doc["kind"] == "HTTPRoute":
             for rule in doc["spec"]["rules"]:

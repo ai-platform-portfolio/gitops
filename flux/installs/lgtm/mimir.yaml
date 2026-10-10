@@ -18,9 +18,8 @@ spec:
       podLabels:
         azure.workload.identity/use: 'true'
     serviceAccount:
-      annotations:
-        azure.workload.identity/client-id: ${AZURE_STORAGE_CLIENT_ID}
-      name: mimir
+      create: false
+      name: lgtm
     minio:
       enabled: false
     kafka:

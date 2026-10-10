@@ -40,6 +40,11 @@ Grafana's `k8s-monitoring` chart configures its own Alloy collector for Kubernet
 metrics and pod logs. There is no separate Alloy release
 or copied collector configuration.
 
+Grafana, Loki, Mimir and Tempo reuse one `lgtm` service account. The configuration
+phase creates it before the charts start; Terraform creates its Azure storage
+identity and single federated credential before connecting Flux. No chart owns
+the shared account, so Grafana can still wait for its backends without a cycle.
+
 Loki and Tempo run as single replicas. Mimir uses its supported classic architecture
 with one ingester and no Kafka or MinIO. The remaining values configure Azure
 storage, service accounts, Grafana authentication and the minimum dev deployment.

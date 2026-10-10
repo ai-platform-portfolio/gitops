@@ -38,11 +38,12 @@ spec:
           accountName: ${AZURE_STORAGE_ACCOUNT}
           useFederatedToken: true
     serviceAccount:
-      annotations:
-        azure.workload.identity/client-id: ${AZURE_STORAGE_CLIENT_ID}
-      name: loki
+      create: false
+      name: lgtm
     singleBinary:
       replicas: 1
+      serviceAccount:
+        create: false
     chunksCache:
       enabled: false
     resultsCache:
@@ -53,4 +54,10 @@ spec:
       replicas: 0
     backend:
       replicas: 0
+    gateway:
+      serviceAccount:
+        create: false
+    lokiCanary:
+      serviceAccount:
+        create: false
   releaseName: loki
