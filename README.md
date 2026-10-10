@@ -123,6 +123,11 @@ The configured Key Vault must contain enabled `grafana-sso-client-id` and
 
 ## Cluster recreation
 
+Allow enough Azure vCPU quota for the node pool to scale. The live test on D4as_v4
+nodes exceeded two nodes' pod and disk capacity; a third node needs at least 12
+regional and DASv4-family vCPUs. Mimir and Langfuse retry transient installation
+failures, and Langfuse allows 15 minutes for its database startup.
+
 1. Merge the GitOps PR before applying the infrastructure PR, because Flux reads `main`.
 2. Delete only the old AKS cluster, preserving the shared resource group, its VNet,
    delegated Azure DNS zone and Key Vault. Keep the new Blob Storage account for
@@ -149,6 +154,15 @@ Terraform rather than being copied from the old manifests. The existing delegate
 DNS zone is referenced rather than recreated, so its name servers remain unchanged.
 ExternalDNS can manage records it owns; records belonging to the old deployment's
 TXT owner need deliberate cleanup if they conflict with the new hostname.
+
+For an in-place platform reset, pause reconciliation before deleting resources.
+Uninstall Langfuse before its ClickHouse operator, application releases before
+shared configuration, and configuration before its controllers. Wait for each
+deletion to finish before resuming the root. Suspended Kustomizations do not prune
+their inventory on deletion, so that inventory must be removed explicitly.
+In-flight Flux health checks can delay deletion until their timeout. Helm retains
+some CRDs; remove them only after their custom resources are gone. Deleting AKS
+itself removes its Kubernetes API and CRDs.
 
 ## Validation
 
