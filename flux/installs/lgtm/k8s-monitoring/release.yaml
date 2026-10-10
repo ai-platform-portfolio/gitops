@@ -22,31 +22,12 @@ spec:
       loki:
         type: loki
         url: http://loki-gateway.lgtm.svc.cluster.local/loki/api/v1/push
-      tempo:
-        type: otlp
-        url: http://tempo.lgtm.svc.cluster.local:4317
-        protocol: grpc
-        tls:
-          insecure: true
-        metrics:
-          enabled: false
-        logs:
-          enabled: false
     clusterMetrics:
       enabled: true
       collector: telemetry
     podLogsViaKubernetesApi:
       enabled: true
       collector: telemetry
-    applicationObservability:
-      enabled: true
-      collector: telemetry
-      receivers:
-        otlp:
-          grpc:
-            enabled: true
-          http:
-            enabled: true
     collectors:
       telemetry:
         enabled: true

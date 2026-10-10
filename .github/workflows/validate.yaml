@@ -20,4 +20,11 @@ jobs:
         with:
           version: v1.34.0
       - run: pip install -r scripts/requirements.txt
-      - run: python scripts/validate.py
+      - run: python scripts/validate.py --cache /tmp/gitops-validation
+      - name: Validate OpenTelemetry configuration
+        run: >-
+          docker run --rm
+          -e MY_POD_IP=127.0.0.1
+          -v /tmp/gitops-validation/otel-config.yaml:/etc/otelcol/config.yaml:ro
+          otel/opentelemetry-collector-contrib:0.161.0
+          validate --config=/etc/otelcol/config.yaml

@@ -29,12 +29,13 @@ def run(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
 
 
-def load(text):
+def load(text, substitute=True):
     def replace(match):
         assert match[1] in SETTINGS, f"Unknown bootstrap setting: {match[1]}"
         return SETTINGS[match[1]]
 
-    text = VARIABLE.sub(replace, text)
+    if substitute:
+        text = VARIABLE.sub(replace, text)
     return [doc for doc in yaml.safe_load_all(text) if doc]
 
 
@@ -44,7 +45,7 @@ def identity(doc):
 
 
 def check_graph(nodes, edges):
-    visiting, done = set(), set()
+    visiting, done, ordered = set(), set(), []
 
     def visit(node):
         assert node in nodes, f"Missing dependency: {node}"
@@ -56,9 +57,11 @@ def check_graph(nodes, edges):
             visit(dependency)
         visiting.remove(node)
         done.add(node)
+        ordered.append(node)
 
     for node in nodes:
         visit(node)
+    return ordered
 
 
 def validate(cache):
@@ -79,7 +82,7 @@ def validate(cache):
             objects.append(doc)
     repositories = {identity(doc)[1:]: doc for doc in objects if doc["kind"] == "HelmRepository"}
     releases = {identity(doc)[1:]: doc for doc in objects if doc["kind"] == "HelmRelease"}
-    check_graph(releases, lambda key: [
+    release_order = check_graph(releases, lambda key: [
         (dep.get("namespace", key[0]), dep["name"])
         for dep in releases[key]["spec"].get("dependsOn", [])
     ])
@@ -90,6 +93,7 @@ def validate(cache):
             "https://github.com/fluxcd/flux2/releases/download/v2.9.6/install.yaml", flux_schema
         )
     schemas, producers, rendered = {}, {}, []
+    crd_releases, rendered_releases = {}, []
 
     def register(docs, producer):
         for doc in docs:
@@ -102,7 +106,8 @@ def validate(cache):
                 producers[key] = producer
 
     register(load(flux_schema.read_text()), "bootstrap")
-    for key, release in releases.items():
+    for key in release_order:
+        release = releases[key]
         chart = release["spec"]["chart"]["spec"]
         ref = chart["sourceRef"]
         repo = repositories[(ref.get("namespace", key[0]), ref["name"])]
@@ -118,12 +123,24 @@ def validate(cache):
         assert actual.lstrip("v") == chart["version"].lstrip("v"), f"Wrong cached chart version: {key}"
         values = cache / (key[1] + "-values.yaml")
         values.write_text(yaml.safe_dump(release["spec"].get("values", {})))
-        run("helm", "lint", str(path), "-f", str(values), "--kube-version", "1.34.0")
+        lint_args = ["--set", "clickhouse.crdCheck=false"] if chart["chart"] == "langfuse" else []
+        run("helm", "lint", str(path), "-f", str(values), "--kube-version", "1.34.0", *lint_args)
+        capabilities = [arg for api, kind in schemas for arg in ("--api-versions", api + "/" + kind)]
         docs = load(run(
             "helm", "template", release["spec"].get("releaseName", "-".join(key)), str(path),
-            "--namespace", key[0], "--include-crds", "--kube-version", "1.34.0", "-f", str(values)
-        ))
+            "--namespace", key[0], "--include-crds", "--kube-version", "1.34.0", "-f", str(values), *capabilities
+        ), substitute=False)
         register(docs, owners[("HelmRelease", *key)])
+        if chart["chart"] == "opentelemetry-collector":
+            config = next(doc["data"]["relay"] for doc in docs
+                          if doc["kind"] == "ConfigMap" and "relay" in doc.get("data", {}))
+            (cache / "otel-config.yaml").write_text(config)
+        for doc in docs:
+            if doc["kind"] == "CustomResourceDefinition":
+                for version in doc["spec"]["versions"]:
+                    crd_releases[(doc["spec"]["group"] + "/" + version["name"],
+                                  doc["spec"]["names"]["kind"])] = key
+        rendered_releases.extend((doc, key) for doc in docs)
         rendered.extend(docs)
 
     def ancestors(name):
@@ -150,6 +167,23 @@ def validate(cache):
         if doc["kind"] == "ConfigMap" and "azure.json" in doc.get("data", {}):
             assert json.loads(doc["data"]["azure.json"])["useWorkloadIdentityExtension"] is True
 
+    def release_ancestors(key):
+        result = set()
+        for dep in releases[key]["spec"].get("dependsOn", []):
+            dependency = (dep.get("namespace", key[0]), dep["name"])
+            result.add(dependency)
+            result.update(release_ancestors(dependency))
+        return result
+
+    for doc, release_key in rendered_releases:
+        producer = crd_releases.get((doc["apiVersion"], doc["kind"]))
+        if producer and producer != release_key:
+            phase = owners[("HelmRelease", *release_key)]
+            producer_phase = owners[("HelmRelease", *producer)]
+            assert producer in release_ancestors(release_key) or producer_phase in ancestors(phase), (
+                f"{release_key} can install {doc['kind']} before {producer} provides its CRD"
+            )
+
     services = {identity(doc)[1:]: doc for doc in rendered if doc["kind"] == "Service"}
     for doc in objects:
         if doc["kind"] == "HTTPRoute":
@@ -157,7 +191,7 @@ def validate(cache):
                 for backend in rule.get("backendRefs", []):
                     service = services[(doc["metadata"]["namespace"], backend["name"])]
                     assert backend["port"] in [port["port"] for port in service["spec"]["ports"]]
-    print(f"Validated {len(phases)} Flux phases, {len(releases)} charts, CRD ordering and Grafana routing.")
+    print(f"Validated {len(phases)} Flux phases, {len(releases)} charts, CRD ordering and HTTP routing.")
 
 
 if __name__ == "__main__":

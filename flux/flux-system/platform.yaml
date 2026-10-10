@@ -93,14 +93,16 @@ spec:
   healthCheckExprs:
   - apiVersion: gateway.networking.k8s.io/v1
     kind: Gateway
-    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Programmed' && c.status == 'True'
-      && c.observedGeneration == metadata.generation)
+    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Programmed'
+      && c.status == 'True' && c.observedGeneration == metadata.generation)
   - apiVersion: external-secrets.io/v1
     kind: ClusterSecretStore
-    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Ready'
+      && c.status == 'True')
   - apiVersion: external-secrets.io/v1
     kind: ExternalSecret
-    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Ready'
+      && c.status == 'True')
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -125,6 +127,48 @@ spec:
   healthCheckExprs:
   - apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
-    current: has(status.parents) && status.parents.exists(p, has(p.conditions) && p.conditions.exists(c, c.type
-      == 'Accepted' && c.status == 'True' && c.observedGeneration == metadata.generation) && p.conditions.exists(c,
-      c.type == 'ResolvedRefs' && c.status == 'True' && c.observedGeneration == metadata.generation))
+    current: has(status.parents) && status.parents.exists(p, has(p.conditions) &&
+      p.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' && c.observedGeneration
+      == metadata.generation) && p.conditions.exists(c, c.type == 'ResolvedRefs' &&
+      c.status == 'True' && c.observedGeneration == metadata.generation))
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: opentelemetry
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 20m
+  path: ./flux/installs/opentelemetry
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: lgtm
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: langfuse
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 20m
+  path: ./flux/installs/langfuse
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: configuration
+  healthCheckExprs:
+  - apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    current: has(status.parents) && status.parents.exists(p, has(p.conditions) &&
+      p.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' && c.observedGeneration
+      == metadata.generation) && p.conditions.exists(c, c.type == 'ResolvedRefs' &&
+      c.status == 'True' && c.observedGeneration == metadata.generation))
