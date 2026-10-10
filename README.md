@@ -95,8 +95,8 @@ Terraform passes non-secret deployment values through `post_build.substitute` in
 
 Terraform automatically reads `terraform.tfvars` from the infrastructure working
 directory when you run `terraform plan` or `terraform apply`. Start with the
-committed `terraform.tfvars.example` and fill in your actual deployment values;
-the real file is ignored by Git. The generated identity client ID, storage account
+populated `terraform.tfvars` committed in the private infrastructure repo.
+`terraform.tfvars.example` is available as a template for other deployments. The generated identity client ID, storage account
 name and Key Vault URL are taken from Terraform resources and data sources.
 
 The input flow is:
