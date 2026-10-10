@@ -30,8 +30,6 @@ spec:
     monitoringPasscodeSecretKey: passcode
     setAdminPassword:
       passwordSecretName: sonarqube-admin
-    sonarProperties:
-      sonar.core.serverBaseURL: https://sonarqube.${DNS_ZONE}
     extraVolumes:
     - name: jdbc-ca
       secret:
@@ -59,11 +57,13 @@ spec:
             - -ec
             - |
               url=http://sonarqube:9000
-              if curl -fsS -u "admin:$ADMIN_PASSWORD" "$url/api/authentication/validate" | grep -q '"valid":true'; then
-                exit 0
-              fi
-              curl -fsS -u "admin:$CURRENT_ADMIN_PASSWORD" -X POST "$url/api/users/change_password" \
+              if ! curl -fsS -u "admin:$ADMIN_PASSWORD" "$url/api/authentication/validate" | grep -q '"valid":true'; then
+                curl -fsS -u "admin:$CURRENT_ADMIN_PASSWORD" -X POST "$url/api/users/change_password" \
                 --data-urlencode "login=admin" \
                 --data-urlencode "previousPassword=$CURRENT_ADMIN_PASSWORD" \
                 --data-urlencode "password=$ADMIN_PASSWORD"
+              fi
               curl -fsS -u "admin:$ADMIN_PASSWORD" "$url/api/authentication/validate" | grep -q '"valid":true'
+              curl -fsS -u "admin:$ADMIN_PASSWORD" -X POST "$url/api/settings/set" \
+                --data-urlencode "key=sonar.core.serverBaseURL" \
+                --data-urlencode "value=https://sonarqube.${DNS_ZONE}"

@@ -2,9 +2,9 @@
 
 Official stable chart `2026.5.1002` installs SonarQube Server `2026.5.2` with
 `edition: developer`. The chart selects the matching image. Values override only
-service naming, JDBC/TLS, existing secrets, the public server URL and the CA mount.
+service naming, JDBC/TLS, existing secrets, the CA mount.
 The password hook is patched to fail on HTTP errors and accept the retained admin
-password after restore. Other chart values use upstream defaults.
+password after restore and sets the public server URL through the settings API. Other chart values use upstream defaults.
 
 ## Licensing and access
 
