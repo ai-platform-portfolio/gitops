@@ -22,7 +22,7 @@ spec:
     - name: grafana-azuread-app
     grafana.ini:
       server:
-        root_url: https://grafana.dev.michaelalinks.com
+        root_url: https://grafana.${DNS_ZONE}
       auth.azuread:
         enabled: true
         allowed_organizations: ${AZURE_TENANT_ID}

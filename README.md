@@ -28,10 +28,10 @@ It waits for the store, secret, certificate and Gateway before starting LGTM.
 Keeping custom resources behind their controllers prevents an empty cluster from
 failing Flux's dry-run validation before the CRDs have been installed.
 
-ExternalDNS reads Gateway HTTPRoutes and manages only `dev.michaelalinks.com`, with
-TXT ownership `aks-dev`. Grafana is exposed at `https://grafana.dev.michaelalinks.com`;
+ExternalDNS reads Gateway HTTPRoutes and manages only `${DNS_ZONE}`, with
+TXT ownership `aks-dev`. Grafana is exposed at `https://grafana.${DNS_ZONE}`;
 HTTP redirects to HTTPS. Other namespaces can use the shared Gateway by adding
-the label `dev.michaelalinks.com/gateway: public`.
+the label `gitops.platform/gateway: public`.
 
 ## Observability
 
@@ -58,7 +58,7 @@ to retain changes made through the UI. The previous cluster's data is not migrat
 ## Langfuse
 
 The [official Langfuse chart](https://langfuse.com/self-hosting/deployment/kubernetes-helm)
-serves `https://langfuse.dev.michaelalinks.com` through the shared TLS Gateway.
+serves `https://langfuse.${DNS_ZONE}` through the shared TLS Gateway.
 It includes PostgreSQL, Valkey, SeaweedFS, ClickHouse and a single Keeper replica
 for this dev cluster. The ClickHouse operator and Langfuse share one Flux phase;
 Langfuse's HelmRelease waits for the operator, while the phase waits for cert-manager
@@ -74,25 +74,29 @@ cluster deletion if you want to retain projects, traces and accounts.
 
 The Terraform Flux configuration must use name and namespace `flux-system`, Git
 repository `https://github.com/ai-platform-portfolio/gitops.git`, branch `main`,
-and path `./flux`. Its root Kustomization uses `wait = false`; child Kustomizations
+and path `./flux`. Deployment values come from Terraform inputs in the personal
+infrastructure repo; no Azure account IDs, resource names, domain or email are
+committed here. Its root Kustomization uses `wait = false`; child Kustomizations
 perform the readiness checks.
 
-Terraform passes six non-secret values through `post_build.substitute` into
+Terraform passes non-secret deployment values through `post_build.substitute` into
 `flux/flux-system/cluster-settings.yaml`:
 
 - `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`
 - `AZURE_DNS_CLIENT_ID` for ExternalDNS and cert-manager
 - `AZURE_KEY_VAULT_CLIENT_ID` for External Secrets
 - `AZURE_STORAGE_CLIENT_ID` and `AZURE_STORAGE_ACCOUNT` for LGTM
+- `AZURE_KEY_VAULT_URI` and `AZURE_DNS_RESOURCE_GROUP` for shared Azure resources
+- `DNS_ZONE`, `ACME_EMAIL` and `CLUSTER_NAME` for domain, certificates and monitoring
 
-The Key Vault `localdevenv` must contain enabled `grafana-sso-client-id` and
+The configured Key Vault must contain enabled `grafana-sso-client-id` and
 `grafana-sso-client-secret` secrets. The existing Entra application needs the callback
-`https://grafana.dev.michaelalinks.com/login/azuread`.
+`https://grafana.${DNS_ZONE}/login/azuread`.
 
 ## Cluster recreation
 
 1. Merge the GitOps PR before applying the infrastructure PR, because Flux reads `main`.
-2. Delete only the old AKS cluster, preserving resource group `kubernetes`, its VNet,
+2. Delete only the old AKS cluster, preserving the shared resource group, its VNet,
    delegated Azure DNS zone and Key Vault. Keep the new Blob Storage account for
    subsequent rebuilds. Review the old Terraform state before retiring its cluster
    resources so it cannot later recreate or manage the replacement cluster.

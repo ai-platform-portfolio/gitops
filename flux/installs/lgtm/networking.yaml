@@ -5,7 +5,7 @@ metadata:
   namespace: lgtm
 spec:
   hostnames:
-  - grafana.dev.michaelalinks.com
+  - grafana.${DNS_ZONE}
   parentRefs:
   - name: public
     namespace: envoy-gateway-system
@@ -22,7 +22,7 @@ metadata:
   namespace: lgtm
 spec:
   hostnames:
-  - grafana.dev.michaelalinks.com
+  - grafana.${DNS_ZONE}
   parentRefs:
   - name: public
     namespace: envoy-gateway-system

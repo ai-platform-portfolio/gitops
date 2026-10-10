@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: langfuse
   labels:
-    dev.michaelalinks.com/gateway: public
+    gitops.platform/gateway: public

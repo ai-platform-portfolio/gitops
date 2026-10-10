@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: lgtm
   labels:
-    dev.michaelalinks.com/gateway: public
+    gitops.platform/gateway: public

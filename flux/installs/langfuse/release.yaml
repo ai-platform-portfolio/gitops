@@ -16,7 +16,7 @@ spec:
   values:
     langfuse:
       nextauth:
-        url: https://langfuse.dev.michaelalinks.com
+        url: https://langfuse.${DNS_ZONE}
     clickhouse:
       keeper:
         replicas: 1

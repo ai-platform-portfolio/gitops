@@ -14,7 +14,7 @@ spec:
         name: k8s-monitoring
   values:
     cluster:
-      name: localk8scluster
+      name: ${CLUSTER_NAME}
     destinations:
       mimir:
         type: prometheus

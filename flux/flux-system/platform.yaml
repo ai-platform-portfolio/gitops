@@ -172,3 +172,7 @@ spec:
       p.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' && c.observedGeneration
       == metadata.generation) && p.conditions.exists(c, c.type == 'ResolvedRefs' &&
       c.status == 'True' && c.observedGeneration == metadata.generation))
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings

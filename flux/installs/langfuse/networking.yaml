@@ -5,7 +5,7 @@ metadata:
   namespace: langfuse
 spec:
   hostnames:
-  - langfuse.dev.michaelalinks.com
+  - langfuse.${DNS_ZONE}
   parentRefs:
   - name: public
     namespace: envoy-gateway-system
@@ -22,7 +22,7 @@ metadata:
   namespace: langfuse
 spec:
   hostnames:
-  - langfuse.dev.michaelalinks.com
+  - langfuse.${DNS_ZONE}
   parentRefs:
   - name: public
     namespace: envoy-gateway-system

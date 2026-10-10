@@ -22,6 +22,11 @@ SETTINGS = {
     "AZURE_KEY_VAULT_CLIENT_ID": GUID,
     "AZURE_STORAGE_CLIENT_ID": GUID,
     "AZURE_STORAGE_ACCOUNT": "gitopsvalidation",
+    "AZURE_KEY_VAULT_URI": "https://example-vault.vault.azure.net/",
+    "AZURE_DNS_RESOURCE_GROUP": "example-resource-group",
+    "DNS_ZONE": "dev.example.com",
+    "ACME_EMAIL": "ops@example.com",
+    "CLUSTER_NAME": "example-aks",
 }
 
 
@@ -70,12 +75,20 @@ def validate(cache):
     for path in (ROOT / "flux").rglob("*.yaml"):
         load(path.read_text())
     root = load(run("kubectl", "kustomize", str(ROOT / "flux")))
+    settings = next(doc for doc in root if doc["kind"] == "ConfigMap"
+                    and doc["metadata"]["name"] == "cluster-settings")
+    assert set(settings["data"]) == set(SETTINGS), "Bootstrap settings and validation inputs differ"
     phases = {doc["metadata"]["name"]: doc for doc in root if doc["kind"] == "Kustomization"}
     check_graph(phases, lambda name: [dep["name"] for dep in phases[name]["spec"].get("dependsOn", [])])
 
     objects, owners = [], {}
     for name, phase in phases.items():
-        for doc in load(run("kubectl", "kustomize", str(ROOT / phase["spec"]["path"]))):
+        manifest = run("kubectl", "kustomize", str(ROOT / phase["spec"]["path"]))
+        if VARIABLE.search(manifest):
+            refs = phase["spec"].get("postBuild", {}).get("substituteFrom", [])
+            assert any(ref["kind"] == "ConfigMap" and ref["name"] == "cluster-settings"
+                       for ref in refs), f"{name} uses parameters without cluster-settings substitution"
+        for doc in load(manifest):
             key = identity(doc)
             assert key not in owners, f"{key} is owned by both {owners.get(key)} and {name}"
             owners[key] = name
