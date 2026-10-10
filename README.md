@@ -167,10 +167,31 @@ For an in-place platform reset, pause reconciliation before deleting resources.
 Uninstall Langfuse before its ClickHouse operator, application releases before
 shared configuration, and configuration before its controllers. Wait for each
 deletion to finish before resuming the root. Suspended Kustomizations do not prune
-their inventory on deletion, so that inventory must be removed explicitly.
+their inventory on deletion. If an application phase is suspended, request its
+deletion before clearing suspension to permit pruning; resuming it first can
+recreate the resources just uninstalled. Pause Flux Instance reconciliation too
+(`fluxcd.controlplane.io/reconcile: disabled`) during a platform reset, then resume
+it and the root after cleanup.
 In-flight Flux health checks can delay deletion until their timeout. Helm retains
 some CRDs; remove them only after their custom resources are gone. Deleting AKS
 itself removes its Kubernetes API and CRDs.
+
+## Live lifecycle test
+
+On 10 October 2026, all twelve platform Helm releases and nine Flux Kustomizations
+reached Ready before and after an in-place platform deletion. Grafana and Langfuse
+HTTPS health checks passed, Mimir returned collected metrics, Loki returned fresh
+pod logs, and a trace sent through OpenTelemetry was read back from Tempo.
+
+Deletion removed platform namespaces, releases, custom resources and persistent
+volumes. Thirty-four chart-retained CRDs were removed normally after checking they
+were empty. AKS, Flux bootstrap and Azure Blob storage remained in place.
+
+This run required Helm and Kustomize controller restarts after a test-ordering race
+briefly recreated application releases during teardown. The reset instructions
+above were corrected; an uninterrupted full cycle using that correction has not
+yet been verified. Reinstallation completed without manual workload fixes; Mimir's
+initial gossip startup failure recovered through its configured automatic retry.
 
 ## Validation
 
@@ -193,4 +214,4 @@ For an existing cluster, do not apply their deletion alongside the new Helm rele
 first disable the old root's pruning and suspend reconciliation, then remove the
 Azure Flux configuration and extension before installing Flux Operator. Review
 retained controller resources for Helm ownership conflicts during that handover.
-The current live cluster has not been migrated. A fresh cluster needs no handover.
+A fresh cluster needs no handover.
