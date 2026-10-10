@@ -42,6 +42,10 @@ POSTGRES_SETTINGS = {
     "POSTGRES_RECOVERY_SERVER": "unused",
     "POSTGRES_BOOTSTRAP": '{"initdb": {"database": "app", "owner": "app"}}',
 }
+SONAR_SETTINGS = {
+    "SONAR_SAML_APPLICATION_ID": "api://" + GUID,
+    "SONAR_SAML_CERTIFICATE": "validation-public-certificate",
+}
 
 
 def run(*args):
@@ -50,7 +54,7 @@ def run(*args):
 
 def load(text, substitute=True):
     def replace(match):
-        values = SETTINGS | POSTGRES_SETTINGS
+        values = SETTINGS | POSTGRES_SETTINGS | SONAR_SETTINGS
         assert match[1] in values, f"Unknown bootstrap setting: {match[1]}"
         return values[match[1]]
 
@@ -105,6 +109,9 @@ def validate(cache):
             expected = "postgres-settings" if name == "postgres" else "cluster-settings"
             assert any(ref["kind"] == "ConfigMap" and ref["name"] == expected
                        for ref in refs), f"{name} uses parameters without {expected} substitution"
+            if name == "sonarqube":
+                assert any(ref["kind"] == "ConfigMap" and ref["name"] == "sonarqube-sso"
+                           for ref in refs), "SonarQube requires Terraform SAML metadata"
         for doc in load(manifest):
             key = identity(doc)
             assert key not in owners, f"{key} is owned by both {owners.get(key)} and {name}"
@@ -225,7 +232,18 @@ def validate(cache):
                 f"{release_key} can install {doc['kind']} before {producer} provides its CRD"
             )
 
-    services = {identity(doc)[1:]: doc for doc in rendered if doc["kind"] == "Service"}
+    services = {(doc["metadata"].get("namespace", key[0]), doc["metadata"]["name"]): doc
+                for doc, key in rendered_releases if doc["kind"] == "Service"}
+    sonar = next(doc for doc, key in rendered_releases
+                 if key == ("sonarqube", "sonarqube") and doc["kind"] in ("StatefulSet", "Deployment"))
+    labels = sonar["spec"]["template"]["metadata"]["labels"]
+    postgres_policy = next(doc for doc in objects if identity(doc) ==
+                           ("NetworkPolicy", "postgres", "postgres-internal"))
+    sonar_client = next(client for rule in postgres_policy["spec"]["ingress"]
+                        for client in rule.get("from", []) if client.get("namespaceSelector", {})
+                        .get("matchLabels", {}).get("kubernetes.io/metadata.name") == "sonarqube")
+    assert all(labels.get(key) == value for key, value in
+               sonar_client["podSelector"]["matchLabels"].items()), "PostgreSQL policy blocks Sonar pods"
     accounts = {identity(doc)[1:]: doc for doc in objects + rendered if doc["kind"] == "ServiceAccount"}
     for doc in objects:
         if doc["kind"] == "ClusterSecretStore":

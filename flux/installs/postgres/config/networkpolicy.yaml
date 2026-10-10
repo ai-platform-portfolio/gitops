@@ -7,6 +7,18 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
   ingress:
+  # SonarQube owns a JDBC connection pool; connect directly to the primary service.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: sonarqube
+      podSelector:
+        matchLabels:
+          app: sonarqube
+          release: sonarqube
+    ports:
+    - protocol: TCP
+      port: 5432
   - from:
     - podSelector:
         matchLabels:

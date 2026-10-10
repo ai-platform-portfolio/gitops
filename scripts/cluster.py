@@ -10,13 +10,15 @@ from pathlib import Path
 
 try:
     from .postgres import Postgres
+    from .sonarqube import SonarQube
 except ImportError:
     from postgres import Postgres
+    from sonarqube import SonarQube
 
 
 EXPECTED_PHASES = {"flux-system", "envoy-gateway", "external-secrets", "cert-manager",
                    "external-dns", "configuration", "lgtm", "opentelemetry", "langfuse",
-                   "postgres-operator", "postgres"}
+                   "postgres-operator", "postgres", "sonarqube"}
 EXPECTED_RELEASES = {
     ("envoy-gateway-system", "envoy-gateway"), ("external-secrets", "external-secrets"),
     ("cert-manager", "cert-manager"), ("external-dns", "external-dns"),
@@ -24,6 +26,7 @@ EXPECTED_RELEASES = {
     ("monitoring", "k8s-monitoring"), ("opentelemetry", "opentelemetry"),
     ("langfuse", "clickhouse-operator"), ("langfuse", "langfuse"),
     ("cnpg-system", "cloudnative-pg"), ("cnpg-system", "plugin-barman-cloud"),
+    ("sonarqube", "sonarqube"),
 }
 
 
@@ -125,7 +128,8 @@ class Cluster:
             return (EXPECTED_PHASES <= phase_names and EXPECTED_RELEASES <= release_names
                     and healthy(phases) and healthy(releases))
 
-        wait_for(reconciled, "Waiting for all eleven Flux phases and fourteen Helm releases", timeout=3600)
+        wait_for(reconciled, f"Waiting for all {len(EXPECTED_PHASES)} Flux phases and "
+                 f"{len(EXPECTED_RELEASES)} Helm releases", timeout=3600)
         print("GitOps is Ready.", flush=True)
 
     def cleanup(self):
@@ -138,6 +142,8 @@ class Cluster:
                 "--type=merge", "-p", '{"spec":{"suspend":true}}')
 
         # Keep the ClickHouse operator alive until database finalizers finish.
+        self.delete("helmreleases", ["sonarqube"], "sonarqube")
+        self.delete("namespaces", ["sonarqube"])
         self.delete("helmreleases", ["langfuse"], "langfuse")
         self.delete("clickhouseclusters", ["langfuse"], "langfuse")
         self.delete("keeperclusters", ["langfuse"], "langfuse")
@@ -212,6 +218,7 @@ def main():
             postgres.preflight()
             postgres.prepare()
             postgres.resume()
+            SonarQube(cluster, postgres, run, wait_for).prepare()
             cluster.ready()
             postgres.backup()
         else:

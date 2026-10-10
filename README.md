@@ -30,9 +30,14 @@ Install Terraform, Azure CLI, kubectl, kubelogin and Python 3. The commands use 
 temporary kubeconfig and leave your normal kubectl context alone. Override the
 checkout location with `make up INFRA_DIR="/path/to/portfolio-infra"` (or `down`).
 
+SonarQube Server Developer Edition also uses the retained PostgreSQL backup and
+credential storage. See [Sonar installation and licence activation](flux/installs/sonarqube/README.md).
+Its paid analysis requires a separate Sonar licence; the hosted Gitar Pro trial
+is a separate evaluation, with self-hosted Gitar available through Enterprise.
+
 ## Reconciliation
 
-`flux/flux-system/platform.yaml` contains ten child phases:
+`flux/flux-system/platform.yaml` contains eleven child phases:
 
 ```mermaid
 flowchart LR
