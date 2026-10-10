@@ -4,6 +4,31 @@ Minimal Flux installs for the Azure dev cluster. Terraform is maintained separat
 [michaelalinks/portfolio-infra](https://github.com/michaelalinks/portfolio-infra), in `main.tf`.
 Terraform installs Flux Operator and Flux Instance Helm charts, matching the GKE bootstrap.
 
+## Spin up and tear down
+
+From this repo, with the private `portfolio-infra` checkout at `../../portfolio-infra`:
+
+```sh
+az login
+make up
+make down
+```
+
+`make up` initializes/applies Terraform and waits for all platform phases and Helm
+releases to become Ready. Flux deploys the committed Git branch configured by
+Terraform; local unpushed manifest edits are not deployed. `make plan` previews the
+infrastructure changes. Terraform must include the companion PR's lifecycle switches.
+
+`make down` suspends reconciliation, uninstalls applications before their operators,
+removes Gateway/DNS configuration, then uses two Terraform applies to remove Flux
+before AKS. Shared Azure resources, the single MI and Blob storage are retained.
+Cluster-local PVC data and generated application secrets are deleted. Both commands
+apply Terraform automatically; state stays in the private infra checkout.
+
+Install Terraform, Azure CLI, kubectl, kubelogin and Python 3. The commands use a
+temporary kubeconfig and leave your normal kubectl context alone. Override the
+checkout location with `make up INFRA_DIR="/path/to/portfolio-infra"` (or `down`).
+
 ## Reconciliation
 
 `flux/flux-system/platform.yaml` contains seven packages and one configuration phase:
