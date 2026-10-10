@@ -227,6 +227,16 @@ def validate(cache):
 
     services = {(doc["metadata"].get("namespace", key[0]), doc["metadata"]["name"]): doc
                 for doc, key in rendered_releases if doc["kind"] == "Service"}
+    sonar = next(doc for doc, key in rendered_releases
+                 if key == ("sonarqube", "sonarqube") and doc["kind"] in ("StatefulSet", "Deployment"))
+    labels = sonar["spec"]["template"]["metadata"]["labels"]
+    postgres_policy = next(doc for doc in objects if identity(doc) ==
+                           ("NetworkPolicy", "postgres", "postgres-internal"))
+    sonar_client = next(client for rule in postgres_policy["spec"]["ingress"]
+                        for client in rule.get("from", []) if client.get("namespaceSelector", {})
+                        .get("matchLabels", {}).get("kubernetes.io/metadata.name") == "sonarqube")
+    assert all(labels.get(key) == value for key, value in
+               sonar_client["podSelector"]["matchLabels"].items()), "PostgreSQL policy blocks Sonar pods"
     accounts = {identity(doc)[1:]: doc for doc in objects + rendered if doc["kind"] == "ServiceAccount"}
     for doc in objects:
         if doc["kind"] == "ClusterSecretStore":
