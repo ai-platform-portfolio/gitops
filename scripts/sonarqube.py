@@ -16,6 +16,15 @@ from pathlib import Path
 CREDENTIALS = "lifecycle/sonarqube.json"
 
 
+def admin_password():
+    # Sonar's password policy requires all four character categories.
+    while True:
+        value = secrets.token_urlsafe(32)
+        if (any(c.isupper() for c in value) and any(c.islower() for c in value)
+                and any(c.isdigit() for c in value) and any(c in "_-" for c in value)):
+            return value
+
+
 def validate_credentials(value):
     if not isinstance(value, dict) or value.get("version") != 1:
         raise ValueError("Unsupported SonarQube credential record")
@@ -41,6 +50,7 @@ class SonarQube:
                                    "restore lifecycle/sonarqube.json before continuing")
             value = {"version": 1, **{key: secrets.token_urlsafe(32) for key in
                      ("jdbc-password", "admin-password", "monitoring-passcode")}}
+            value["admin-password"] = admin_password()
             path.touch(mode=0o600)
             path.write_text(json.dumps(value))
             self.run("az", "storage", "blob", "upload", *self.postgres.storage,

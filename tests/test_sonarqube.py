@@ -1,10 +1,21 @@
 import unittest
 from unittest.mock import Mock
 
-from scripts.sonarqube import SonarQube, validate_credentials
+from scripts.sonarqube import SonarQube, admin_password, validate_credentials
 
 
 class SonarCredentialsTests(unittest.TestCase):
+    def test_admin_password_retries_until_policy_is_met(self):
+        from unittest.mock import patch
+        with patch('scripts.sonarqube.secrets.token_urlsafe', side_effect=[
+                'a' * 43, 'A' * 41 + '1_']):
+            # The second candidate still lacks lowercase.
+            with self.assertRaises(StopIteration):
+                admin_password()
+        with patch('scripts.sonarqube.secrets.token_urlsafe', side_effect=[
+                'a' * 43, 'Aa1_' + 'a' * 39]):
+            self.assertEqual(admin_password(), 'Aa1_' + 'a' * 39)
+
     def test_existing_database_without_credentials_fails_closed(self):
         postgres = Mock()
         postgres.exists.return_value = False
