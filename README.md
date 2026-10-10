@@ -22,7 +22,8 @@ flowchart LR
   F --> LF[Langfuse]
 ```
 
-Controllers reconcile first. Configuration then creates the Azure Key Vault store,
+Controllers reconcile first. External Secrets reuses its chart-created `eso-akv-wi`
+controller account for the Key Vault store. Configuration then creates that store,
 Grafana SSO secret, Let's Encrypt issuer, wildcard certificate and public Gateway.
 It waits for the store, secret, certificate and Gateway before starting LGTM.
 Keeping custom resources behind their controllers prevents an empty cluster from

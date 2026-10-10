@@ -27,6 +27,10 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

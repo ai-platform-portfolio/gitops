@@ -26,7 +26,6 @@ spec:
       auth.azuread:
         enabled: true
         allowed_organizations: ${AZURE_TENANT_ID}
-        scopes: openid profile email User.Read
         auth_url: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize
         token_url: https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token
         allow_assign_grafana_admin: true
@@ -42,16 +41,13 @@ spec:
         apiVersion: 1
         datasources:
         - name: Mimir
-          uid: mimir
           type: prometheus
           url: http://mimir-gateway.lgtm.svc.cluster.local/prometheus
           isDefault: true
         - name: Loki
-          uid: loki
           type: loki
           url: http://loki-gateway.lgtm.svc.cluster.local
         - name: Tempo
-          uid: tempo
           type: tempo
           url: http://tempo.lgtm.svc.cluster.local:3200
     serviceAccount:

@@ -42,8 +42,6 @@ spec:
       name: lgtm
     singleBinary:
       replicas: 1
-      serviceAccount:
-        create: false
     chunksCache:
       enabled: false
     resultsCache:

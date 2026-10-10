@@ -40,7 +40,6 @@ spec:
     protocol: HTTPS
     port: 443
     tls:
-      mode: Terminate
       certificateRefs:
       - name: wildcard-dev-tls
     allowedRoutes:

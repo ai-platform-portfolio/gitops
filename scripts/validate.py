@@ -196,6 +196,14 @@ def validate(cache):
             )
 
     services = {identity(doc)[1:]: doc for doc in rendered if doc["kind"] == "Service"}
+    accounts = {identity(doc)[1:]: doc for doc in objects + rendered if doc["kind"] == "ServiceAccount"}
+    for doc in objects:
+        if doc["kind"] == "ClusterSecretStore":
+            azure = doc["spec"]["provider"].get("azurekv")
+            if azure and azure.get("authType") == "WorkloadIdentity":
+                ref = azure["serviceAccountRef"]
+                account = accounts[(ref["namespace"], ref["name"])]
+                assert account["metadata"]["annotations"]["azure.workload.identity/client-id"] == SETTINGS["AZURE_CLIENT_ID"]
     shared_account = next(doc for doc in objects if identity(doc) == ("ServiceAccount", "lgtm", "lgtm"))
     assert shared_account["metadata"]["annotations"]["azure.workload.identity/client-id"] == SETTINGS["AZURE_CLIENT_ID"]
     for name in ("grafana", "loki", "mimir", "tempo"):

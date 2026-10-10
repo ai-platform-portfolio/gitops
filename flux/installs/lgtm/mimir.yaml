@@ -43,11 +43,9 @@ spec:
           azure:
             container_name: mimir-blocks
         ruler_storage:
-          backend: azure
           azure:
             container_name: mimir-ruler
         alertmanager_storage:
-          backend: azure
           azure:
             container_name: mimir-alertmanager
     ingester:
@@ -58,10 +56,6 @@ spec:
       zoneAwareReplication:
         enabled: false
     querier:
-      replicas: 1
-    query_frontend:
-      replicas: 1
-    overrides_exporter:
       replicas: 1
     query_scheduler:
       replicas: 1

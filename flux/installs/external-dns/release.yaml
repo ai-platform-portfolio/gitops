@@ -37,4 +37,3 @@ spec:
     extraVolumeMounts:
     - name: azure-config
       mountPath: /etc/kubernetes
-      readOnly: true

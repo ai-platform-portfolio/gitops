@@ -19,28 +19,8 @@ spec:
       repository: otel/opentelemetry-collector-contrib
     command:
       name: otelcol-contrib
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        memory: 512Mi
-    ports:
-      jaeger-compact:
-        enabled: false
-      jaeger-thrift:
-        enabled: false
-      jaeger-grpc:
-        enabled: false
-      zipkin:
-        enabled: false
     config:
-      receivers:
-        jaeger: null
-        zipkin: null
-        prometheus: null
       exporters:
-        debug: null
         otlp_grpc/tempo:
           endpoint: tempo.lgtm.svc.cluster.local:4317
           tls:
@@ -52,17 +32,11 @@ spec:
       service:
         pipelines:
           traces:
-            receivers:
-            - otlp
             exporters:
             - otlp_grpc/tempo
           logs:
-            receivers:
-            - otlp
             exporters:
             - otlp_http/loki
           metrics:
-            receivers:
-            - otlp
             exporters:
             - prometheusremotewrite/mimir

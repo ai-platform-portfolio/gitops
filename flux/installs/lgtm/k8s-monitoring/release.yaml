@@ -24,13 +24,10 @@ spec:
         url: http://loki-gateway.lgtm.svc.cluster.local/loki/api/v1/push
     clusterMetrics:
       enabled: true
-      collector: telemetry
     podLogsViaKubernetesApi:
       enabled: true
-      collector: telemetry
     collectors:
       telemetry:
-        enabled: true
         controller:
           type: deployment
     telemetryServices:
@@ -42,7 +39,5 @@ spec:
   - name: loki
     namespace: lgtm
   - name: mimir
-    namespace: lgtm
-  - name: tempo
     namespace: lgtm
   releaseName: k8s-monitoring

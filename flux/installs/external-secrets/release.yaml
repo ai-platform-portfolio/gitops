@@ -12,3 +12,8 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: external-secrets
+  values:
+    serviceAccount:
+      name: eso-akv-wi
+      annotations:
+        azure.workload.identity/client-id: ${AZURE_CLIENT_ID}
