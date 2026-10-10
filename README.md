@@ -247,16 +247,14 @@ CI runs the same checks: Kustomize builds, chart lint/rendering, custom-resource
 schemas, dependency cycles, CRD prerequisites (including Helm dependency ordering) and HTTPRoute backend service/port.
 Validation downloads pinned charts and Flux schemas and does not contact AKS.
 
-## Shared engineering checks
+## Linear branch check
 
-`Engineering quality` calls the pinned `ops-shared` workflow lint and quality
-workflows. The quality checker uses `engineering.yaml` from the PR base branch;
-protected policy and workflow changes require approval of the current revision
-from a base-branch CODEOWNER. The review workflow refreshes that check after reviews.
-The first policy bootstrap cannot pass until the policy and CODEOWNERS exist on
-`main`. The shared Linear branch checks remain optional local warnings; these
-workflow calls do not add a blocking Linear issue-link check. The stable `quality`
-check must be required by a repository merge rule to enforce it at merge time.
+Pull requests run `linear-branch`, which requires an `AI-<number>` identifier in
+the source branch, for example `ai-28-postgres` or `michaelalinks/ai-28-postgres`.
+The naming pattern matches the shared local Linear hook. This CI check validates
+branch naming only; it does not query Linear or verify issue existence or project
+membership. No Linear credentials are needed. Require `linear-branch` in a merge
+rule if it should block merging.
 
 ## Existing extension migration
 
