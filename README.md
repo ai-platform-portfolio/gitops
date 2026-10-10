@@ -123,10 +123,14 @@ The configured Key Vault must contain enabled `grafana-sso-client-id` and
 
 ## Cluster recreation
 
-Allow enough Azure vCPU quota for the node pool to scale. The live test on D4as_v4
-nodes exceeded two nodes' pod and disk capacity; a third node needs at least 12
-regional and DASv4-family vCPUs. Mimir and Langfuse retry transient installation
-failures, and Langfuse allows 15 minutes for its database startup.
+Keep the infrastructure node pool's explicit `max_pods = 110`, matching the old
+cluster. Omitting it with the current Azure CNI setup leaves 30 slots per node:
+the live test filled both nodes' slots despite spare CPU and memory. Changing this
+setting on an existing pool requires node-pool replacement; the infrastructure
+change is intended for recreation and has not been applied to the live cluster.
+Allow subnet addresses and vCPU quota for the chosen pool size and upgrade surge.
+Mimir and Langfuse retry transient installation failures, and Langfuse allows
+15 minutes for its database startup.
 
 1. Merge the GitOps PR before applying the infrastructure PR, because Flux reads `main`.
 2. Delete only the old AKS cluster, preserving the shared resource group, its VNet,
