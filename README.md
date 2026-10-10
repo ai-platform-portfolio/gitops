@@ -2,7 +2,7 @@
 
 Minimal Flux installs for the Azure dev cluster. Terraform is maintained separately in
 [michaelalinks/portfolio-infra](https://github.com/michaelalinks/portfolio-infra), in `main.tf`.
-Azure's managed `microsoft.flux` extension owns the Flux controllers and Git source.
+Terraform installs Flux Operator and Flux Instance Helm charts, matching the GKE bootstrap.
 
 ## Reconciliation
 
@@ -10,7 +10,7 @@ Azure's managed `microsoft.flux` extension owns the Flux controllers and Git sou
 
 ```mermaid
 flowchart LR
-  A[Azure-managed Flux] --> E[Envoy Gateway]
+  A[Flux Operator] --> E[Envoy Gateway]
   A --> S[External Secrets]
   A --> C[cert-manager]
   E --> D[ExternalDNS]
@@ -78,15 +78,19 @@ cluster deletion if you want to retain projects, traces and accounts.
 
 ## Azure bootstrap
 
-The Terraform Flux configuration must use name and namespace `flux-system`, Git
-repository `https://github.com/ai-platform-portfolio/gitops.git`, branch `main`,
-and path `./flux`. Deployment values come from Terraform inputs in the personal
-infrastructure repo; no Azure account IDs, resource names, domain or email are
-committed here. Its root Kustomization uses `wait = false`; child Kustomizations
-perform the readiness checks.
+Terraform in the personal infrastructure repo installs `flux-operator` and
+`flux-instance` charts at 0.61.0 with Flux controllers pinned to 2.9.6. The instance
+reads this public repository at `flux`, temporarily from `feat/aks-platform`.
+Switch its sync ref to `refs/heads/main` after merging the GitOps PR.
 
-Terraform passes non-secret deployment values through `post_build.substitute` into
-`flux/flux-system/cluster-settings.yaml`:
+The Helm provider uses your `az login` Entra session through `kubelogin`; install
+that helper on the machine running Terraform. AKS retains Entra RBAC and disabled
+local accounts. This bootstrap adds no managed identities or federation bindings.
+Flux needs no Azure or Git credentials to read this public repository.
+
+Terraform patches the instance's root Kustomization with `wait: false` and
+`postBuild.substitute`; child Kustomizations perform readiness checks. It injects
+non-secret deployment values into `flux/flux-system/cluster-settings.yaml`:
 
 - `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`
 - `AZURE_CLIENT_ID` for the single shared managed identity
@@ -105,7 +109,7 @@ The input flow is:
 ```text
 portfolio-infra/terraform.tfvars
   -> main.tf variables and resource outputs
-  -> Azure-managed Flux post_build.substitute
+  -> Flux Instance root postBuild.substitute
   -> flux-system/cluster-settings ConfigMap
   -> package postBuild.substituteFrom
   -> Helm values and Kubernetes manifests
@@ -132,14 +136,14 @@ Allow subnet addresses and vCPU quota for the chosen pool size and upgrade surge
 Mimir and Langfuse retry transient installation failures, and Langfuse allows
 15 minutes for its database startup.
 
-1. Merge the GitOps PR before applying the infrastructure PR, because Flux reads `main`.
+1. After merging the GitOps PR, switch the infrastructure Flux sync ref to `refs/heads/main`.
 2. Delete only the old AKS cluster, preserving the shared resource group, its VNet,
    delegated Azure DNS zone and Key Vault. Keep the new Blob Storage account for
    subsequent rebuilds. Review the old Terraform state before retiring its cluster
    resources so it cannot later recreate or manage the replacement cluster.
 3. In `portfolio-infra`, initialize Terraform, review the plan and apply it when ready.
    The configuration creates the cluster, identity, roles and federation before
-   connecting managed Flux. Use an AKS version supported by the pinned charts
+   installing Flux through Helm. Use an AKS version supported by the pinned charts
    (Kubernetes 1.32 or newer).
 4. Confirm Flux readiness, Gateway/TLS, Grafana Entra login, and metrics/log ingestion:
 
@@ -181,3 +185,12 @@ python3 -m venv .venv
 CI runs the same checks: Kustomize builds, chart lint/rendering, custom-resource
 schemas, dependency cycles, CRD prerequisites (including Helm dependency ordering) and HTTPRoute backend service/port.
 Validation downloads pinned charts and Flux schemas and does not contact AKS.
+
+## Existing extension migration
+
+The replacement Terraform removes the managed extension and Azure Flux configuration.
+For an existing cluster, do not apply their deletion alongside the new Helm releases:
+first disable the old root's pruning and suspend reconciliation, then remove the
+Azure Flux configuration and extension before installing Flux Operator. Review
+retained controller resources for Helm ownership conflicts during that handover.
+The current live cluster has not been migrated. A fresh cluster needs no handover.
