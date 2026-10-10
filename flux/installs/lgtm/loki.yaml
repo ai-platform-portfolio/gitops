@@ -56,6 +56,5 @@ spec:
       serviceAccount:
         create: false
     lokiCanary:
-      serviceAccount:
-        create: false
+      enabled: false
   releaseName: loki

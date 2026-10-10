@@ -5,6 +5,10 @@ metadata:
   namespace: langfuse
 spec:
   interval: 10m
+  timeout: 15m
+  install:
+    strategy:
+      name: RetryOnFailure
   releaseName: langfuse
   chart:
     spec:

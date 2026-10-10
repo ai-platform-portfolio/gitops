@@ -6,6 +6,9 @@ metadata:
 spec:
   interval: 10m
   timeout: 15m
+  install:
+    strategy:
+      name: RetryOnFailure
   chart:
     spec:
       chart: mimir-distributed
