@@ -1,0 +1,16 @@
+name: Refresh engineering policy review
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+permissions:
+  contents: read
+jobs:
+  refresh:
+    uses: ai-platform-portfolio/ops-shared/.github/workflows/review.yml@abdaffab6c347bc2a1e904908b20b9a2e786db68
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    with:
+      workflow: quality.yml
+      job: policy / check
