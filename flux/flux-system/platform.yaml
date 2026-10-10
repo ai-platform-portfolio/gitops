@@ -1,0 +1,182 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: envoy-gateway
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 15m
+  path: ./flux/installs/envoy-gateway
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: external-secrets
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 15m
+  path: ./flux/installs/external-secrets
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cert-manager
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 15m
+  path: ./flux/installs/cert-manager
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: external-dns
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 15m
+  path: ./flux/installs/external-dns
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: envoy-gateway
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: configuration
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 15m
+  path: ./flux/config
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: envoy-gateway
+  - name: external-secrets
+  - name: cert-manager
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings
+  healthCheckExprs:
+  - apiVersion: gateway.networking.k8s.io/v1
+    kind: Gateway
+    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Programmed'
+      && c.status == 'True' && c.observedGeneration == metadata.generation)
+  - apiVersion: external-secrets.io/v1
+    kind: ClusterSecretStore
+    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Ready'
+      && c.status == 'True')
+  - apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    current: has(status.conditions) && status.conditions.exists(c, c.type == 'Ready'
+      && c.status == 'True')
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: lgtm
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 15m
+  path: ./flux/installs/lgtm
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: configuration
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings
+  healthCheckExprs:
+  - apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    current: has(status.parents) && status.parents.exists(p, has(p.conditions) &&
+      p.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' && c.observedGeneration
+      == metadata.generation) && p.conditions.exists(c, c.type == 'ResolvedRefs' &&
+      c.status == 'True' && c.observedGeneration == metadata.generation))
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: opentelemetry
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 20m
+  path: ./flux/installs/opentelemetry
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: lgtm
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: langfuse
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 20m
+  path: ./flux/installs/langfuse
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: configuration
+  healthCheckExprs:
+  - apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    current: has(status.parents) && status.parents.exists(p, has(p.conditions) &&
+      p.conditions.exists(c, c.type == 'Accepted' && c.status == 'True' && c.observedGeneration
+      == metadata.generation) && p.conditions.exists(c, c.type == 'ResolvedRefs' &&
+      c.status == 'True' && c.observedGeneration == metadata.generation))
+  postBuild:
+    substituteFrom:
+    - kind: ConfigMap
+      name: cluster-settings

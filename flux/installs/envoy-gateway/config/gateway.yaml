@@ -1,0 +1,50 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-dev
+  namespace: envoy-gateway-system
+spec:
+  secretName: wildcard-dev-tls
+  dnsNames:
+  - '*.${DNS_ZONE}'
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-azuredns
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: envoy
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            gitops.platform/gateway: public
+  - name: https
+    hostname: '*.${DNS_ZONE}'
+    protocol: HTTPS
+    port: 443
+    tls:
+      certificateRefs:
+      - name: wildcard-dev-tls
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            gitops.platform/gateway: public
