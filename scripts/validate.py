@@ -42,6 +42,10 @@ POSTGRES_SETTINGS = {
     "POSTGRES_RECOVERY_SERVER": "unused",
     "POSTGRES_BOOTSTRAP": '{"initdb": {"database": "app", "owner": "app"}}',
 }
+SONAR_SETTINGS = {
+    "SONAR_SAML_APPLICATION_ID": "api://" + GUID,
+    "SONAR_SAML_CERTIFICATE": "validation-public-certificate",
+}
 
 
 def run(*args):
@@ -50,7 +54,7 @@ def run(*args):
 
 def load(text, substitute=True):
     def replace(match):
-        values = SETTINGS | POSTGRES_SETTINGS
+        values = SETTINGS | POSTGRES_SETTINGS | SONAR_SETTINGS
         assert match[1] in values, f"Unknown bootstrap setting: {match[1]}"
         return values[match[1]]
 
@@ -105,6 +109,9 @@ def validate(cache):
             expected = "postgres-settings" if name == "postgres" else "cluster-settings"
             assert any(ref["kind"] == "ConfigMap" and ref["name"] == expected
                        for ref in refs), f"{name} uses parameters without {expected} substitution"
+            if name == "sonarqube":
+                assert any(ref["kind"] == "ConfigMap" and ref["name"] == "sonarqube-sso"
+                           for ref in refs), "SonarQube requires Terraform SAML metadata"
         for doc in load(manifest):
             key = identity(doc)
             assert key not in owners, f"{key} is owned by both {owners.get(key)} and {name}"

@@ -3,8 +3,9 @@
 Official stable chart `2026.5.1002` installs SonarQube Server `2026.5.2` with
 `edition: developer`. The chart selects the matching image. Values override only
 service naming, JDBC/TLS, existing secrets, the CA mount.
-The password hook is patched to fail on HTTP errors and accept the retained admin
-password after restore and sets the public server URL through the settings API. Other chart values use upstream defaults.
+The password hook is patched to fail on HTTP errors, accept the retained admin
+password after restore, and configure the public URL, Entra SAML and permissions.
+Other chart values use upstream defaults.
 
 ## Licensing and access
 
@@ -17,10 +18,41 @@ server ID shown under Administration > System when requested. The trial lasts
 Never put licence keys, passwords or scanner tokens in this public repository.
 
 The existing public Envoy Gateway serves `https://sonarqube.<DNS_ZONE>` with TLS.
-This is authenticated public access, not an internal-only fintech deployment.
+Anonymous visitors can browse public projects and their source/findings. Private
+projects still require permission. Keep portfolio projects public; anonymous
+visitors have no global administration, project creation or analysis permissions.
+This public endpoint is not an internal-only fintech deployment.
 The admin password is generated and retained outside AKS. Retrieve it locally
 from the `password` key in Secret `sonarqube-admin` in namespace `sonarqube`.
 Do not put its value in terminal logs, issues or chat.
+
+## Entra SSO
+
+`portfolio-infra/sonarqube.tf` owns the dedicated `portfolio-sonarqube` app
+registration, Enterprise Application, SAML signing certificate, claims policy and
+administrator assignment. `sonarqube-imports.tf` adopts the pre-existing objects
+into Terraform state without creating duplicates. No SAML client secret is used;
+the signing private key remains in Entra. The current certificate expires on
+2029-10-09; update its Terraform `end_date` to rotate it and run `make up` to copy
+the replacement public certificate into SonarQube.
+
+`make up` reads the public `sonarqube_sso` Terraform output and prepares
+`flux-system/sonarqube-sso` before Flux resumes. The installation hook applies
+the settings and permissions idempotently after install or upgrade. SAML maps
+`login`, `name` and `email` claims and the standard role claim to Sonar groups.
+
+Entra application roles map to `portfolio-sonar-admins` (administration and
+analysis) and `portfolio-sonar-analysts` (analysis and project creation).
+Terraform assigns the configured `cluster_admin_object_id` the administrator
+role. Additional user/group role assignments belong in that Terraform repo.
+Unassigned users cannot authenticate to this Enterprise Application. Ordinary
+`sonar-users` members receive no global analysis or project creation permission.
+The retained local administrator is a recovery account.
+
+CI scanners authenticate with Sonar analysis tokens, rather than interactive
+Entra SAML. Prefer project-scoped tokens, store them in CI secrets and configure
+required quality-gate checks after activating the Developer licence. An actual
+Entra login must be checked interactively after deployment.
 
 Developer provides native branches/PRs, quality gates/profiles, taint analysis,
 secrets detection and supported YAML, Shell and GitHub Actions analysis. GitHub

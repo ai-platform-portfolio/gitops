@@ -114,4 +114,19 @@ class SonarQube:
                                        "ca.crt": base64.b64decode(ca).decode()})
         self.secret("sonarqube-monitoring", {"passcode": value["monitoring-passcode"]})
         self.secret("sonarqube-admin", {"password": value["admin-password"], "currentPassword": "admin"})
+        self.prepare_sso()
         print("SonarQube database, credentials and current PostgreSQL CA prepared.", flush=True)
+
+    def prepare_sso(self):
+        # Entra resources and public signing certificate are owned by Terraform.
+        # Like postgres-settings, recreate this ConfigMap before Flux resumes.
+        sso = json.loads(self.run(*self.cluster.tf, "output", "-json", "sonarqube_sso", capture=True))
+        certificate = re.sub(r"\s", "", sso["certificate"])
+        if not re.fullmatch(r"[A-Za-z0-9+/=]+", certificate):
+            raise ValueError("Invalid Entra public signing certificate")
+        doc = {"apiVersion": "v1", "kind": "ConfigMap",
+               "metadata": {"name": "sonarqube-sso", "namespace": "flux-system"},
+               "data": {"SONAR_SAML_APPLICATION_ID": sso["entity_id"],
+                        "SONAR_SAML_CERTIFICATE": certificate}}
+        self.private_command([*self.cluster.kube, "apply", "--server-side",
+                              "--field-manager=sonarqube-lifecycle", "-f", "-"], json.dumps(doc))
