@@ -1,0 +1,21 @@
+name: Linear issue check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  linear:
+    uses: ai-platform-portfolio/ops-shared/.github/workflows/linear-issue.yml@e231e2fad78504d141e0e00d6a5a6f480341d2cd
+    secrets:
+      LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+      LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
+  linear-issue-required:
+    if: always()
+    needs: linear
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful Linear validation
+        env:
+          RESULT: ${{ needs.linear.result }}
+        run: test "$RESULT" = success
