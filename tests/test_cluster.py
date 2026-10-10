@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.cluster import Cluster, main
+from scripts.cluster import Cluster, EXPECTED_PHASES, EXPECTED_RELEASES, main
 
 
 class LifecycleTests(unittest.TestCase):
@@ -48,10 +48,10 @@ class LifecycleTests(unittest.TestCase):
                 return "" if api_checks == 1 else "kustomizations.example\nhelmreleases.example"
 
         def objects(kind, namespace=None):
-            size = 9 if kind == "kustomizations" else 12
-            return [{"metadata": {"name": "flux-system" if i == 0 else str(i), "generation": 2},
+            entries = [("flux-system", name) for name in EXPECTED_PHASES] if kind == "kustomizations" else EXPECTED_RELEASES
+            return [{"metadata": {"name": name, "namespace": ns, "generation": 2},
                      "spec": {}, "status": {"conditions": [{"type": "Ready", "status": "True",
-                     "observedGeneration": 2 if attempts >= 4 else 1}]}} for i in range(size)]
+                     "observedGeneration": 2 if attempts >= 4 else 1}]}} for ns, name in entries]
 
         def wait(check, description, timeout):
             nonlocal attempts

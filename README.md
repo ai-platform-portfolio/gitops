@@ -21,8 +21,9 @@ infrastructure changes. Terraform must include the companion PR's lifecycle swit
 
 `make down` suspends reconciliation, uninstalls applications before their operators,
 removes Gateway/DNS configuration, then uses two Terraform applies to remove Flux
-before AKS. Shared Azure resources, the single MI and Blob storage are retained.
-Cluster-local PVC data and generated application secrets are deleted. Both commands
+before AKS. Shared Azure resources, identities and Blob storage are retained.
+PostgreSQL takes a verified external backup before deletion and restores it on
+startup. Other cluster-local PVC data and generated application secrets are deleted. Both commands
 apply Terraform automatically; state stays in the private infra checkout.
 
 Install Terraform, Azure CLI, kubectl, kubelogin and Python 3. The commands use a
@@ -31,7 +32,7 @@ checkout location with `make up INFRA_DIR="/path/to/portfolio-infra"` (or `down`
 
 ## Reconciliation
 
-`flux/flux-system/platform.yaml` contains seven packages and one configuration phase:
+`flux/flux-system/platform.yaml` contains ten child phases:
 
 ```mermaid
 flowchart LR
@@ -45,6 +46,8 @@ flowchart LR
   F --> L[LGTM]
   L --> O[OpenTelemetry]
   F --> LF[Langfuse]
+  C --> P[CloudNativePG and Barman]
+  P --> DB[PostgreSQL and PgBouncer]
 ```
 
 Controllers reconcile first. External Secrets reuses its chart-created `eso-akv-wi`
@@ -101,6 +104,17 @@ Tempo; it is not automatically copied into a Langfuse project. The chart generat
 its initial secrets. Langfuse data uses PVCs: back up data and secrets before
 cluster deletion if you want to retain projects, traces and accounts.
 
+## PostgreSQL
+
+The [PostgreSQL install and research](flux/installs/postgres/README.md) documents
+CloudNativePG, PgBouncer, TLS/SCRAM, dedicated Azure Workload Identity, retained
+backups and restoration across recreation. PostgreSQL infrastructure lives in the
+private `portfolio-infra` checkout, in a separate `postgres.tf`; its `main.tf`
+configures the network policy engine. Review `make plan` before
+the first `make up`.
+The database phase requires `postgres-settings`, a non-secret ConfigMap created
+by the lifecycle command. This database is independent of Langfuse's bundled one.
+
 ## Azure bootstrap
 
 Terraform in the personal infrastructure repo installs `flux-operator` and
@@ -140,11 +154,12 @@ portfolio-infra/terraform.tfvars
   -> Helm values and Kubernetes manifests
 ```
 
-The same user-assigned identity serves the AKS control plane, kubelet, DNS, Key Vault
+The existing user-assigned identity serves the AKS control plane, kubelet, DNS, Key Vault
 and LGTM storage. Four federation bindings allow the service accounts in
 `external-dns`, `cert-manager`, `external-secrets` and `lgtm` to use it; they do not
 create additional managed identities. Each workload using it has the combined
-Azure permissions assigned to that identity.
+Azure permissions assigned to that identity. PostgreSQL uses a dedicated identity
+with access only to its own backup container.
 
 The configured Key Vault must contain enabled `grafana-sso-client-id` and
 `grafana-sso-client-secret` secrets. The existing Entra application needs the callback

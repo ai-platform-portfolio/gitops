@@ -8,6 +8,24 @@ import tempfile
 import time
 from pathlib import Path
 
+try:
+    from .postgres import Postgres
+except ImportError:
+    from postgres import Postgres
+
+
+EXPECTED_PHASES = {"flux-system", "envoy-gateway", "external-secrets", "cert-manager",
+                   "external-dns", "configuration", "lgtm", "opentelemetry", "langfuse",
+                   "postgres-operator", "postgres"}
+EXPECTED_RELEASES = {
+    ("envoy-gateway-system", "envoy-gateway"), ("external-secrets", "external-secrets"),
+    ("cert-manager", "cert-manager"), ("external-dns", "external-dns"),
+    ("lgtm", "grafana"), ("lgtm", "loki"), ("lgtm", "mimir"), ("lgtm", "tempo"),
+    ("monitoring", "k8s-monitoring"), ("opentelemetry", "opentelemetry"),
+    ("langfuse", "clickhouse-operator"), ("langfuse", "langfuse"),
+    ("cnpg-system", "cloudnative-pg"), ("cnpg-system", "plugin-barman-cloud"),
+}
+
 
 def run(*args, capture=False):
     return subprocess.run(args, check=True, text=True,
@@ -53,6 +71,7 @@ class Cluster:
             "--file", str(kubeconfig), "--overwrite-existing")
         run("kubelogin", "convert-kubeconfig", "--kubeconfig", str(kubeconfig), "-l", "azurecli")
         self.kube = ["kubectl", "--kubeconfig", str(kubeconfig)]
+        self.connection = connection
         return True
 
     def objects(self, kind, namespace=None):
@@ -101,9 +120,12 @@ class Cluster:
                 resumed = True
                 return False
             releases = self.objects("helmreleases")
-            return len(phases) == 9 and len(releases) == 12 and healthy(phases) and healthy(releases)
+            phase_names = {o["metadata"]["name"] for o in phases}
+            release_names = {(o["metadata"]["namespace"], o["metadata"]["name"]) for o in releases}
+            return (EXPECTED_PHASES <= phase_names and EXPECTED_RELEASES <= release_names
+                    and healthy(phases) and healthy(releases))
 
-        wait_for(reconciled, "Waiting for all nine Flux phases and twelve Helm releases", timeout=2400)
+        wait_for(reconciled, "Waiting for all eleven Flux phases and fourteen Helm releases", timeout=3600)
         print("GitOps is Ready.", flush=True)
 
     def cleanup(self):
@@ -123,6 +145,23 @@ class Cluster:
         self.delete("helmreleases", ["grafana", "loki", "mimir", "tempo"], "lgtm")
         self.delete("helmreleases", ["k8s-monitoring"], "monitoring")
         self.delete("namespaces", ["langfuse", "opentelemetry", "monitoring", "lgtm"])
+
+        # Backup/restore metadata must be durable before any database PVC is removed.
+        # Keep both database controllers and cert-manager alive for finalizers.
+        api = run(*self.kube, "api-resources", "-o", "name", capture=True).splitlines()
+        if "clusters.postgresql.cnpg.io" in api:
+            databases = self.objects("clusters.postgresql.cnpg.io", "postgres")
+            if any(o["metadata"]["name"] == "platform" for o in databases):
+                self.delete("scheduledbackups.postgresql.cnpg.io", ["platform-daily"], "postgres")
+                Postgres(self, run, wait_for).backup(shutdown=True)
+        self.delete("scheduledbackups.postgresql.cnpg.io", ["platform-daily"], "postgres")
+        self.delete("clusters.postgresql.cnpg.io", ["platform"], "postgres")
+        self.delete("namespaces", ["postgres"])
+        self.delete("configmaps", ["postgres-settings"], "flux-system")
+        self.delete("storageclasses", ["postgres-premium"])
+        self.delete("helmreleases", ["plugin-barman-cloud"], "cnpg-system")
+        self.delete("helmreleases", ["cloudnative-pg"], "cnpg-system")
+        self.delete("namespaces", ["cnpg-system"])
 
         self.delete("gateways", ["public"], "envoy-gateway-system")
         self.delete("certificates", ["wildcard-dev"], "envoy-gateway-system")
@@ -152,6 +191,8 @@ def main():
     infra = args.infra_dir.resolve()
     if not (infra / "main.tf").is_file():
         parser.error(f"Terraform checkout not found: {infra}")
+    if args.action == "up" and not (infra / "postgres.tf").is_file():
+        parser.error(f"PostgreSQL infrastructure file missing: {infra / 'postgres.tf'}")
     for command in ["terraform", "az", "kubectl", "kubelogin"]:
         if not shutil.which(command):
             parser.error(f"Install {command} before running this command")
@@ -167,7 +208,12 @@ def main():
             cluster.apply(True, True)
             if not cluster.connect(kubeconfig):
                 raise RuntimeError("Terraform did not create AKS")
+            postgres = Postgres(cluster, run, wait_for)
+            postgres.preflight()
+            postgres.prepare()
+            postgres.resume()
             cluster.ready()
+            postgres.backup()
         else:
             if cluster.connect(kubeconfig):
                 cluster.cleanup()
