@@ -173,7 +173,7 @@ class Postgres:
         plugin = next(p for p in database["spec"]["plugins"] if p["name"] == PLUGIN)
         marker = {"version": 1, "postgres_major": 18,
                   "server_name": plugin["parameters"]["serverName"],
-                  "backup_id": status.get("backupID", "")}
+                  "backup_id": status.get("backupId", "")}
         if shutdown:
             target = "shutdown_" + uuid.uuid4().hex
             self.sql(f"SELECT pg_create_restore_point('{target}')")

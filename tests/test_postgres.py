@@ -87,7 +87,7 @@ class PostgresTests(unittest.TestCase):
 
         def create(doc):
             if doc["kind"] == "Backup":
-                docs.append(doc | {"status": {"phase": phase, "backupID": MARKER["backup_id"]}})
+                docs.append(doc | {"status": {"phase": phase, "backupId": MARKER["backup_id"]}})
 
         self.pg.manifest = Mock(side_effect=create)
         self.cluster.objects.side_effect = lambda kind, ns: docs if kind == "backups.postgresql.cnpg.io" else []
