@@ -1,0 +1,68 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: platform
+  namespace: postgres
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+  enableSuperuserAccess: false
+  certificates:
+    serverAltDNSNames:
+    - platform-pooler
+    - platform-pooler.postgres
+    - platform-pooler.postgres.svc
+    - platform-pooler.postgres.svc.cluster.local
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  inheritedMetadata:
+    labels:
+      azure.workload.identity/use: "true"
+  serviceAccountTemplate:
+    metadata:
+      annotations:
+        azure.workload.identity/client-id: ${POSTGRES_AZURE_CLIENT_ID}
+        azure.workload.identity/tenant-id: ${POSTGRES_AZURE_TENANT_ID}
+  # Supplied by make up, before this phase can reconcile. No empty-DB fallback.
+  bootstrap: ${POSTGRES_BOOTSTRAP}
+  externalClusters:
+  - name: previous
+    plugin:
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: recovery
+        serverName: ${POSTGRES_RECOVERY_SERVER}
+  plugins:
+  - name: barman-cloud.cloudnative-pg.io
+    isWALArchiver: true
+    parameters:
+      barmanObjectName: backups
+      serverName: ${POSTGRES_ARCHIVE_SERVER}
+  storage:
+    storageClass: postgres-premium
+    size: 32Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+    parameters:
+      max_connections: "200"
+      shared_buffers: 256MB
+      password_encryption: scram-sha-256
+      ssl_min_protocol_version: TLSv1.2
+      archive_timeout: 60s
+    pg_hba:
+    - hostnossl all all all reject
+    - hostssl app app all scram-sha-256
+    - host all all all reject

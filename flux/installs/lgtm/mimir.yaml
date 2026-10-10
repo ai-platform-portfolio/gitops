@@ -62,4 +62,19 @@ spec:
       replicas: 1
     query_scheduler:
       replicas: 1
+  # This single-replica, non-zone-aware installation must tolerate the
+  # rollout operator moving during AKS node maintenance. Keep other webhook
+  # safeguards unchanged; native Kubernetes PDBs still govern evictions.
+  postRenderers:
+  - kustomize:
+      patches:
+      - target:
+          group: admissionregistration.k8s.io
+          version: v1
+          kind: ValidatingWebhookConfiguration
+          name: pod-eviction-lgtm
+        patch: |-
+          - op: replace
+            path: /webhooks/0/failurePolicy
+            value: Ignore
   releaseName: mimir

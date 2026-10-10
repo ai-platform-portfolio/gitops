@@ -1,0 +1,37 @@
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: backups
+  namespace: postgres
+spec:
+  configuration:
+    destinationPath: https://${POSTGRES_STORAGE_ACCOUNT}.blob.core.windows.net/postgres-backups/archive
+    azureCredentials:
+      inheritFromAzureAD: true
+    data:
+      compression: gzip
+      jobs: 2
+    wal:
+      compression: gzip
+      maxParallel: 4
+  # No automatic expiry: a stopped cluster must remain recoverable indefinitely.
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: recovery
+  namespace: postgres
+spec:
+  configuration:
+    destinationPath: https://${POSTGRES_STORAGE_ACCOUNT}.blob.core.windows.net/postgres-backups/archive
+    azureCredentials:
+      inheritFromAzureAD: true
+    wal:
+      maxParallel: 4

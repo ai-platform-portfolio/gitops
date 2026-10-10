@@ -2,6 +2,7 @@
 """Build Flux phases, render pinned charts, and check CRDs and dependencies offline."""
 
 import argparse
+import copy
 import json
 import re
 import subprocess
@@ -11,6 +12,13 @@ from pathlib import Path
 
 import yaml
 from jsonschema import Draft7Validator
+
+try:
+    from .cluster import EXPECTED_PHASES, EXPECTED_RELEASES
+    from .postgres import bootstrap
+except ImportError:
+    from cluster import EXPECTED_PHASES, EXPECTED_RELEASES
+    from postgres import bootstrap
 
 ROOT = Path(__file__).resolve().parents[1]
 VARIABLE = re.compile(r"\$\{([A-Z_]+)\}")
@@ -26,6 +34,14 @@ SETTINGS = {
     "ACME_EMAIL": "ops@example.com",
     "CLUSTER_NAME": "example-aks",
 }
+POSTGRES_SETTINGS = {
+    "POSTGRES_STORAGE_ACCOUNT": "gitopsvalidation",
+    "POSTGRES_AZURE_CLIENT_ID": GUID,
+    "POSTGRES_AZURE_TENANT_ID": GUID,
+    "POSTGRES_ARCHIVE_SERVER": "platform-" + "a" * 32,
+    "POSTGRES_RECOVERY_SERVER": "unused",
+    "POSTGRES_BOOTSTRAP": '{"initdb": {"database": "app", "owner": "app"}}',
+}
 
 
 def run(*args):
@@ -34,8 +50,9 @@ def run(*args):
 
 def load(text, substitute=True):
     def replace(match):
-        assert match[1] in SETTINGS, f"Unknown bootstrap setting: {match[1]}"
-        return SETTINGS[match[1]]
+        values = SETTINGS | POSTGRES_SETTINGS
+        assert match[1] in values, f"Unknown bootstrap setting: {match[1]}"
+        return values[match[1]]
 
     if substitute:
         text = VARIABLE.sub(replace, text)
@@ -77,6 +94,7 @@ def validate(cache):
                     and doc["metadata"]["name"] == "cluster-settings")
     assert set(settings["data"]) == set(SETTINGS), "Bootstrap settings and validation inputs differ"
     phases = {doc["metadata"]["name"]: doc for doc in root if doc["kind"] == "Kustomization"}
+    assert set(phases) | {"flux-system"} == EXPECTED_PHASES, "Lifecycle readiness phases differ from GitOps"
     check_graph(phases, lambda name: [dep["name"] for dep in phases[name]["spec"].get("dependsOn", [])])
 
     objects, owners = [], {}
@@ -84,8 +102,9 @@ def validate(cache):
         manifest = run("kubectl", "kustomize", str(ROOT / phase["spec"]["path"]))
         if VARIABLE.search(manifest):
             refs = phase["spec"].get("postBuild", {}).get("substituteFrom", [])
-            assert any(ref["kind"] == "ConfigMap" and ref["name"] == "cluster-settings"
-                       for ref in refs), f"{name} uses parameters without cluster-settings substitution"
+            expected = "postgres-settings" if name == "postgres" else "cluster-settings"
+            assert any(ref["kind"] == "ConfigMap" and ref["name"] == expected
+                       for ref in refs), f"{name} uses parameters without {expected} substitution"
         for doc in load(manifest):
             key = identity(doc)
             assert key not in owners, f"{key} is owned by both {owners.get(key)} and {name}"
@@ -93,6 +112,7 @@ def validate(cache):
             objects.append(doc)
     repositories = {identity(doc)[1:]: doc for doc in objects if doc["kind"] == "HelmRepository"}
     releases = {identity(doc)[1:]: doc for doc in objects if doc["kind"] == "HelmRelease"}
+    assert set(releases) == EXPECTED_RELEASES, "Lifecycle readiness releases differ from GitOps"
     release_order = check_graph(releases, lambda key: [
         (dep.get("namespace", key[0]), dep["name"])
         for dep in releases[key]["spec"].get("dependsOn", [])
@@ -168,8 +188,18 @@ def validate(cache):
             assert not errors, f"{identity(doc)}: {errors[0].message if errors else ''}"
         elif doc["apiVersion"] not in ("v1", "apps/v1", "batch/v1", "rbac.authorization.k8s.io/v1",
                                       "policy/v1", "autoscaling/v2", "apiextensions.k8s.io/v1",
-                                      "admissionregistration.k8s.io/v1", "networking.k8s.io/v1"):
+                                      "admissionregistration.k8s.io/v1", "networking.k8s.io/v1", "storage.k8s.io/v1"):
             raise AssertionError(f"No CRD schema found: {key}")
+    # Validate the JSON bootstrap generated at runtime as well as the first-install manifest.
+    database = next(doc for doc in objects if identity(doc) == ("Cluster", "postgres", "platform"))
+    recovered = copy.deepcopy(database)
+    recovered["spec"]["bootstrap"] = bootstrap({
+        "version": 1, "postgres_major": 18, "server_name": "platform-" + "b" * 32,
+        "backup_id": "20261010T200000", "target_name": "shutdown_" + "c" * 32,
+    })
+    recovered["spec"]["externalClusters"][0]["plugin"]["parameters"]["serverName"] = "platform-" + "b" * 32
+    errors = list(Draft7Validator(schemas[("postgresql.cnpg.io/v1", "Cluster")]).iter_errors(recovered))
+    assert not errors, f"Recovery bootstrap: {errors[0].message if errors else ''}"
     for doc in objects:
         key = doc["apiVersion"], doc["kind"]
         if key in producers and producers[key] != "bootstrap":
