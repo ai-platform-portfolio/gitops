@@ -35,6 +35,21 @@ class LifecycleTests(unittest.TestCase):
         cluster.cleanup.assert_not_called()
         cluster.apply.assert_called_once_with(False, False)
 
+    def test_shared_clickhouse_operator_outlives_both_databases(self):
+        cluster = Cluster("/unused")
+        cluster.kube = ["kubectl"]
+        with patch("scripts.cluster.run", return_value=""), \
+                patch.object(cluster, "objects", return_value=[]), \
+                patch.object(cluster, "delete") as delete:
+            cluster.cleanup()
+        calls = [call.args for call in delete.call_args_list]
+        operator = calls.index(("helmreleases", ["clickhouse-operator"], "clickhouse"))
+        namespace = calls.index(("namespaces", ["clickhouse"]))
+        for database_namespace, name in [("langfuse", "langfuse"), ("clickhouse", "clickhouse")]:
+            for kind in ["helmreleases", "clickhouseclusters", "keeperclusters"]:
+                self.assertLess(calls.index((kind, [name], database_namespace)), operator)
+        self.assertLess(operator, namespace)
+
     def test_readiness_waits_for_crds_and_current_generation(self):
         cluster = Cluster("/unused")
         cluster.kube = ["kubectl"]
