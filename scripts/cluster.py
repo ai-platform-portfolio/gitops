@@ -18,13 +18,13 @@ except ImportError:
 
 EXPECTED_PHASES = {"flux-system", "envoy-gateway", "external-secrets", "cert-manager",
                    "external-dns", "configuration", "lgtm", "opentelemetry", "langfuse",
-                   "postgres-operator", "postgres", "sonarqube"}
+                   "postgres-operator", "postgres", "sonarqube", "clickhouse-operator", "clickhouse"}
 EXPECTED_RELEASES = {
     ("envoy-gateway-system", "envoy-gateway"), ("external-secrets", "external-secrets"),
     ("cert-manager", "cert-manager"), ("external-dns", "external-dns"),
     ("lgtm", "grafana"), ("lgtm", "loki"), ("lgtm", "mimir"), ("lgtm", "tempo"),
     ("monitoring", "k8s-monitoring"), ("opentelemetry", "opentelemetry"),
-    ("langfuse", "clickhouse-operator"), ("langfuse", "langfuse"),
+    ("clickhouse", "clickhouse-operator"), ("clickhouse", "clickhouse"), ("langfuse", "langfuse"),
     ("cnpg-system", "cloudnative-pg"), ("cnpg-system", "plugin-barman-cloud"),
     ("sonarqube", "sonarqube"),
 }
@@ -147,6 +147,11 @@ class Cluster:
         self.delete("helmreleases", ["langfuse"], "langfuse")
         self.delete("clickhouseclusters", ["langfuse"], "langfuse")
         self.delete("keeperclusters", ["langfuse"], "langfuse")
+        self.delete("helmreleases", ["clickhouse"], "clickhouse")
+        self.delete("clickhouseclusters", ["clickhouse"], "clickhouse")
+        self.delete("keeperclusters", ["clickhouse"], "clickhouse")
+        self.delete("helmreleases", ["clickhouse-operator"], "clickhouse")
+        self.delete("namespaces", ["clickhouse"])
         self.delete("helmreleases", ["opentelemetry"], "opentelemetry")
         self.delete("helmreleases", ["grafana", "loki", "mimir", "tempo"], "lgtm")
         self.delete("helmreleases", ["k8s-monitoring"], "monitoring")

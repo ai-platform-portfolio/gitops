@@ -26,3 +26,4 @@ spec:
         replicas: 1
   dependsOn:
   - name: clickhouse-operator
+    namespace: clickhouse

@@ -221,6 +221,7 @@ spec:
     name: flux-system
   dependsOn:
   - name: configuration
+  - name: clickhouse-operator
   healthCheckExprs:
   - apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
@@ -256,3 +257,50 @@ spec:
       name: cluster-settings
     - kind: ConfigMap
       name: sonarqube-sso
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: clickhouse-operator
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: true
+  timeout: 15m
+  path: ./flux/installs/clickhouse
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: cert-manager
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: clickhouse
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  wait: false
+  timeout: 15m
+  path: ./flux/installs/clickhouse/config
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+  - name: clickhouse-operator
+  healthChecks:
+  - apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    name: clickhouse
+    namespace: clickhouse
+  - apiVersion: clickhouse.com/v1alpha1
+    kind: ClickHouseCluster
+    name: clickhouse
+    namespace: clickhouse
+  - apiVersion: clickhouse.com/v1alpha1
+    kind: KeeperCluster
+    name: clickhouse
+    namespace: clickhouse

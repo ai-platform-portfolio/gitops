@@ -37,7 +37,7 @@ is a separate evaluation, with self-hosted Gitar available through Enterprise.
 
 ## Reconciliation
 
-`flux/flux-system/platform.yaml` contains eleven child phases:
+`flux/flux-system/platform.yaml` contains thirteen child phases:
 
 ```mermaid
 flowchart LR
@@ -51,6 +51,9 @@ flowchart LR
   F --> L[LGTM]
   L --> O[OpenTelemetry]
   F --> LF[Langfuse]
+  C --> CHO[ClickHouse operator]
+  CHO --> CH[ClickHouse and Keeper]
+  CHO --> LF
   C --> P[CloudNativePG and Barman]
   P --> DB[PostgreSQL and PgBouncer]
 ```
@@ -99,15 +102,26 @@ to retain changes made through the UI. The previous cluster's data is not migrat
 The [official Langfuse chart](https://langfuse.com/self-hosting/deployment/kubernetes-helm)
 serves `https://langfuse.${DNS_ZONE}` through the shared TLS Gateway.
 It includes PostgreSQL, Valkey, SeaweedFS, ClickHouse and a single Keeper replica
-for this dev cluster. The ClickHouse operator and Langfuse share one Flux phase;
-Langfuse's HelmRelease waits for the operator, while the phase waits for cert-manager
-and the public Gateway through `configuration`. No additional operator phase is needed.
+for this dev cluster. Langfuse reuses the shared ClickHouse operator; its phase and HelmRelease wait
+for that operator, and its phase also waits for the public Gateway through `configuration`.
 
 Use built-in accounts, create a Langfuse project, and configure its SDK with the
 project API keys and public URL. Application OTLP sent to the collector goes to
 Tempo; it is not automatically copied into a Langfuse project. The chart generates
 its initial secrets. Langfuse data uses PVCs: back up data and secrets before
 cluster deletion if you want to retain projects, traces and accounts.
+
+## ClickHouse
+
+The [official ClickHouse charts](https://github.com/ClickHouse/clickhouse-operator)
+install a shared operator and an independent database in `clickhouse`, with one
+ClickHouse replica and one Keeper replica. Only replica counts and predictable
+resource names override chart defaults. It is internal to the cluster; inspect it
+with `kubectl -n clickhouse get clickhouseclusters,keeperclusters,services,secrets`.
+
+`make up` waits for the database and Keeper to become Ready. `make down` deletes
+both standalone and Langfuse databases before the shared operator. PVC data and
+generated credentials are disposable across cluster deletion.
 
 ## PostgreSQL
 
