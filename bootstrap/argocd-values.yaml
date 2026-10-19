@@ -1,0 +1,12 @@
+# Initial installation only. Move the same values to GitOps during handover.
+fullnameOverride: argocd
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+repoServer:
+  replicas: 1
+applicationSet:
+  replicas: 1
+controller:
+  replicas: 1

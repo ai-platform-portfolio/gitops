@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-BOOTSTRAP_DIR ?= $(CURDIR)/../bootstrap
+BOOTSTRAP_DIR ?= $(CURDIR)/bootstrap
 TERRAFORM ?= terraform
 
 .PHONY: help init plan up down
@@ -10,7 +10,7 @@ help:
 	  'make up    Provision management infrastructure and ArgoCD' \
 	  'make down  Destroy the resources managed by bootstrap' \
 	  'make plan  Preview bootstrap changes' \
-	  'Override the checkout with BOOTSTRAP_DIR=/path/to/bootstrap'
+	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
 init:
 	@test -f "$(BOOTSTRAP_DIR)/main.tf" || { printf 'Bootstrap root not found: %s\n' "$(BOOTSTRAP_DIR)" >&2; exit 1; }
