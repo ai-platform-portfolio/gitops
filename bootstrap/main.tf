@@ -1,3 +1,5 @@
+data "azurerm_client_config" "current" {}
+
 data "azurerm_dns_zone" "existing" {
   name                = var.dns.zone.name
   resource_group_name = var.dns.zone.resource_group_name
@@ -24,7 +26,7 @@ module "aks" {
   name                   = var.aks.name
   location               = var.azure.location
   resource_group_name    = azurerm_resource_group.this.name
-  tenant_id              = var.azure.tenant_id
+  tenant_id              = sensitive(data.azurerm_client_config.current.tenant_id)
   kubernetes_version     = var.aks.kubernetes_version
   admin_group_object_ids = var.aks.admin_group_object_ids
   authorized_ip_ranges   = var.aks.authorized_ip_ranges

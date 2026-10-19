@@ -1,6 +1,4 @@
 azure = {
-  subscription_id     = "3f61c49c-0dec-4867-9fe4-d0a5d093fda7"
-  tenant_id           = "878b1bc6-f48c-4603-967a-e6d01d40f794"
   location            = "uksouth"
   resource_group_name = "rg-management"
   tags = {

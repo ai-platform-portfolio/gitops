@@ -2,8 +2,20 @@
 
 BOOTSTRAP_DIR ?= $(CURDIR)/bootstrap
 TERRAFORM ?= terraform
+AZ ?= az
 
 .PHONY: help init plan up down
+
+# Both local users and CI identities provide an authenticated Azure CLI context.
+define run_terraform
+	@set -eu; \
+	ARM_SUBSCRIPTION_ID="$$( $(AZ) account show --query id --output tsv --only-show-errors )"; \
+	ARM_TENANT_ID="$$( $(AZ) account show --query tenantId --output tsv --only-show-errors )"; \
+	test -n "$$ARM_SUBSCRIPTION_ID"; \
+	test -n "$$ARM_TENANT_ID"; \
+	export ARM_SUBSCRIPTION_ID ARM_TENANT_ID; \
+	$(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" $(1)
+endef
 
 help:
 	@printf '%s\n' \
@@ -14,13 +26,13 @@ help:
 
 init:
 	@test -f "$(BOOTSTRAP_DIR)/main.tf" || { printf 'Bootstrap root not found: %s\n' "$(BOOTSTRAP_DIR)" >&2; exit 1; }
-	$(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" init -input=false
+	$(call run_terraform,init -input=false)
 
 plan: init
-	$(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" plan -input=false
+	$(call run_terraform,plan -input=false)
 
 up: init
-	$(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" apply -input=false -auto-approve
+	$(call run_terraform,apply -input=false -auto-approve)
 
 down: init
-	$(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" destroy -input=false -auto-approve
+	$(call run_terraform,destroy -input=false -auto-approve)

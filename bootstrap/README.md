@@ -23,7 +23,10 @@ Run Terraform from `gitops/bootstrap`, or use `make plan`, `make up` and
 
 Install Terraform >=1.5, Azure CLI, kubectl and kubelogin. Authenticate with
 `az login`. Your account needs resource creation/role assignment permissions and
-membership in the configured Entra admin group.
+membership in the configured Entra admin group. The Makefile derives account IDs
+from the selected Azure CLI session. CI establishes that same session using its
+managed identity before calling Make; tenant/subscription values are not tfvars
+inputs. Account-bearing outputs are marked sensitive.
 
 Complete the three marked inputs under `aks` in `terraform.tfvars`: a supported
 exact AKS version, Entra admin group IDs and operator/runner public API access
@@ -32,12 +35,12 @@ The remaining management settings are populated and can be edited there.
 
 ```sh
 az aks get-versions --location uksouth -o table
-terraform init
-terraform plan -out=bootstrap.tfplan
-terraform apply bootstrap.tfplan
+make -C .. plan
+make -C .. up
 ```
 
-Terraform automatically loads `terraform.tfvars`. There are no separate
+Terraform automatically loads `terraform.tfvars`. Direct Terraform commands also
+need `ARM_SUBSCRIPTION_ID` from the CLI session; the Makefile sets it automatically. There are no separate
 infrastructure/ArgoCD stages or target-based applies. A fresh cluster deployment
 and Helm connection still need verification in a live apply; CI checks formatting,
 provider schemas and chart rendering without provisioning Azure resources.

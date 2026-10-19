@@ -1,8 +1,6 @@
 variable "azure" {
-  description = "Shared Azure account, location, resource group and tags."
+  description = "Azure location, resource group and tags; account identity comes from the authenticated context."
   type = object({
-    subscription_id     = string
-    tenant_id           = string
     location            = string
     resource_group_name = string
     tags                = map(string)
