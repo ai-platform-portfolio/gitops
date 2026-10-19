@@ -18,6 +18,8 @@ provider "helm" {
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "kubelogin"
+      # Microsoft's public AKS server application ID; shared across environments.
+      # https://azure.github.io/kubelogin/concepts/aks.html
       args = ["get-token", "--login", "azurecli",
       "--server-id", "6dae42f8-4368-4678-94ff-3960e28e3630"]
     }
