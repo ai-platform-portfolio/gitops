@@ -1,0 +1,12 @@
+name: Linear issue check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  linear:
+    uses: ai-platform-portfolio/ops-shared/.github/workflows/linear-issue-check.yml@1afa38fcafcad127abfeef380b55b12afdfda411
+    secrets:
+      LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+      LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
