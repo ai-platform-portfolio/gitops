@@ -62,6 +62,19 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(doc['metadata']['namespace'], 'sonarqube')
 
 
+class PlatformInputTests(unittest.TestCase):
+    def test_root_passes_atlantis_inputs_and_defaults_older_outputs_to_disabled(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.settings = {'cluster': {'name': 'management', 'role': 'management'},
+                            'git': {'repository': 'https://example.test/gitops', 'revision': 'main'}}
+        values = cluster.root({}, False)['spec']['source']['helm']['valuesObject']
+        self.assertEqual(values['atlantis'], {'enabled': False})
+        configured = {'enabled': True, 'github_app_id': '12345', 'client_id': 'dedicated-identity'}
+        cluster.settings['atlantis'] = configured
+        values = cluster.root({}, True)['spec']['source']['helm']['valuesObject']
+        self.assertEqual(values['atlantis'], configured)
+
+
 class TeardownTests(unittest.TestCase):
     def test_azure_resources_block_teardown_before_operator_or_identity_removal(self):
         cluster = Cluster.__new__(Cluster)

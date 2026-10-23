@@ -106,7 +106,8 @@ class Cluster:
                     'source': {'repoURL': settings['git']['repository'],
                                'targetRevision': settings['git']['revision'], 'path': 'helm_chart/platform',
                                'helm': {'valuesObject': {'cluster': settings['cluster'], 'git': settings['git'],
-                                                        'runtime': runtime, 'sonarqubeReady': sonar_ready}}},
+                                                        'runtime': runtime, 'sonarqubeReady': sonar_ready,
+                                                        'atlantis': settings.get('atlantis', {'enabled': False})}}},
                     'syncPolicy': {'automated': {'prune': True, 'selfHeal': True},
                                    'retry': {'limit': 10, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '3m'}}}}}
 

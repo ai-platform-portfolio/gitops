@@ -53,4 +53,9 @@ spec:
 {{ tpl (.Files.Get "packages/azure-service-operator/namespace.yaml") . | indent 10 }}
 {{ end }}
 
+{{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/atlantis/namespace.yaml") . | indent 10 }}
+{{- end }}
+
 {{ include "platform.syncPolicy" . | indent 2 }}

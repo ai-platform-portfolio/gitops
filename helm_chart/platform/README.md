@@ -46,7 +46,7 @@ files easier to find.
 | 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
 | 20 | plugin-barman-cloud, external-dns, gateway | Operators/configuration are available |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
-| 40 | langfuse, opentelemetry-collector, k8s-monitoring | Backend services are ready |
+| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional management Atlantis | Backend services are ready |
 | 60 | sonarqube | PostgreSQL role and Database are reconciled; the JDBC Secret exists |
 | 70 | sonarqube-configure | SonarQube is healthy before its configuration job runs |
 | 80 | routes | Application backends are ready before public routes are attached |
@@ -81,3 +81,5 @@ cluster. Application data and backup containers are disposable on teardown.
 
 [Azure Service Operator](packages/azure-service-operator/README.md) describes its
 namespace credentials, Azure ownership boundary and consumer lifecycle.
+
+Atlantis is an opt-in management package; see its [setup and operation guide](packages/atlantis/README.md). It uses a persistent disk and existing Key Vault integration, with no PostgreSQL dependency.

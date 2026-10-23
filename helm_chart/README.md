@@ -125,7 +125,7 @@ multi-cluster provisioning or workload tfvars template.
 
 ## Packages and ingress
 
-Explicit Applications pin 17 releases on management (16 on workloads): cert-manager, External Secrets, Envoy Gateway,
+Explicit Applications pin 17 baseline releases on management (16 on workloads): cert-manager, External Secrets, Envoy Gateway,
 ExternalDNS, Loki, Mimir, Tempo, Grafana, Kubernetes Monitoring/Alloy,
 OpenTelemetry, ClickHouse operator/cluster, CloudNativePG, Barman, Langfuse and
 SonarQube Developer, plus Azure Service Operator on management. Argo Application health gates dependency waves.
@@ -176,3 +176,7 @@ pinned charts, checking stable secret references, CNPG schemas, ListenerSets and
 the actual Argo ConfigMap. Unit tests cover credential reuse and teardown error
 handling. CI also validates Terraform through shared ops workflows; it deploys
 no resources. The archived Flux setup remains on `feature/migrate-away-from-flux`.
+
+## Optional Terraform self-service
+
+[Atlantis](platform/packages/atlantis/README.md) adds an eighteenth pinned release on management when explicitly enabled. It uses GitHub App credentials, a dedicated Azure workload identity, a 5 GiB disk and human-approved PR applies. Bootstrap/recovery stay outside this runner. Complete its prerequisites and verify permissions before enabling it.

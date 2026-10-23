@@ -36,7 +36,15 @@ def main():
     with tempfile.TemporaryDirectory(prefix='platform-render-') as directory:
         tmp = Path(directory)
         values = tmp / 'values.json'
+        atlantis = {
+            'enabled': True, 'github_app_id': '12345', 'github_app_slug': 'platform-atlantis',
+            'github_team': 'platform', 'repositories': ['github.com/example/developer-infra'],
+            'client_id': '00000000-0000-0000-0000-000000000002',
+        }
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True}))
+        disabled = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+        assert 'atlantis' not in {app['metadata']['name'] for app in disabled}, 'Atlantis must be opt-in'
+        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis}))
         argo_values = tmp / 'argocd.json'
         argo_values.write_text(json.dumps({**bootstrap_values, 'extraObjects': [configmap]}))
         version = re.search(r'chart_version\s*=\s*"([^"]+)"', (bootstrap / 'terraform.tfvars').read_text())[1]
@@ -53,7 +61,7 @@ def main():
             'external-dns', 'gateway', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
-            'azure-service-operator',
+            'azure-service-operator', 'atlantis',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
@@ -83,13 +91,20 @@ def main():
                     assert role['login'] and not any(role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
                     database = next(d for d in documents if d['kind'] == 'Database')
                     assert database['spec']['owner'] == 'sonarqube' and database['spec']['databaseReclaimPolicy'] == 'retain'
+                if app['metadata']['name'] == 'configuration':
+                    secrets = {d['metadata']['name']: d for d in documents if d['kind'] == 'ExternalSecret'}
+                    assert {'atlantis-github', 'atlantis-web'} <= secrets.keys()
+                    assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
+                    assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
                 if app['metadata']['name'] == 'gateway':
                     gateway = next(d for d in documents if d['kind'] == 'Gateway')
                     assert gateway['spec']['allowedListeners']['namespaces']['from'] == 'Selector'
                     assert all(listener['protocol'] == 'HTTP' for listener in gateway['spec']['listeners'])
                 if app['metadata']['name'] == 'routes':
                     listeners = [d for d in documents if d['kind'] == 'ListenerSet']
-                    assert len(listeners) == 3
+                    assert len(listeners) == 4
+                    route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'atlantis')
+                    assert route['spec']['rules'][0]['backendRefs'] == [{'name': 'atlantis', 'port': 80}]
                     assert not any(d['kind'] == 'Certificate' for d in documents), 'cert-manager owns ListenerSet certificates'
                     for listener in listeners:
                         assert listener['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
@@ -99,8 +114,11 @@ def main():
                         if doc['kind'] == 'HTTPRoute' and doc['metadata']['name'] != 'https-redirect':
                             assert doc['spec']['parentRefs'][0]['kind'] == 'ListenerSet'
 
-        values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}}))
+        values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}, 'atlantis': atlantis}))
         workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+        assert 'atlantis' not in {a['metadata']['name'] for a in workload}, 'Workload must not install Atlantis even when enabled'
+        assert not any('namespace: atlantis' in json.dumps(a) for a in workload), 'Workload must not create Atlantis prerequisites or routes'
+        assert waves['configuration'] < waves['atlantis'] < waves['routes']
         assert 'federation' not in {a['metadata']['name'] for a in workload}, 'Workload must not manage the hub'
         assert 'azure-service-operator' not in {a['metadata']['name'] for a in workload}, 'ASO belongs on management only'
         workload_namespaces = next(a for a in workload if a['metadata']['name'] == 'namespaces')
@@ -195,6 +213,36 @@ def main():
                     assert override['webhooks'][0]['failurePolicy'] == 'Ignore'
                     assert [d for d in docs if d['kind'] == 'MutatingWebhookConfiguration']
                     assert all(w['failurePolicy'] == 'Fail' for d in docs if d['kind'] == 'MutatingWebhookConfiguration' for w in d['webhooks'])
+                if name == 'atlantis':
+                    server = next(d for d in docs if d['kind'] == 'StatefulSet')
+                    assert server['spec']['replicas'] == 1
+                    pod = server['spec']['template']
+                    assert pod['metadata']['labels']['azure.workload.identity/use'] == 'true'
+                    assert pod['spec']['automountServiceAccountToken'] is False
+                    container = pod['spec']['containers'][0]
+                    assert container['image'].endswith(':v0.48.2')
+                    env = {e['name']: e for e in container['env']}
+                    assert env['ATLANTIS_DISABLE_AUTOPLAN']['value'] == 'true'
+                    assert env['ATLANTIS_ALLOW_COMMANDS']['value'] == 'version,plan,apply,unlock'
+                    assert env['ATLANTIS_GH_TEAM_ALLOWLIST']['value'] == 'platform:version,platform:plan,platform:apply,platform:unlock'
+                    assert env['ATLANTIS_DISABLE_APPLY_ALL']['value'] == 'true'
+                    assert env['ATLANTIS_WEB_BASIC_AUTH']['value'] == 'true'
+                    assert env['ATLANTIS_GH_WEBHOOK_SECRET']['valueFrom']['secretKeyRef'] == {'name': 'atlantis-github', 'key': 'github_secret'}
+                    assert env['ATLANTIS_WEB_PASSWORD']['valueFrom']['secretKeyRef'] == {'name': 'atlantis-web', 'key': 'password'}
+                    assert env['ARM_USE_CLI']['value'] == 'false'
+                    assert env['ARM_USE_OIDC']['value'] == 'true'
+                    assert env['ARM_OIDC_TOKEN_FILE_PATH']['value'] == '/var/run/secrets/azure/tokens/azure-identity-token'
+                    assert not any(d['kind'] in {'Secret', 'ClusterRole', 'ClusterRoleBinding', 'Ingress'} for d in docs)
+                    service = next(d for d in docs if d['kind'] == 'Service')
+                    assert service['spec']['type'] == 'ClusterIP'
+                    assert service['spec']['ports'][0]['targetPort'] == 4141
+                    pvc = next(d for d in docs if d['kind'] == 'PersistentVolumeClaim')
+                    assert pvc['spec']['resources']['requests']['storage'] == '5Gi'
+                    config = next(d for d in docs if d['kind'] == 'ConfigMap' and 'repos.yaml' in d.get('data', {}))
+                    repo = yaml.safe_load(config['data']['repos.yaml'])['repos'][0]
+                    assert repo['apply_requirements'] == ['approved', 'mergeable', 'undiverged']
+                    assert repo['allowed_overrides'] == [] and repo['allow_custom_workflows'] is False
+                    assert repo['repo_locks']['mode'] == 'on_plan'
                 if name == 'sonarqube':
                     assert not any(d['kind'] == 'Job' and 'change-admin-password' in d['metadata']['name'] for d in docs)
                 second = command('helm', 'template', name, *args, '--version', source['targetRevision'],

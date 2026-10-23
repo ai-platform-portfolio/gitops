@@ -12,3 +12,8 @@ runtime: {}
 
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
+
+# Optional management-only runner. Bootstrap passes the private tfvars settings
+# and dedicated managed identity ID; see packages/atlantis/README.md.
+atlantis:
+  enabled: false

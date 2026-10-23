@@ -31,4 +31,9 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/sonarqube/networking.yaml") . | indent 10 }}
 
+{{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/atlantis/networking.yaml") . | indent 10 }}
+{{- end }}
+
 {{ include "platform.syncPolicy" . | indent 2 }}

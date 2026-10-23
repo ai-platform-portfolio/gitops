@@ -1,0 +1,31 @@
+{{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
+# ESO credentials are healthy before starting the management Terraform runner.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: atlantis
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: atlantis
+
+  source:
+    repoURL: https://runatlantis.github.io/helm-charts
+    chart: atlantis
+    targetRevision: "6.16.2"
+    helm:
+      releaseName: atlantis
+      valuesObject:
+{{ tpl (.Files.Get "packages/atlantis/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
