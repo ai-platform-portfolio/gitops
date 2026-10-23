@@ -27,7 +27,7 @@ init:
 	@test -f "$(TFVARS)" || { printf 'Cluster tfvars not found: %s\n' "$(TFVARS)" >&2; exit 1; }
 	@test -f "$(BOOTSTRAP_DIR)/main.tf" || { printf 'Bootstrap root not found: %s\n' "$(BOOTSTRAP_DIR)" >&2; exit 1; }
 	@test -f "$(BACKEND_CONFIG)" || { printf 'Backend config not found: %s; see README\n' "$(BACKEND_CONFIG)" >&2; exit 1; }
-	$(call run_terraform,init -input=false -backend-config="$(abspath $(BACKEND_CONFIG))")
+	$(call run_terraform,init -input=false -backend-config="$(BACKEND_CONFIG)")
 
 plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")
