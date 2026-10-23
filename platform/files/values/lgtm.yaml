@@ -1,0 +1,155 @@
+loki:
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    podLabels:
+      azure.workload.identity/use: 'true'
+    schemaConfig:
+      configs:
+      - from: '2026-01-01'
+        store: tsdb
+        object_store: azure
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+    storage:
+      type: azure
+      bucketNames:
+        chunks: {{ required "runtime.STORAGE_LOKI_CHUNKS is required" .Values.runtime.STORAGE_LOKI_CHUNKS }}
+        ruler: {{ required "runtime.STORAGE_LOKI_RULER is required" .Values.runtime.STORAGE_LOKI_RULER }}
+      azure:
+        accountName: {{ required "runtime.AZURE_STORAGE_ACCOUNT is required" .Values.runtime.AZURE_STORAGE_ACCOUNT }}
+        useFederatedToken: true
+  serviceAccount:
+    create: false
+    name: lgtm
+  singleBinary:
+    replicas: 1
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+  gateway:
+    serviceAccount:
+      create: false
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+
+grafana:
+  persistence:
+    enabled: true
+  deploymentStrategy:
+    type: Recreate
+  envFromSecrets:
+  - name: grafana-azuread-app
+  grafana.ini:
+    server:
+      root_url: https://grafana.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+    auth.azuread:
+      enabled: true
+      allowed_organizations: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}
+      auth_url: https://login.microsoftonline.com/{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}/oauth2/v2.0/authorize
+      token_url: https://login.microsoftonline.com/{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}/oauth2/v2.0/token
+      allow_assign_grafana_admin: true
+      role_attribute_path: contains(roles[*], 'GrafanaAdmin') && 'GrafanaAdmin' || contains(roles[*],
+        'Admin') && 'Admin' || contains(roles[*], 'Editor') && 'Editor' || 'Viewer'
+    auth.basic:
+      enabled: false
+    auth:
+      disable_login_form: true
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+      - name: Mimir
+        type: prometheus
+        url: http://mimir-gateway.lgtm.svc.cluster.local/prometheus
+        isDefault: true
+      - name: Loki
+        type: loki
+        url: http://loki-gateway.lgtm.svc.cluster.local
+      - name: Tempo
+        type: tempo
+        url: http://tempo.lgtm.svc.cluster.local:3200
+  serviceAccount:
+    create: false
+    name: lgtm
+
+  admin:
+    existingSecret: platform-grafana-admin
+    userKey: user
+    passwordKey: password
+
+tempo:
+  podLabels:
+    azure.workload.identity/use: 'true'
+  serviceAccount:
+    create: false
+    name: lgtm
+  persistence:
+    enabled: true
+  tempo:
+    storage:
+      trace:
+        backend: azure
+        azure:
+          container_name: {{ required "runtime.STORAGE_TEMPO_TRACES is required" .Values.runtime.STORAGE_TEMPO_TRACES }}
+          storage_account_name: {{ required "runtime.AZURE_STORAGE_ACCOUNT is required" .Values.runtime.AZURE_STORAGE_ACCOUNT }}
+          use_federated_token: true
+
+mimir:
+  global:
+    podLabels:
+      azure.workload.identity/use: 'true'
+  serviceAccount:
+    create: false
+    name: lgtm
+  minio:
+    enabled: false
+  kafka:
+    enabled: false
+  mimir:
+    structuredConfig:
+      multitenancy_enabled: false
+      ingest_storage:
+        enabled: false
+      ingester:
+        push_grpc_method_enabled: true
+        ring:
+          replication_factor: 1
+      common:
+        storage:
+          backend: azure
+          azure:
+            account_name: {{ required "runtime.AZURE_STORAGE_ACCOUNT is required" .Values.runtime.AZURE_STORAGE_ACCOUNT }}
+      blocks_storage:
+        backend: azure
+        azure:
+          container_name: {{ required "runtime.STORAGE_MIMIR_BLOCKS is required" .Values.runtime.STORAGE_MIMIR_BLOCKS }}
+      ruler_storage:
+        azure:
+          container_name: {{ required "runtime.STORAGE_MIMIR_RULER is required" .Values.runtime.STORAGE_MIMIR_RULER }}
+      alertmanager_storage:
+        azure:
+          container_name: {{ required "runtime.STORAGE_MIMIR_ALERTMANAGER is required" .Values.runtime.STORAGE_MIMIR_ALERTMANAGER }}
+  ingester:
+    replicas: 1
+    zoneAwareReplication:
+      enabled: false
+  store_gateway:
+    zoneAwareReplication:
+      enabled: false
+  querier:
+    replicas: 1
+  query_scheduler:
+    replicas: 1

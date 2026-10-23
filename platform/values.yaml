@@ -1,0 +1,144 @@
+cluster:
+  name: management
+  role: management
+git:
+  repository: https://github.com/ai-platform-portfolio/gitops.git
+  revision: main
+runtime: {}
+packages:
+  langfuse:
+    namespace: langfuse
+    wave: 40
+    chart: langfuse
+    version: 2.1.4
+    repository: https://langfuse.github.io/langfuse-k8s
+  clickhouse-operator:
+    namespace: clickhouse
+    wave: 0
+    chart: clickhouse-operator-helm
+    version: 0.0.8
+    repository: ghcr.io/clickhouse
+  opentelemetry-collector:
+    namespace: opentelemetry
+    wave: 40
+    chart: opentelemetry-collector
+    version: 0.175.1
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  loki:
+    valuesGroup: lgtm
+    namespace: lgtm
+    wave: 30
+    chart: loki
+    version: 18.15.1
+    repository: https://grafana-community.github.io/helm-charts
+  grafana:
+    valuesGroup: lgtm
+    namespace: lgtm
+    wave: 30
+    chart: grafana
+    version: 13.5.0
+    repository: https://grafana-community.github.io/helm-charts
+  tempo:
+    valuesGroup: lgtm
+    namespace: lgtm
+    wave: 30
+    chart: tempo
+    version: 3.1.0
+    repository: https://grafana-community.github.io/helm-charts
+  mimir:
+    valuesGroup: lgtm
+    namespace: lgtm
+    wave: 30
+    chart: mimir-distributed
+    version: 6.2.1
+    repository: https://grafana.github.io/helm-charts
+  external-dns:
+    namespace: external-dns
+    wave: 20
+    chart: external-dns
+    version: 1.23.0
+    repository: https://kubernetes-sigs.github.io/external-dns/
+  cert-manager:
+    namespace: cert-manager
+    # Gateway API CRDs must exist before the certificate controllers start.
+    wave: 5
+    chart: cert-manager
+    version: v1.21.2
+    repository: quay.io/jetstack/charts
+  envoy-gateway:
+    namespace: envoy-gateway-system
+    wave: 0
+    chart: gateway-helm
+    version: v1.9.2
+    repository: docker.io/envoyproxy
+  plugin-barman-cloud:
+    namespace: cnpg-system
+    wave: 20
+    chart: plugin-barman-cloud
+    version: 0.8.1
+    repository: https://cloudnative-pg.github.io/charts
+  cloudnative-pg:
+    namespace: cnpg-system
+    wave: 10
+    chart: cloudnative-pg
+    version: 0.29.1
+    repository: https://cloudnative-pg.github.io/charts
+  sonarqube:
+    namespace: sonarqube
+    wave: 60
+    chart: sonarqube
+    version: 2026.5.1002
+    repository: https://sonarsource.github.io/helm-chart-sonarqube
+  external-secrets:
+    namespace: external-secrets
+    wave: 0
+    chart: external-secrets
+    version: 2.12.0
+    repository: https://charts.external-secrets.io
+  k8s-monitoring:
+    namespace: monitoring
+    wave: 40
+    chart: k8s-monitoring
+    version: 4.5.3
+    repository: https://grafana.github.io/helm-charts
+  clickhouse:
+    namespace: clickhouse
+    wave: 30
+    chart: clickhouse-cluster-helm
+    version: 0.0.8
+    repository: ghcr.io/clickhouse
+  namespaces:
+    wave: -10
+    namespace: argocd
+    path: charts/resources
+    group: namespaces
+  configuration:
+    wave: 10
+    namespace: argocd
+    path: charts/resources
+    group: configuration
+  gateway:
+    wave: 20
+    namespace: argocd
+    path: charts/resources
+    group: gateway
+  postgres:
+    wave: 30
+    namespace: argocd
+    path: charts/resources
+    group: postgres
+  routes:
+    wave: 80
+    namespace: argocd
+    path: charts/resources
+    group: routes
+  federation:
+    wave: 0
+    namespace: argocd
+    path: federation
+  sonarqube-configure:
+    wave: 70
+    namespace: sonarqube
+    path: charts/resources
+    group: sonarqube-configure
+sonarqubeReady: false

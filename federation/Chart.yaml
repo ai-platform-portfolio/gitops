@@ -1,0 +1,4 @@
+apiVersion: v2
+name: federation
+version: 0.1.0
+description: Seed independently reconciled workload platform Applications

@@ -1,0 +1,14 @@
+config:
+  gatewayAPI:
+    enabled: true
+    enableListenerSet: true
+  featureGates:
+    ListenerSets: true
+crds:
+  enabled: true
+podLabels:
+  azure.workload.identity/use: 'true'
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: {{ required "runtime.AZURE_CLIENT_ID is required" .Values.runtime.AZURE_CLIENT_ID }}
+  name: cert-manager

@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sonarqube-configure
+  namespace: sonarqube
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: configure
+        image: curlimages/curl:8.12.1
+        command:
+        - sh
+        - -ec
+        - |
+{{ tpl (.Files.Get "files/sonarqube-configure.sh") . | indent 10 }}
+        env:
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: sonarqube-admin
+              key: password
+        - name: CURRENT_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: sonarqube-admin
+              key: currentPassword
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
