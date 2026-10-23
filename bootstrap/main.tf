@@ -16,11 +16,25 @@ data "azurerm_key_vault" "platform" {
 }
 
 locals {
-  role_scopes = merge(var.identity_role_scopes, {
-    dns_zone        = data.azurerm_dns_zone.existing.id
-    key_vault       = data.azurerm_key_vault.platform.id
-    storage_account = data.azurerm_storage_account.platform.id
-  })
+  # Derive authority and package role scopes from the same private choices.
+  atlantis_role_scopes = {
+    for name, role in var.platform.atlantis.azure.role_assignments : "atlantis_${name}" => join("", [
+      "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${role.resource_group_name}",
+      role.storage_account_name == null ? "" : "/providers/Microsoft.Storage/storageAccounts/${role.storage_account_name}"
+    ])
+  }
+
+  role_scopes = merge(
+    {
+      dns_zone        = data.azurerm_dns_zone.existing.id
+      key_vault       = data.azurerm_key_vault.platform.id
+      storage_account = data.azurerm_storage_account.platform.id
+    },
+    local.atlantis_role_scopes,
+    var.platform.atlantis.enabled ? {
+      atlantis_identities = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.platform.atlantis.azure.identity_resource_group_name}"
+    } : {}
+  )
 }
 
 resource "azurerm_resource_group" "this" {

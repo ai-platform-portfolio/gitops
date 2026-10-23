@@ -89,3 +89,16 @@ data:
       end
     end
     return {status = "Progressing", message = "Waiting for the hostname certificate"}
+
+  # ASO exports identity data before Ready=True. Gate dependent Applications on
+  # Ready for this generation, never an earlier successful Azure reconciliation.
+  # Wildcards belong in resource.customizations, not individual health keys.
+  resource.customizations: |
+    "*.azure.com/*":
+      health.lua: |
+        for _, condition in ipairs((obj.status or {}).conditions or {}) do
+          if condition.type == "Ready" and condition.status == "True" and condition.observedGeneration == obj.metadata.generation then
+            return {status = "Healthy"}
+          end
+        end
+        return {status = "Progressing", message = "Waiting for current Azure resource reconciliation"}

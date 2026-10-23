@@ -73,7 +73,7 @@ platform = {
   acme_email                 = "REPLACE_WITH_ACME_EMAIL"
 
   # Enable only after supplying the GitHub App, Key Vault secrets, trusted team
-  # and a dedicated identities.atlantis entry; see bootstrap/README.md.
+  # and a bootstrap identities.aso provisioner entry; see bootstrap/README.md.
   atlantis = {
     enabled = false
   }

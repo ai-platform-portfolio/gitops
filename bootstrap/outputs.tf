@@ -32,6 +32,11 @@ output "aks_connection" {
 output "platform_settings" {
   sensitive = true
 
+  precondition {
+    condition     = !var.platform.atlantis.enabled || (contains(keys(var.identities), "aso") && !contains(keys(var.identities), "atlantis"))
+    error_message = "Enabling Atlantis requires identities.aso and no identities.atlantis entry. ASO owns the application identity; Terraform owns only its provisioner."
+  }
+
   value = {
     cluster = {
       name = var.platform.cluster_name
@@ -43,10 +48,9 @@ output "platform_settings" {
       revision   = var.platform.git_revision
     }
 
-    atlantis = merge(var.platform.atlantis, {
-      # An enabled server must use its own federated identity, never platform's.
-      client_id = var.platform.atlantis.enabled ? module.identities["atlantis"].client_id : ""
-    })
+    # ASO creates the application identity; Terraform supplies only the
+    # operator's initial authority. No Atlantis client ID comes from Terraform.
+    atlantis = var.platform.atlantis
 
     sonarqube_sso_display_name = var.platform.sonarqube_sso_display_name
 
@@ -58,6 +62,8 @@ output "platform_settings" {
     }
 
     runtime = {
+      ASO_AZURE_CLIENT_ID      = try(module.identities["aso"].client_id, "")
+      AZURE_LOCATION           = var.azure.location
       AZURE_CLIENT_ID          = module.identities["platform"].client_id
       POSTGRES_AZURE_CLIENT_ID = module.identities["postgres"].client_id
       AZURE_DNS_RESOURCE_GROUP = var.dns.zone.resource_group_name

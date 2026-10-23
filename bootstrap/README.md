@@ -29,11 +29,12 @@ kubectl -n argocd port-forward svc/argocd-server 8080:443
 Read the initial password locally from `argocd-initial-admin-secret`; do not
 commit it or print it in logs.
 
-## Optional Atlantis inputs
+## Optional Atlantis and ASO inputs
 
-`platform.atlantis` defaults to disabled, preserving existing local tfvars. The
-GitOps Atlantis package consumes these settings through `platform_settings`.
-Enable it only on management after creating its GitHub App and secrets:
+Atlantis defaults to disabled. Enable it on management with private GitHub and
+Azure deployment choices in ignored local tfvars. The GitOps package owns the
+application's managed identity, federated credential and scoped role assignments
+through ASO. Terraform supplies ASO's initial authority and the Argo health gate.
 
 ```hcl
 # Inside platform = { ... }
@@ -42,70 +43,97 @@ atlantis = {
   github_app_id   = "REPLACE_WITH_NUMERIC_APP_ID"
   github_app_slug = "REPLACE_WITH_APP_SLUG"
   github_team     = "REPLACE_WITH_TRUSTED_TEAM_SLUG"
+
   repositories = [
     "github.com/YOUR_ORG/*",
     "!github.com/YOUR_ORG/gitops",
     "!github.com/YOUR_ORG/terraform",
   ]
+
+  azure = {
+    # Existing dedicated service-identity RG; keep platform/bootstrap identities
+    # in their own Terraform-owned RG. No new storage account is created here.
+    identity_resource_group_name = "rg-service-identities"
+
+    role_assignments = {
+      state = {
+        resource_group_name  = "rg-developer-state"
+        storage_account_name = "REPLACE_WITH_EXISTING_STATE_ACCOUNT"
+        role_definition_name = "Storage Blob Data Contributor"
+      }
+      deployment = {
+        resource_group_name  = "rg-service-dev"
+        role_definition_name = "Contributor"
+      }
+    }
+  }
 }
 ```
 
-Organisation patterns automatically cover new Backstage-created repositories;
-there is no per-repository Atlantis server update. Exact repository IDs remain
-supported, and `!` patterns exclude fixed platform/bootstrap or module-library
-repositories. Wildcard host or organisation names are rejected. The GitHub App's
-installation must independently grant access to new repositories: install it on
-all repositories in the organisation or include installation access in the
-repository onboarding workflow. These patterns do not grant Azure permissions.
+An organisation pattern covers Backstage-created repositories without a server
+change. Exact repositories and fixed `!` exclusions are also supported. The
+GitHub App installation must cover new repos independently of this allowlist.
+Use the existing `platform.key_vault` for the four manually supplied GitHub/UI
+secrets; never put their values into tfvars or Terraform state.
 
-Atlantis reads secrets from the same `platform.key_vault` used by bootstrap and
-External Secrets. No separate Key Vault is created. Add the four secret values
-manually to that existing vault as described in the Atlantis package guide; do
-not put them in Terraform inputs.
-
-Add a dedicated entry to the existing `identities` map in ignored local tfvars:
+Add a dedicated provisioner to the existing `identities` map. Its federated
+subject is the ASO controller, not the Atlantis service account:
 
 ```hcl
 # Inside identities = { ... }
-atlantis = {
-  name = "id-management-atlantis"
+aso = {
+  name = "id-management-aso-provisioner"
 
   federated_credentials = {
-    atlantis = {
-      namespace       = "atlantis"
-      service_account = "atlantis"
+    aso = {
+      namespace       = "azureserviceoperator-system"
+      service_account = "azureserviceoperator-default"
     }
   }
 
   role_assignments = {
-    state = {
-      scope                = "terraform_state"
-      role_definition_name = "Storage Blob Data Contributor"
+    identity_management = {
+      scope                = "atlantis_identities"
+      role_definition_name = "Managed Identity Contributor"
     }
-    deployment = {
-      scope                = "developer_environment"
-      role_definition_name = "Contributor"
+    state_grants = {
+      scope                = "atlantis_state"
+      role_definition_name = "Role Based Access Control Administrator"
+    }
+    deployment_grants = {
+      scope                = "atlantis_deployment"
+      role_definition_name = "Role Based Access Control Administrator"
     }
   }
 }
 ```
 
-`identity_role_scopes` adds named scopes to the identity module's existing scope
-map. Set `terraform_state` to the persistent state storage account's ID and
-`developer_environment` to the approved deployment resource group's ID in ignored
-local tfvars. Choose narrower/custom deployment roles where appropriate. The
-built-in `dns_zone`, `key_vault` and `storage_account` aliases remain reserved.
-No subscription-wide Contributor, Owner or role-assignment privilege is granted
-by these examples. The target resource group must already exist; provisioning
-shared foundations remains a platform operation.
+`atlantis_identities` scopes identity management to the configured existing
+service-identity resource group. `atlantis_<key>` scopes role administration to
+that key's existing resource group or storage account. These aliases are derived
+from the same package inputs and authenticated provider context; do not duplicate
+ARM scope IDs in output settings. Add matching provisioner authority when adding
+package role targets. The state example uses storage-account scope, not individual
+containers. All resources must be in the selected subscription for this initial
+implementation.
 
-The dedicated identity gets no access to the management Terraform state unless
-you deliberately choose that scope. Use a separate state account when a real
-security boundary between management and developer state is required; different
-state keys alone do not provide access isolation. This change creates no state
-storage account/container and never deletes the existing backend.
+Role administration is privileged within its configured scopes. Review those
+scopes and Azure RBAC conditions as part of the permission model. The example
+provides no subscription-wide Owner/Contributor and does not let ASO modify
+bootstrap identities in the management resource group. Select the state scope as
+an explicit trust decision: account-level Blob access
+covers all its state blobs, so sharing management/developer state in one account
+shares that boundary. A repository exclusion alone does not isolate state. The
+external persistent state backend is never owned or deleted by the package.
 
-GitHub private keys, webhook secrets and UI passwords stay in Key Vault, outside
-Terraform state and Helm values. Live GitHub/Azure integration and permission
-controls must be verified before use. Bootstrap and recovery remain executable
-outside the cluster; do not give Atlantis ownership of its hosting cluster.
+Do not add an `identities.atlantis` entry: the output precondition rejects mixed
+ownership. If an earlier draft was manually applied, perform a reviewed ownership
+migration before enabling the new package; this change does not detach existing
+state or adopt an existing Azure identity automatically.
+
+Merge the companion GitOps package before enabling the input. Bootstrap installs
+current-generation ASO health checks in the actual Argo ConfigMap. The lifecycle
+reads the management AKS OIDC issuer privately at runtime; tenant/subscription IDs
+and the issuer are not added to Terraform outputs. Bootstrap/lifecycle continue
+to use the current CLI login; the Atlantis runner uses its projected token.
+No GitHub secrets or Azure resources are provisioned by validation alone.

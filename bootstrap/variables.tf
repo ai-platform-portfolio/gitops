@@ -83,12 +83,6 @@ variable "identities" {
   }
 }
 
-variable "identity_role_scopes" {
-  description = "Additional named Azure role scopes, for example an existing Terraform state account. Real IDs stay in ignored tfvars."
-  type        = map(string)
-  default     = {}
-}
-
 variable "argocd" {
   description = "ArgoCD Helm chart and initial values file."
 
@@ -125,7 +119,7 @@ variable "platform" {
       }))
     })
 
-    # Enabling Atlantis requires a dedicated identities.atlantis entry. GitHub
+    # Enabling Atlantis requires a bootstrap identities.aso provisioner entry. GitHub
     # secrets are read by External Secrets; only non-secret settings go to Argo.
     atlantis = optional(object({
       enabled         = optional(bool, false)
@@ -133,6 +127,16 @@ variable "platform" {
       github_app_slug = optional(string, "")
       github_team     = optional(string, "")
       repositories    = optional(set(string), [])
+
+      azure = optional(object({
+        identity_resource_group_name = optional(string, "")
+
+        role_assignments = optional(map(object({
+          resource_group_name  = string
+          storage_account_name = optional(string)
+          role_definition_name = string
+        })), {})
+      }), {})
     }), {})
 
     sonarqube_sso_display_name = optional(string, "REPLACE_WITH_ENTRA_SAML_APP_NAME")
@@ -144,10 +148,17 @@ variable "platform" {
       can(regex("^[0-9]+$", var.platform.atlantis.github_app_id)) &&
       can(regex("^[a-zA-Z0-9-]+$", var.platform.atlantis.github_app_slug)) &&
       can(regex("^[a-zA-Z0-9-]+$", var.platform.atlantis.github_team)) &&
+      length(var.platform.atlantis.azure.identity_resource_group_name) > 0 &&
+      length(var.platform.atlantis.azure.role_assignments) > 0 &&
+      alltrue([for name, role in var.platform.atlantis.azure.role_assignments :
+        can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", name)) && length(name) <= 54 &&
+        length(role.resource_group_name) > 0 && length(role.role_definition_name) > 0 &&
+        (role.storage_account_name == null || can(regex("^[a-z0-9]{3,24}$", role.storage_account_name)))
+      ]) &&
       anytrue([for repo in var.platform.atlantis.repositories : !startswith(repo, "!")]) &&
       alltrue([for repo in var.platform.atlantis.repositories : can(regex("^!?github\\.com/[a-zA-Z0-9-]+/([a-zA-Z0-9_.-]+|\\*)$", repo))])
     )
-    error_message = "Atlantis requires management role, numeric GitHub App ID, App/team slugs and github.com/owner/repository or github.com/owner/* patterns; ! exclusions are allowed, with at least one positive pattern."
+    error_message = "Atlantis requires management role, numeric GitHub App ID, App/team slugs and an Azure identity resource group and scoped roles, github.com/owner/repository or github.com/owner/* patterns; ! exclusions are allowed, with at least one positive pattern."
   }
 
   validation {
