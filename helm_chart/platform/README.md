@@ -52,7 +52,7 @@ files easier to find.
 | 80 | routes | Application backends are ready before public routes are attached |
 
 Waves belong to child Applications in one local root. The custom Application
-health check in `../bootstrap/argocd-configmap.yaml` waits for current-source sync
+health check in `../../bootstrap/argocd-configmap.yaml` waits for current-source sync
 and health before the parent advances. ApplicationSet creation order alone does
 not provide these dependency gates.
 

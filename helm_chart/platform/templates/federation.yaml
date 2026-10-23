@@ -1,13 +1,14 @@
-# Issuers and operators are ready for gateway, DNS and backup integration.
+{{- if eq .Values.cluster.role "management" }}
+# Install foundational controllers and management onboarding.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: gateway
+  name: federation
   namespace: argocd
   labels:
     platform.ai-platform-portfolio/managed: "true"
   annotations:
-    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 
@@ -20,10 +21,11 @@ spec:
   source:
     repoURL: {{ .Values.git.repository }}
     targetRevision: {{ .Values.git.revision | quote }}
-    path: charts/resources
+    path: helm_chart/federation
     helm:
       valuesObject:
-        manifests: |
-{{ tpl (.Files.Get "packages/envoy-gateway/gateway.yaml") . | indent 10 }}
+        git:
+{{ .Values.git | toYaml | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

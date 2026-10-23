@@ -104,7 +104,7 @@ class Cluster:
                 'spec': {'project': 'default',
                     'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
                     'source': {'repoURL': settings['git']['repository'],
-                               'targetRevision': settings['git']['revision'], 'path': 'platform',
+                               'targetRevision': settings['git']['revision'], 'path': 'helm_chart/platform',
                                'helm': {'valuesObject': {'cluster': settings['cluster'], 'git': settings['git'],
                                                         'runtime': runtime, 'sonarqubeReady': sonar_ready}}},
                     'syncPolicy': {'automated': {'prune': True, 'selfHeal': True},

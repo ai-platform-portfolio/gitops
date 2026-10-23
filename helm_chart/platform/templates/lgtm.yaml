@@ -121,7 +121,7 @@ spec:
 {{ (tpl (.Files.Get "packages/lgtm/values.yaml") . | fromYaml).mimir | toYaml | indent 10 }}
     - repoURL: {{ .Values.git.repository }}
       targetRevision: {{ .Values.git.revision | quote }}
-      path: charts/resources
+      path: helm_chart/charts/resources
       helm:
         valuesObject:
           manifests: |

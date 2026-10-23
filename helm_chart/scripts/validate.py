@@ -9,7 +9,8 @@ import tempfile
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
+HELM_CHART = ROOT / 'helm_chart'
 
 
 def command(*args):
@@ -24,7 +25,7 @@ def main():
     assert configmap['kind'] == 'ConfigMap' and configmap['metadata']['name'] == 'argocd-cm'
     outputs = (bootstrap / 'outputs.tf').read_text()
     assert 'data.azurerm_client_config' not in outputs and 'var.account' not in outputs and 'oidc_issuer_url' not in outputs, 'Account identifiers must not be Terraform outputs'
-    runtime = {name: 'example' for path in (ROOT / 'platform/packages').rglob('*') if path.is_file()
+    runtime = {name: 'example' for path in (HELM_CHART / 'platform/packages').rglob('*') if path.is_file()
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
     runtime.update(DNS_ZONE='example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
@@ -43,7 +44,7 @@ def main():
             'https://argoproj.github.io/argo-helm', '--version', version, '--namespace', 'argocd', '-f', str(argo_values))))
         maps = [d for d in argo if d and d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'argocd-cm']
         assert len(maps) == 1 and maps[0]['data'] == configmap['data'], 'Helm must install exactly the file-defined Argo ConfigMap'
-        applications = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(ROOT / 'platform'), '-f', str(values))))
+        applications = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
@@ -98,7 +99,7 @@ def main():
                             assert doc['spec']['parentRefs'][0]['kind'] == 'ListenerSet'
 
         values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}}))
-        workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(ROOT / 'platform'), '-f', str(values))))
+        workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'federation' not in {a['metadata']['name'] for a in workload}, 'Workload must not manage the hub'
         assert not any(a['metadata']['name'].startswith('sonarqube') for a in workload), 'Sonar must wait for cluster credential preparation'
         initial_postgres = next(a for a in workload if a['metadata']['name'] == 'postgres')

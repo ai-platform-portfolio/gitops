@@ -1,10 +1,13 @@
 name: Validate platform
+
 on:
   pull_request:
   push:
     branches: [main]
+
 permissions:
   contents: read
+
 jobs:
   validate:
     uses: ai-platform-portfolio/ops-shared/.github/workflows/validate.yml@1afa38fcafcad127abfeef380b55b12afdfda411
@@ -17,18 +20,24 @@ jobs:
       helm-release: argocd
       helm-namespace: argocd
       helm-values-file: bootstrap/argocd-values.yaml
+
   platform:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
       - uses: azure/setup-helm@v4.3.0
         with:
           version: v3.17.3
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r scripts/requirements.txt
+
+      - run: python -m pip install -r helm_chart/scripts/requirements.txt
+
       - run: make validate
