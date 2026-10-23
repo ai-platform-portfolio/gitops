@@ -15,17 +15,31 @@ data "azurerm_key_vault" "platform" {
   resource_group_name = var.platform.key_vault.resource_group_name
 }
 
+locals {
+  role_scopes = merge(
+    {
+      dns_zone  = data.azurerm_dns_zone.existing.id
+      key_vault = data.azurerm_key_vault.platform.id
+    },
+    {
+      for key, container in var.platform.storage.containers : "storage:${key}" => "${data.azurerm_storage_account.platform.id}/blobServices/default/containers/${container.name}"
+    }
+  )
+}
+
 resource "azurerm_resource_group" "this" {
+  name     = var.azure.resource_group_name
+  location = var.azure.location
+  tags     = var.azure.tags
+
+  # Guard the selected Terraform state: default is management; other workspaces
+  # must match cluster_name. This prevents operating on the wrong cluster state.
   lifecycle {
     precondition {
       condition     = var.platform.cluster_name == (terraform.workspace == "default" ? "management" : terraform.workspace)
       error_message = "Select the workspace matching platform.cluster_name; default is reserved for management."
     }
   }
-
-  name     = var.azure.resource_group_name
-  location = var.azure.location
-  tags     = var.azure.tags
 }
 
 module "network" {
@@ -48,6 +62,7 @@ module "aks" {
   admin_group_object_ids = var.aks.admin_group_object_ids
   authorized_ip_ranges   = var.aks.authorized_ip_ranges
   vnet_subnet_id         = module.network.subnet_ids[var.aks.system_node_pool.subnet_key]
+
   system_node_pool = {
     vm_size         = var.aks.system_node_pool.vm_size
     node_count      = var.aks.system_node_pool.node_count
@@ -72,6 +87,7 @@ module "identities" {
   name                = each.value.name
   location            = var.azure.location
   resource_group_name = azurerm_resource_group.this.name
+
   federated_credentials = {
     for name, credential in each.value.federated_credentials : name => {
       issuer    = module.aks.oidc_issuer_url
@@ -93,14 +109,16 @@ module "identities" {
 module "argocd" {
   source        = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/argocd-bootstrap?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
   chart_version = var.argocd.chart_version
+
   values = [file("${path.module}/${var.argocd.values_file}"), yamlencode(merge({
     extraObjects = [yamldecode(file("${path.module}/${var.argocd.configmap_file}"))]
     }, {
     for component in var.argocd.identity_components : component => {
-      podLabels      = { "azure.workload.identity/use" = "true" }
+      podLabels = { "azure.workload.identity/use" = "true" }
+
       serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }
     }
-
   }))]
+
   depends_on = [module.aks]
 }

@@ -14,11 +14,14 @@ the deployment settings. In particular, choose a supported exact AKS Kubernetes
 version, the Entra admin security group and authorized public API CIDRs. Existing
 DNS, Key Vault and one retained platform storage account must already exist.
 The retained account uses separate cluster data containers and metadata prefixes.
+The application VM size in tfvars is a capacity estimate, not a dependency of this
+bootstrap; validate workload sizing before deployment.
 
 The Makefile uses `bootstrap/local.tfvars` for management when present and passes
 it with `-var-file`. Set `TFVARS=/path/to/settings.tfvars` to choose another file.
 Workloads use `CLUSTER=<name>`, the matching Terraform workspace and
-`clusters/<name>/terraform.tfvars`; start from `clusters/workload.tfvars.example`.
+`clusters/<name>/terraform.tfvars`; copy the bootstrap tfvars and set the workload
+cluster role, name and unique infrastructure settings.
 Management uses workspace `default`. Private tfvars and state must stay out of Git.
 
 ## Bootstrap lifecycle

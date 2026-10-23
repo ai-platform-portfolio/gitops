@@ -3,7 +3,7 @@
 One Terraform root builds networking, AKS, map-driven managed identities and
 ArgoCD. The reusable identity module also owns scoped roles. Inputs are grouped
 in `terraform.tfvars` and ignored `local.tfvars`; declarations are in `variables.tf`,
-scope lookups in `locals.tf`, and authentication in `provider.tf`.
+scope lookups alongside the modules in `main.tf`, and authentication in `provider.tf`.
 
 `argocd-values.yaml` contains deployment settings. `argocd-configmap.yaml` is the
 actual Argo configuration resource, installed as part of the same Helm release.

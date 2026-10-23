@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Prepare retained platform containers using the authenticated Azure CLI account."""
+"""Create retained containers before Terraform assigns container-scoped roles.
+
+The storage account and its contents are outside cluster Terraform ownership so
+backups and lifecycle records survive make down. Creation is idempotent.
+"""
 import argparse
 import json
 import os

@@ -20,6 +20,7 @@ output "port_forward_command" {
 
 output "aks_connection" {
   sensitive = true
+
   value = {
     name           = module.aks.cluster_name
     resource_group = azurerm_resource_group.this.name
@@ -30,6 +31,7 @@ output "aks_connection" {
 
 output "postgres_connection" {
   sensitive = true
+
   value = {
     storage_account    = data.azurerm_storage_account.platform.name
     container          = var.platform.storage.containers["postgres"].name
@@ -42,11 +44,15 @@ output "postgres_connection" {
 
 output "platform_settings" {
   sensitive = true
+
   value = {
-    cluster                    = { name = var.platform.cluster_name, role = var.platform.cluster_role }
+    cluster = { name = var.platform.cluster_name, role = var.platform.cluster_role }
+
     git                        = { repository = var.platform.git_repository, revision = var.platform.git_revision }
     sonarqube_sso_display_name = var.platform.sonarqube_sso_display_name
-    storage_containers         = { for key, container in var.platform.storage.containers : key => container.name }
+
+    storage_containers = { for key, container in var.platform.storage.containers : key => container.name }
+
     argocd_identity = {
       client_id    = module.identities["argocd"].client_id
       principal_id = module.identities["argocd"].principal_id

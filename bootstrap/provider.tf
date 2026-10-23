@@ -3,7 +3,8 @@ terraform {
 
   required_providers {
     azurerm = { source = "hashicorp/azurerm", version = "~> 4.0" }
-    helm    = { source = "hashicorp/helm", version = "~> 2.0" }
+
+    helm = { source = "hashicorp/helm", version = "~> 2.0" }
   }
 }
 
@@ -20,6 +21,7 @@ provider "helm" {
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "kubelogin"
+
       args = ["get-token", "--login", "azurecli",
         "--server-id", "6dae42f8-4368-4678-94ff-3960e28e3630" # Microsoft public AKS server app ID: https://azure.github.io/kubelogin/concepts/aks.html
       ]

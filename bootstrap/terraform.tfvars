@@ -2,6 +2,7 @@
 azure = {
   location            = "uksouth"
   resource_group_name = "rg-management"
+
   tags = {
     purpose    = "management"
     managed-by = "terraform"
@@ -9,8 +10,10 @@ azure = {
 }
 
 network = {
-  name          = "vnet-management"
+  name = "vnet-management"
+
   address_space = ["10.1.0.0/16"]
+
   subnets = {
     snet-aks-system-management = {
       address_prefixes = ["10.1.0.0/24"]
@@ -30,9 +33,12 @@ aks = {
   name = "aks-management"
   # Set actual values in ignored bootstrap/local.tfvars. The Makefile passes that
   # file with -var-file when present; override it with TFVARS=/path/to/settings.tfvars.
-  kubernetes_version     = "REPLACE_WITH_SUPPORTED_VERSION"
+  kubernetes_version = "REPLACE_WITH_SUPPORTED_VERSION"
+
   admin_group_object_ids = ["REPLACE_WITH_ENTRA_SECURITY_GROUP_ID"]
-  authorized_ip_ranges   = ["REPLACE_WITH_YOUR_PUBLIC_IP/32"]
+
+  authorized_ip_ranges = ["REPLACE_WITH_YOUR_PUBLIC_IP/32"]
+
   system_node_pool = {
     subnet_key = "snet-aks-system-management"
     vm_size    = "Standard_D4s_v5"
@@ -42,6 +48,7 @@ aks = {
   user_node_pools = {
     platform = {
       subnet_key = "snet-aks-user-management"
+      # Initial capacity estimate; validate workload sizing before deployment.
       vm_size    = "Standard_D8s_v5"
       node_count = 3
     }
@@ -66,6 +73,7 @@ platform = {
   cluster_role               = "management"
   sonarqube_sso_display_name = "REPLACE_WITH_ENTRA_SAML_APP_NAME"
   acme_email                 = "REPLACE_WITH_ACME_EMAIL"
+
   key_vault = {
     name                = "REPLACE_WITH_KEY_VAULT_NAME"
     resource_group_name = "kubernetes"
@@ -74,6 +82,7 @@ platform = {
   storage = {
     account_name        = "REPLACE_WITH_PLATFORM_STORAGE_ACCOUNT"
     resource_group_name = "kubernetes"
+
     containers = {
       metadata = {
         name = "platform-metadata"
@@ -117,6 +126,7 @@ platform = {
 identities = {
   platform = {
     name = "id-management-platform"
+
     federated_credentials = {
       cert-manager = {
         namespace       = "cert-manager"
@@ -150,6 +160,8 @@ identities = {
         role_definition_name = "Key Vault Secrets User"
       }
 
+      # These assignments share a role but target separate Azure containers.
+      # Namespace/service-account sharing does not grant access to other containers.
       loki_chunks = {
         scope                = "storage:loki_chunks"
         role_definition_name = "Storage Blob Data Contributor"
@@ -184,6 +196,7 @@ identities = {
 
   postgres = {
     name = "id-management-postgres"
+
     federated_credentials = {
       postgres = {
         namespace       = "postgres"
@@ -201,6 +214,7 @@ identities = {
 
   argocd = {
     name = "id-management-argocd"
+
     federated_credentials = {
       argocd-application-controller = {
         namespace       = "argocd"
