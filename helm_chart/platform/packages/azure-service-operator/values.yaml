@@ -7,10 +7,14 @@ podDisruptionBudget:
 serviceAccount:
   name: azureserviceoperator-default
 
-# ASO owns CRD installation/upgrades. Start with only the resource-group API;
-# extend whole API groups when a reviewed consumer actually needs them.
+# ASO owns CRD installation/upgrades. Make service dependency APIs available
+# for future GitOps consumers without creating any Azure resource instances.
 installCRDs: true
-crdPattern: resources.azure.com/*
+crdPattern:
+  - resources.azure.com/*
+  - managedidentity.azure.com/*
+  - authorization.azure.com/*
+  - storage.azure.com/*
 
 azureTargetNamespaces:
   - azure-resources
