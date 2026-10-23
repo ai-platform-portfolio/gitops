@@ -28,3 +28,28 @@ kubectl -n argocd port-forward svc/argocd-server 8080:443
 
 Read the initial password locally from `argocd-initial-admin-secret`; do not
 commit it or print it in logs.
+
+## Optional Backstage inputs
+
+`platform.backstage` passes deployment configuration to the platform lifecycle;
+it creates no Azure resources. It defaults to disabled. Enabling requires a built
+immutable image (`registry/portal@sha256:<64 hex characters>`) and management role.
+Keep company endpoint details in ignored `local.tfvars`:
+
+```hcl
+backstage = {
+  enabled = true
+  image   = "registry.company.internal/platform/backstage@sha256:REPLACE_WITH_IMAGE_DIGEST"
+  egress = [{
+    to    = [{ ipBlock = { cidr = "10.20.0.10/32" } }]
+    ports = [{ protocol = "TCP", port = 443 }]
+  }]
+}
+```
+
+This object belongs inside `platform`. Allow only approved identity and repository
+endpoints. Kubernetes NetworkPolicy IP rules are not hostname enforcement and
+must account for the cluster CNI's NAT behaviour; verify the effective path live.
+No new PostgreSQL instance, storage account, identity or role assignment is needed.
+The separate Backstage platform PR consumes this optional output; existing platform
+code ignores it. It reuses CNPG, ESO/Key Vault and the existing Gateway.

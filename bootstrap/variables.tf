@@ -119,8 +119,38 @@ variable "platform" {
       }))
     })
 
+    backstage = optional(object({
+      enabled          = optional(bool, false)
+      image            = optional(string, "")
+      imagePullSecrets = optional(list(object({ name = string })), [])
+      egress = optional(list(object({
+        to = list(object({
+          ipBlock = object({ cidr = string })
+        }))
+        ports = list(object({
+          protocol = string
+          port     = number
+        }))
+      })), [])
+    }), {})
+
     sonarqube_sso_display_name = optional(string, "REPLACE_WITH_ENTRA_SAML_APP_NAME")
   })
+
+  validation {
+    condition     = !var.platform.backstage.enabled || (var.platform.cluster_role == "management" && can(regex("^.+@sha256:[a-f0-9]{64}$", var.platform.backstage.image)))
+    error_message = "Backstage is management-only and requires an immutable image@sha256 digest."
+  }
+
+  validation {
+    condition = alltrue([
+      for rule in var.platform.backstage.egress :
+      length(rule.to) > 0 && length(rule.ports) > 0 &&
+      alltrue([for destination in rule.to : can(cidrnetmask(destination.ipBlock.cidr)) && !endswith(destination.ipBlock.cidr, "/0")]) &&
+      alltrue([for port in rule.ports : port.protocol == "TCP" && port.port >= 1 && port.port <= 65535])
+    ])
+    error_message = "Backstage egress requires explicit IPv4 CIDRs (no /0) and TCP ports."
+  }
 
   validation {
     condition     = contains(["management", "workload"], var.platform.cluster_role)

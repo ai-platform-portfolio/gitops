@@ -72,6 +72,14 @@ platform = {
   sonarqube_sso_display_name = "REPLACE_WITH_ENTRA_SAML_APP_NAME"
   acme_email                 = "REPLACE_WITH_ACME_EMAIL"
 
+  # Build/promote the portal first, then set these in ignored local.tfvars.
+  # Egress is denied unless company-controlled endpoint CIDRs are supplied.
+  backstage = {
+    enabled = false
+    image   = ""
+    egress  = []
+  }
+
   key_vault = {
     name                = "REPLACE_WITH_KEY_VAULT_NAME"
     resource_group_name = "kubernetes"

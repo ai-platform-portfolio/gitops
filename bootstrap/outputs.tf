@@ -43,6 +43,8 @@ output "platform_settings" {
       revision   = var.platform.git_revision
     }
 
+    backstage = var.platform.backstage
+
     sonarqube_sso_display_name = var.platform.sonarqube_sso_display_name
 
     storage_containers = { for key, container in azurerm_storage_container.platform : key => container.name }
