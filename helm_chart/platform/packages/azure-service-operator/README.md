@@ -16,10 +16,35 @@ storage containers and the initial Argo installation. ASO creates or adopts none
 of those resources. This package installs an operator; it contains no Azure
 resource instances and creates no billable Azure services.
 
-ASO installs and upgrades its own CRDs using `installCRDs: true`. Initially only
-`resources.azure.com/*` is enabled, providing the ResourceGroup API. Avoid `*`:
-installing every supported API adds unnecessary API-server load. Add groups when
-a concrete consumer requires them, with scoped permissions and lifecycle tests.
+ASO installs and upgrades its own CRDs using `installCRDs: true`. Enabled groups
+make the following APIs available to future GitOps consumers:
+
+| CRD pattern | Resources |
+| --- | --- |
+| `resources.azure.com/*` | Resource groups |
+| `managedidentity.azure.com/*` | User-assigned managed identities and federated identity credentials |
+| `authorization.azure.com/*` | Role assignments and custom role definitions |
+| `storage.azure.com/*` | Storage accounts, Blob services/containers and other storage child resources |
+
+The remaining service APIs are already installed by their package operators:
+
+| Resource | Existing GitOps API |
+| --- | --- |
+| In-cluster PostgreSQL databases | CNPG `Database` (`postgresql.cnpg.io/v1`) |
+| PostgreSQL application roles | CNPG `Cluster.spec.managed.roles` |
+| Application credential delivery | External Secrets `ExternalSecret` and `ClusterSecretStore` |
+| Generated application passwords | External Secrets `Password` (`generators.external-secrets.io`) |
+| PostgreSQL backups and schedules | CNPG `Backup` and `ScheduledBackup` |
+| Backup object-store settings and retention | Barman `ObjectStore` (`barmancloud.cnpg.io/v1`) |
+
+Validation checks these CRDs and CNPG role schema alongside the enabled ASO groups.
+Kubernetes Secrets themselves use the built-in API and need no additional CRD.
+
+Enabling these APIs creates no Azure resource instances or credentials. Existing
+PostgreSQL databases and roles use CloudNativePG CRDs; no Azure PostgreSQL group
+is needed for the in-cluster database. Avoid `*`: installing every supported API
+adds unnecessary API-server load. Consumers supply scoped permissions and
+lifecycle tests when they start using an API.
 Removing a pattern does not delete existing CRDs; ASO still upgrades installed
 CRDs. These runtime-created CRDs are outside Argo's tracked resource inventory.
 
@@ -76,14 +101,14 @@ they are separate from public ListenerSet certificates and need no public route.
 ## Validation and operations
 
 `make validate` checks the management/workload boundary, dependency wave, pinned
-image, minimal CRD pattern, projected token, empty global credential, single
+image, enabled CRD groups, projected token, empty global credential, single
 replica and stable Secret rendering, alongside every existing pinned chart.
 Rendering does not verify Kubernetes admission, runtime CRD installation or Azure
 authentication. No deployment or Azure CRUD validation was performed for this PR.
 
 After deployment, check the `azure-service-operator` Application is Synced/Healthy,
 the controller rollout succeeds, both internal Certificates are Ready and
-`resourcegroups.resources.azure.com` is Established. In an approved disposable
+the CRDs for the enabled groups are Established. In an approved disposable
 Azure scope, verify a consumer reaches Ready for its current generation, handles
 an Azure permission denial, detects drift and completes deletion. Check a resource
 outside the watched namespace is not reconciled. Measure controller/API usage

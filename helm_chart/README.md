@@ -131,7 +131,8 @@ OpenTelemetry, ClickHouse operator/cluster, CloudNativePG, Barman, Langfuse and
 SonarQube Developer, plus Azure Service Operator on management. Argo Application health gates dependency waves.
 
 [ASO](platform/packages/azure-service-operator/README.md) starts without a global
-Azure credential and installs only resource-group CRDs. Azure operations require
+Azure credential and enables resource-group, managed-identity, role-assignment
+and storage CRDs for future service installations. Azure operations require
 a separately provisioned namespace credential; existing infrastructure stays in
 Terraform. Teardown refuses to stop ASO while Azure custom resources remain.
 

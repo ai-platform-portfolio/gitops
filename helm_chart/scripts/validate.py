@@ -143,7 +143,7 @@ def main():
                     manager = next(c for c in pod['containers'] if c['name'] == 'manager')
                     assert deployment['spec']['replicas'] == 1
                     assert manager['image'].endswith(':v2.21.1')
-                    assert '--crd-pattern=resources.azure.com/*' in manager['args']
+                    assert '--crd-pattern=resources.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*' in manager['args']
                     assert pod['serviceAccountName'] == 'azureserviceoperator-default'
                     assert any(s.get('serviceAccountToken', {}).get('audience') == 'api://AzureADTokenExchange'
                                for v in pod['volumes'] for s in v.get('projected', {}).get('sources', []))
@@ -157,6 +157,8 @@ def main():
                     schemas = {d['spec']['names']['kind']: next(v['schema']['openAPIV3Schema']
                         for v in d['spec']['versions'] if v['name'] == 'v1')
                         for d in docs if d['kind'] == 'CustomResourceDefinition'}
+                    assert {'Cluster', 'Database', 'Backup', 'ScheduledBackup'} <= schemas.keys(), 'CNPG must expose database and backup APIs'
+                    assert 'roles' in schemas['Cluster']['properties']['spec']['properties']['managed']['properties'], 'CNPG must support declarative roles'
                     for resource in postgres_documents:
                         if resource['kind'] in {'Cluster', 'Database'}:
                             properties = schemas[resource['kind']]['properties']['spec']['properties']
@@ -165,6 +167,13 @@ def main():
                                 role_fields = properties['managed']['properties']['roles']['items']['properties']
                                 assert resource['spec']['managed']['roles'][0].keys() <= role_fields.keys()
                     assert {'applied', 'observedGeneration'} <= schemas['Database']['properties']['status']['properties'].keys()
+                if name == 'external-secrets':
+                    crds = {d['metadata']['name'] for d in docs if d['kind'] == 'CustomResourceDefinition'}
+                    assert {'externalsecrets.external-secrets.io', 'clustersecretstores.external-secrets.io',
+                            'passwords.generators.external-secrets.io'} <= crds, 'Secret delivery and password generation APIs must be installed'
+                if name == 'plugin-barman-cloud':
+                    assert any(d['kind'] == 'CustomResourceDefinition'
+                               and d['metadata']['name'] == 'objectstores.barmancloud.cnpg.io' for d in docs), 'Barman must expose backup configuration API'
                 if name == 'cert-manager':
                     config = next(d for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d.get('data', {}))
                     settings = yaml.safe_load(config['data']['config.yaml'])
