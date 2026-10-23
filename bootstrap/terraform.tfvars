@@ -72,6 +72,12 @@ platform = {
   sonarqube_sso_display_name = "REPLACE_WITH_ENTRA_SAML_APP_NAME"
   acme_email                 = "REPLACE_WITH_ACME_EMAIL"
 
+  # Enable only after supplying the GitHub App, Key Vault secrets, trusted team
+  # and a dedicated identities.atlantis entry; see bootstrap/README.md.
+  atlantis = {
+    enabled = false
+  }
+
   key_vault = {
     name                = "REPLACE_WITH_KEY_VAULT_NAME"
     resource_group_name = "kubernetes"

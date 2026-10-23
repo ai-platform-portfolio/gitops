@@ -83,6 +83,12 @@ variable "identities" {
   }
 }
 
+variable "identity_role_scopes" {
+  description = "Additional named Azure role scopes, for example an existing Terraform state account. Real IDs stay in ignored tfvars."
+  type        = map(string)
+  default     = {}
+}
+
 variable "argocd" {
   description = "ArgoCD Helm chart and initial values file."
 
@@ -119,8 +125,30 @@ variable "platform" {
       }))
     })
 
+    # Enabling Atlantis requires a dedicated identities.atlantis entry. GitHub
+    # secrets are read by External Secrets; only non-secret settings go to Argo.
+    atlantis = optional(object({
+      enabled         = optional(bool, false)
+      github_app_id   = optional(string, "")
+      github_app_slug = optional(string, "")
+      github_team     = optional(string, "")
+      repositories    = optional(set(string), [])
+    }), {})
+
     sonarqube_sso_display_name = optional(string, "REPLACE_WITH_ENTRA_SAML_APP_NAME")
   })
+
+  validation {
+    condition = !var.platform.atlantis.enabled || (
+      var.platform.cluster_role == "management" &&
+      can(regex("^[0-9]+$", var.platform.atlantis.github_app_id)) &&
+      can(regex("^[a-zA-Z0-9-]+$", var.platform.atlantis.github_app_slug)) &&
+      can(regex("^[a-zA-Z0-9-]+$", var.platform.atlantis.github_team)) &&
+      length(var.platform.atlantis.repositories) > 0 &&
+      alltrue([for repo in var.platform.atlantis.repositories : can(regex("^github\\.com/[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+$", repo))])
+    )
+    error_message = "Atlantis requires management role, numeric GitHub App ID, App/team slugs and exact github.com/owner/repository IDs (no wildcards)."
+  }
 
   validation {
     condition     = contains(["management", "workload"], var.platform.cluster_role)

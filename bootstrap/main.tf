@@ -16,11 +16,11 @@ data "azurerm_key_vault" "platform" {
 }
 
 locals {
-  role_scopes = {
+  role_scopes = merge(var.identity_role_scopes, {
     dns_zone        = data.azurerm_dns_zone.existing.id
     key_vault       = data.azurerm_key_vault.platform.id
     storage_account = data.azurerm_storage_account.platform.id
-  }
+  })
 }
 
 resource "azurerm_resource_group" "this" {

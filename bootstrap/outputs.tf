@@ -43,6 +43,11 @@ output "platform_settings" {
       revision   = var.platform.git_revision
     }
 
+    atlantis = merge(var.platform.atlantis, {
+      # An enabled server must use its own federated identity, never platform's.
+      client_id = var.platform.atlantis.enabled ? module.identities["atlantis"].client_id : ""
+    })
+
     sonarqube_sso_display_name = var.platform.sonarqube_sso_display_name
 
     storage_containers = { for key, container in azurerm_storage_container.platform : key => container.name }
