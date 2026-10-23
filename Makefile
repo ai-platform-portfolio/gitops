@@ -5,6 +5,7 @@ BOOTSTRAP_DIR ?= $(CURDIR)/bootstrap
 TERRAFORM ?= terraform
 LOCAL_TFVARS := $(shell if test -f "$(BOOTSTRAP_DIR)/local.tfvars"; then printf yes; fi)
 TFVARS ?= $(BOOTSTRAP_DIR)/$(if $(LOCAL_TFVARS),local,terraform).tfvars
+BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
 .PHONY: help init plan up down preflight
 
@@ -25,7 +26,8 @@ help:
 init:
 	@test -f "$(TFVARS)" || { printf 'Cluster tfvars not found: %s\n' "$(TFVARS)" >&2; exit 1; }
 	@test -f "$(BOOTSTRAP_DIR)/main.tf" || { printf 'Bootstrap root not found: %s\n' "$(BOOTSTRAP_DIR)" >&2; exit 1; }
-	$(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" init -input=false
+	@test -f "$(BACKEND_CONFIG)" || { printf 'Backend config not found: %s; see README\n' "$(BACKEND_CONFIG)" >&2; exit 1; }
+	$(call run_terraform,init -input=false -backend-config="$(abspath $(BACKEND_CONFIG))")
 
 plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")

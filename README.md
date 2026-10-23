@@ -17,7 +17,34 @@ Use fresh container names: existing containers must not be silently adopted or d
 
 The initial pools each use one Standard_D4s_v5 node: one system node and one
 application node. Increase capacity when measured portfolio usage requires it.
-Private tfvars and Terraform state stay out of Git. State is currently local.
+Private tfvars, backend settings and Terraform state stay out of Git.
+
+## Remote Terraform state
+
+The root uses an Azure Blob backend with Microsoft Entra authentication, not
+storage account keys. Backend settings are separate from deployment tfvars
+because Terraform reads them during `init`, before provider data sources.
+
+Set up ignored `bootstrap/backend.local.hcl` with the existing state storage
+account, container and a unique state key:
+
+```hcl
+storage_account_name = "YOUR_STATE_ACCOUNT"
+container_name       = "tfstate"
+key                  = "gitops/management.tfstate"
+resource_group_name  = "YOUR_STATE_RESOURCE_GROUP"
+```
+
+The selected backend's subscription/tenant can also be set in this ignored file.
+Otherwise Make supplies account context from the authenticated CLI session through
+`ARM_SUBSCRIPTION_ID` and `ARM_TENANT_ID`. Override the file path with
+`BACKEND_CONFIG=/path/to/backend.hcl`. The identity needs Blob Data Contributor
+access to the state container for state reads, writes and lease locking.
+
+`make init` passes this file to Terraform. It does not automatically migrate local
+state or overwrite another deployment's state; review any migration explicitly.
+CI uses `terraform init -backend=false` and does not access live state. The state
+account/container are external to this root and survive application teardown.
 
 ## Lifecycle
 
