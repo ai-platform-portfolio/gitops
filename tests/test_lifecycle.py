@@ -1,0 +1,166 @@
+import base64
+import json
+import subprocess
+import unittest
+from unittest.mock import Mock, patch
+
+from scripts.cluster import Cluster
+from scripts.credentials import ensure_secret, prepare_sonarqube
+
+
+def encoded(value):
+    return base64.b64encode(value.encode()).decode()
+
+
+class CredentialTests(unittest.TestCase):
+    def test_repeated_up_reuses_the_existing_secret(self):
+        cluster = Mock()
+        cluster.object.return_value = {'type': 'Opaque', 'data': {'key': encoded('original')}}
+        self.assertEqual(ensure_secret(cluster, 'langfuse', 'app', {'key': 'replacement'}), {'key': 'original'})
+        cluster.manifest.assert_not_called()
+
+    def test_missing_credentials_with_existing_data_are_not_regenerated(self):
+        cluster = Mock()
+        cluster.object.return_value = None
+        cluster.objects.return_value = [{'metadata': {'name': 'existing-volume'}}]
+        with self.assertRaisesRegex(RuntimeError, 'Credentials missing'):
+            ensure_secret(cluster, 'langfuse', 'app', {'key': 'replacement'})
+        cluster.manifest.assert_not_called()
+
+    def test_first_install_creates_a_secret_in_kubernetes(self):
+        cluster = Mock()
+        cluster.object.return_value = None
+        cluster.objects.return_value = []
+        ensure_secret(cluster, 'postgres', 'sonarqube-role', {'username': 'sonarqube', 'password': 'password'},
+                      'kubernetes.io/basic-auth', {'cnpg.io/reload': 'true'})
+        doc = cluster.manifest.call_args.args[0]
+        self.assertEqual(doc['type'], 'kubernetes.io/basic-auth')
+        self.assertEqual(doc['data']['password'], encoded('password'))
+        self.assertNotIn('stringData', doc)
+
+    def test_incomplete_secret_is_rejected_without_exposing_its_contents(self):
+        cluster = Mock()
+        cluster.object.return_value = {'data': {'other': encoded('private-value')}}
+        with self.assertRaises(ValueError) as error:
+            ensure_secret(cluster, 'namespace', 'app', {'password': 'replacement'})
+        self.assertNotIn('private-value', str(error.exception))
+        cluster.manifest.assert_not_called()
+
+    def test_sonar_tls_copy_preserves_the_existing_database_password(self):
+        cluster = Mock()
+        cluster.kube = ['kubectl']
+        cluster.object.side_effect = [
+            {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}},
+            {'data': {'password': encoded('existing-password')}},
+            {'data': {'ca.crt': encoded('current-ca')}},
+        ]
+        run = Mock(return_value='clusters.postgresql.cnpg.io\n')
+        wait = lambda check, description, timeout: self.assertTrue(check())
+        prepare_sonarqube(cluster, run, wait)
+        doc = cluster.manifest.call_args.args[0]
+        self.assertEqual(doc['data'], {'jdbc-password': encoded('existing-password'), 'ca.crt': encoded('current-ca')})
+        self.assertEqual(doc['metadata']['namespace'], 'sonarqube')
+
+
+class TeardownTests(unittest.TestCase):
+    def test_stuck_root_and_children_are_stopped_before_deletion(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        root = {'metadata': {'name': 'platform', 'resourceVersion': '1'},
+                'operation': {'sync': {}},
+                'status': {'operationState': {'phase': 'Running'}}}
+        child = {'metadata': {'name': 'postgres', 'resourceVersion': '2',
+                 'labels': {'platform.ai-platform-portfolio/managed': 'true'}},
+                 'operation': {'sync': {}}}
+        apps = [root]
+        cluster.objects = Mock(side_effect=lambda *args: list(apps))
+        transitions = []
+
+        def patch_application(*args):
+            app = next(a for a in apps if a['metadata']['name'] == args[5])
+            change = json.loads(args[-1])
+            if 'spec' in change:
+                return
+            self.assertEqual(change['metadata']['resourceVersion'], app['metadata']['resourceVersion'])
+            if 'status' in change:
+                self.assertEqual(change['status']['operationState']['phase'], 'Terminating')
+                apps.append(child)
+                app['status']['operationState']['phase'] = 'Failed'
+            else:
+                self.assertIsNone(change['operation'])
+            app.pop('operation')
+            transitions.append(app['metadata']['name'])
+
+        def delete(*args):
+            self.assertEqual(transitions, ['platform', 'postgres'])
+            self.assertTrue(all(not a.get('operation') for a in apps))
+
+        cluster.delete = Mock(side_effect=delete)
+        with patch('scripts.cluster.run', side_effect=patch_application), patch('scripts.cluster.time.sleep'):
+            cluster.cleanup()
+        self.assertEqual([c.args[1] for c in cluster.delete.call_args_list], [['postgres'], ['platform']])
+
+    def test_children_created_by_an_active_root_are_included_in_cleanup(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        root = {'metadata': {'name': 'platform'}}
+        child = lambda name, wave: {'metadata': {'name': name,
+            'labels': {'platform.ai-platform-portfolio/managed': 'true'},
+            'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
+        apps = [root]
+        cluster.objects = Mock(side_effect=lambda *args: list(apps))
+        cluster.delete = Mock()
+        def patch_root(*args, **kwargs):
+            if 'patch' in args and 'platform' in args and len(apps) == 1:
+                apps.extend([child('sonarqube', 60), child('postgres', 30), child('cloudnative-pg', 10)])
+        with patch('scripts.cluster.run', side_effect=patch_root):
+            cluster.cleanup()
+        deleted = [call.args[1][0] for call in cluster.delete.call_args_list]
+        self.assertEqual(deleted, ['sonarqube', 'postgres', 'cloudnative-pg', 'platform'])
+
+    def test_hub_lookup_failure_does_not_allow_teardown(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = ['kubectl', '--kubeconfig', 'hub']
+        cluster.settings = {'cluster': {'role': 'workload', 'name': 'dev'}}
+        cluster.delete = Mock()
+        with patch('scripts.cluster.run', side_effect=[None, subprocess.CalledProcessError(1, ['kubectl'])]):
+            with self.assertRaises(subprocess.CalledProcessError):
+                cluster.cleanup()
+        cluster.delete.assert_not_called()
+
+    def test_only_confirmed_not_found_is_treated_as_absence(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        with patch('scripts.cluster.run', return_value='') as run:
+            self.assertIsNone(cluster.object('application', 'app', 'argocd'))
+        self.assertIn('--ignore-not-found', run.call_args.args)
+
+
+class AzureAccountTests(unittest.TestCase):
+    def test_reads_authenticated_cli_context(self):
+        from scripts.azure import current_account
+        with patch('scripts.azure.subprocess.run', return_value=Mock(
+                returncode=0, stdout='{"id":"subscription","tenantId":"tenant"}')):
+            self.assertEqual(current_account(), {'subscription_id': 'subscription', 'tenant_id': 'tenant'})
+
+    def test_missing_login_fails_without_printing_cli_diagnostics(self):
+        from scripts.azure import current_account
+        with patch('scripts.azure.subprocess.run', return_value=Mock(returncode=1, stderr='private details')):
+            with self.assertRaisesRegex(RuntimeError, 'authenticate') as error:
+                current_account()
+            self.assertNotIn('private details', str(error.exception))
+
+    def test_incomplete_account_is_rejected(self):
+        from scripts.azure import current_account
+        with patch('scripts.azure.subprocess.run', return_value=Mock(returncode=0, stdout='{"id":"subscription"}')):
+            with self.assertRaises(ValueError):
+                current_account()
+
+
+if __name__ == '__main__':
+    unittest.main()

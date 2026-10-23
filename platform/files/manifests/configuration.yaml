@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: external-dns-azure
+  namespace: external-dns
+data:
+  azure.json: "{\n  \"tenantId\": \"{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}\",\n  \"subscriptionId\": \"\
+    {{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID }}\",\n  \"resourceGroup\": \"{{ required "runtime.AZURE_DNS_RESOURCE_GROUP is required" .Values.runtime.AZURE_DNS_RESOURCE_GROUP }}\"\
+    ,\n  \"useWorkloadIdentityExtension\": true\n}\n"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sonarqube
+  namespace: sonarqube
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: envoy-gateway-system
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 9000
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgres
+      podSelector:
+        matchLabels:
+          cnpg.io/cluster: platform
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 9000
+  - ports:
+    - protocol: TCP
+      port: 443
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: azure-kv
+spec:
+  provider:
+    azurekv:
+      vaultUrl: {{ required "runtime.AZURE_KEY_VAULT_URI is required" .Values.runtime.AZURE_KEY_VAULT_URI }}
+      tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}
+      authType: WorkloadIdentity
+      serviceAccountRef:
+        name: eso-akv-wi
+        namespace: external-secrets
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-azuredns
+spec:
+  acme:
+    email: {{ required "runtime.ACME_EMAIL is required" .Values.runtime.ACME_EMAIL }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-azuredns-account
+    solvers:
+    - selector:
+        dnsZones:
+        - {{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+      dns01:
+        azureDNS:
+          subscriptionID: {{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: {{ required "runtime.AZURE_DNS_RESOURCE_GROUP is required" .Values.runtime.AZURE_DNS_RESOURCE_GROUP }}
+          hostedZoneName: {{ required "runtime.AZURE_DNS_ZONE is required" .Values.runtime.AZURE_DNS_ZONE }}
+          managedIdentity:
+            clientID: {{ required "runtime.AZURE_CLIENT_ID is required" .Values.runtime.AZURE_CLIENT_ID }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lgtm
+  namespace: lgtm
+  annotations:
+    azure.workload.identity/client-id: {{ required "runtime.AZURE_CLIENT_ID is required" .Values.runtime.AZURE_CLIENT_ID }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-azuread-app
+  namespace: lgtm
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: azure-kv
+    kind: ClusterSecretStore
+  target:
+    name: grafana-azuread-app
+  data:
+  - secretKey: GF_AUTH_AZUREAD_CLIENT_ID
+    remoteRef:
+      key: grafana-sso-client-id
+  - secretKey: GF_AUTH_AZUREAD_CLIENT_SECRET
+    remoteRef:
+      key: grafana-sso-client-secret

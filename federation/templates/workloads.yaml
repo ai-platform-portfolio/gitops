@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: workload-platforms
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: [missingkey=error]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            platform.ai-platform-portfolio/role: workload
+  # Removing a registration must never cascade-delete a workload platform.
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  template:
+    metadata:
+      name: 'onboard-{{ "{{ .name }}" }}'
+      labels:
+        platform.ai-platform-portfolio/managed: "true"
+    spec:
+      project: default
+      destination:
+        server: '{{ "{{ .server }}" }}'
+        namespace: argocd
+      source:
+        repoURL: {{ .Values.git.repository }}
+        targetRevision: {{ .Values.git.revision | quote }}
+        path: charts/resources
+        helm:
+          valuesObject:
+            manifests: '{{ "{{ index .metadata.annotations \"platform.ai-platform-portfolio/root\" }}" }}'
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true

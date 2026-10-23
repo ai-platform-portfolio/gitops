@@ -1,0 +1,39 @@
+langfuse:
+  salt:
+    secretKeyRef: { name: platform-langfuse-app, key: salt }
+  encryptionKey:
+    secretKeyRef: { name: platform-langfuse-app, key: encryption-key }
+  nextauth:
+    secret:
+      secretKeyRef: { name: platform-langfuse-app, key: nextauth-secret }
+    url: https://langfuse.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+clickhouse:
+  auth:
+    existingSecret: platform-langfuse-clickhouse
+    existingSecretKey: password
+  keeper:
+    replicas: 1
+# Explicit credentials: Helm lookup cannot preserve generated secrets under Argo.
+postgresql:
+  auth:
+    existingSecret: platform-langfuse-postgresql
+    secretKeys:
+      userPasswordKey: USERDB_PASSWORD
+      adminPasswordKey: POSTGRES_PASSWORD
+  settings:
+    existingSecret: platform-langfuse-postgresql
+  userDatabase:
+    existingSecret: platform-langfuse-postgresql
+redis:
+  auth:
+    existingSecret: platform-langfuse-redis
+    existingSecretPasswordKey: default
+    usersExistingSecret: platform-langfuse-redis
+s3:
+  auth:
+    existingSecret: platform-langfuse-s3
+    rootUserSecretKey: accessKey
+    rootPasswordSecretKey: secretKey
+  allInOne:
+    s3:
+      existingConfigSecret: platform-langfuse-s3

@@ -7,7 +7,10 @@ LOCAL_TFVARS := $(shell if test -f "$(BOOTSTRAP_DIR)/local.tfvars"; then printf 
 TFVARS ?= $(BOOTSTRAP_DIR)/$(if $(LOCAL_TFVARS),local,terraform).tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
-.PHONY: help init plan up down preflight
+.PHONY: help init plan up down validate preflight
+
+PYTHON ?= python3
+export TERRAFORM
 
 # Azure CLI supplies authentication and account context.
 define run_terraform
@@ -18,8 +21,8 @@ endef
 
 help:
 	@printf '%s\n' \
-	  'make up    Provision AKS, managed identities and the initial ArgoCD release' \
-	  'make down  Destroy bootstrap infrastructure before platform workloads are installed' \
+	  'make up    Provision infrastructure, install packages and wait for health' \
+	  'make down  Remove packages and destroy the disposable platform infrastructure' \
 	  'make plan  Preview bootstrap changes' \
 	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
@@ -34,9 +37,15 @@ plan: init
 
 up: preflight init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
+	$(PYTHON) scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 
 down: preflight init
+	$(PYTHON) scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)"
 	$(call run_terraform,destroy -input=false -auto-approve -var-file="$(TFVARS)")
 
+validate:
+	$(PYTHON) -m unittest discover -s tests
+	$(PYTHON) scripts/validate.py
+
 preflight:
-	@for tool in "$(TERRAFORM)" az kubelogin; do command -v "$$tool" >/dev/null || { printf 'Missing tool: %s\n' "$$tool" >&2; exit 1; }; done
+	@for tool in "$(TERRAFORM)" az kubectl kubelogin "$(PYTHON)"; do command -v "$$tool" >/dev/null || { printf 'Missing tool: %s\n' "$$tool" >&2; exit 1; }; done

@@ -1,0 +1,21 @@
+fullnameOverride: sonarqube
+edition: developer
+jdbcOverwrite:
+  enabled: true
+  jdbcUrl: jdbc:postgresql://platform-rw.postgres.svc.cluster.local:5432/sonarqube?sslmode=verify-full&sslrootcert=/etc/sonarqube-jdbc/ca.crt
+  jdbcUsername: sonarqube
+  jdbcSecretName: sonarqube-jdbc
+  jdbcSecretPasswordKey: jdbc-password
+monitoringPasscodeSecretName: sonarqube-monitoring
+monitoringPasscodeSecretKey: passcode
+extraVolumes:
+- name: jdbc-ca
+  secret:
+    secretName: sonarqube-jdbc
+    items:
+    - key: ca.crt
+      path: ca.crt
+extraVolumeMounts:
+- name: jdbc-ca
+  mountPath: /etc/sonarqube-jdbc
+  readOnly: true
