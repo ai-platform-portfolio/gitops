@@ -1,0 +1,32 @@
+# Observability backends are ready for collectors and application packages.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: langfuse
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: langfuse
+
+  source:
+    repoURL: https://langfuse.github.io/langfuse-k8s
+    chart: langfuse
+    targetRevision: "2.1.4"
+    helm:
+      releaseName: langfuse
+      apiVersions:
+        - clickhouse.com/v1alpha1/ClickHouseCluster
+        - clickhouse.com/v1alpha1/KeeperCluster
+      valuesObject:
+{{ tpl (.Files.Get "packages/langfuse/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}

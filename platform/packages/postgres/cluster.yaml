@@ -1,0 +1,73 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: platform
+  namespace: postgres
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+  enableSuperuserAccess: false
+  certificates:
+    serverAltDNSNames:
+    - platform-pooler
+    - platform-pooler.postgres
+    - platform-pooler.postgres.svc
+    - platform-pooler.postgres.svc.cluster.local
+{{- if .Values.sonarqubeReady }}
+  managed:
+    roles:
+    - name: sonarqube
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      passwordSecret:
+        name: sonarqube-role
+{{- end }}
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  inheritedMetadata:
+    labels:
+      azure.workload.identity/use: 'true'
+  serviceAccountTemplate:
+    metadata:
+      annotations:
+        azure.workload.identity/client-id: {{ required "runtime.POSTGRES_AZURE_CLIENT_ID is required" .Values.runtime.POSTGRES_AZURE_CLIENT_ID }}
+        azure.workload.identity/tenant-id: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+  plugins:
+  - name: barman-cloud.cloudnative-pg.io
+    isWALArchiver: true
+    parameters:
+      barmanObjectName: backups
+      serverName: platform
+  storage:
+    storageClass: postgres-premium
+    size: 32Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+  postgresql:
+    parameters:
+      max_connections: '200'
+      shared_buffers: 256MB
+      password_encryption: scram-sha-256
+      ssl_min_protocol_version: TLSv1.2
+      archive_timeout: 60s
+    pg_hba:
+    - hostnossl all all all reject
+    - hostssl app app all scram-sha-256
+    - hostssl sonarqube sonarqube all scram-sha-256
+    - host all all all reject

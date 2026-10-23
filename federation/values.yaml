@@ -1,0 +1,3 @@
+git:
+  repository: https://github.com/ai-platform-portfolio/gitops.git
+  revision: main

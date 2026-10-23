@@ -1,0 +1,14 @@
+cluster:
+  name: management
+  role: management
+
+git:
+  repository: https://github.com/ai-platform-portfolio/gitops.git
+  revision: main
+
+# Filled by scripts/cluster.py from Terraform outputs and authenticated context.
+# Private deployment inputs remain in ignored bootstrap/local.tfvars.
+runtime: {}
+
+# The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
+sonarqubeReady: false

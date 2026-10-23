@@ -1,0 +1,26 @@
+mode: deployment
+image:
+  repository: otel/opentelemetry-collector-contrib
+command:
+  name: otelcol-contrib
+config:
+  exporters:
+    otlp_grpc/tempo:
+      endpoint: tempo.lgtm.svc.cluster.local:4317
+      tls:
+        insecure: true
+    otlp_http/loki:
+      endpoint: http://loki-gateway.lgtm.svc.cluster.local/otlp
+    prometheusremotewrite/mimir:
+      endpoint: http://mimir-gateway.lgtm.svc.cluster.local/api/v1/push
+  service:
+    pipelines:
+      traces:
+        exporters:
+        - otlp_grpc/tempo
+      logs:
+        exporters:
+        - otlp_http/loki
+      metrics:
+        exporters:
+        - prometheusremotewrite/mimir

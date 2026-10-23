@@ -1,0 +1,10 @@
+clickhouse:
+  meta:
+    name: clickhouse
+  spec:
+    replicas: 1
+keeper:
+  meta:
+    name: clickhouse
+  spec:
+    replicas: 1

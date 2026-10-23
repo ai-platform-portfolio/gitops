@@ -1,0 +1,24 @@
+enableGatewayListenerSets: true
+gatewayNamespace: envoy-gateway-system
+provider:
+  name: azure-dns
+sources:
+- gateway-httproute
+domainFilters:
+- {{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+policy: sync
+txtOwnerId: {{ .Values.cluster.name }}
+txtPrefix: external-dns-
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: {{ required "runtime.AZURE_CLIENT_ID is required" .Values.runtime.AZURE_CLIENT_ID }}
+  name: external-dns
+podLabels:
+  azure.workload.identity/use: 'true'
+extraVolumes:
+- name: azure-config
+  configMap:
+    name: external-dns-azure
+extraVolumeMounts:
+- name: azure-config
+  mountPath: /etc/kubernetes

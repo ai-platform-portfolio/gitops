@@ -1,0 +1,31 @@
+{{- if eq .Values.cluster.role "management" }}
+# Install foundational controllers and management onboarding.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: federation
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: federation
+    helm:
+      valuesObject:
+        git:
+{{ .Values.git | toYaml | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
