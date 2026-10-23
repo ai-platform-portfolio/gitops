@@ -1,0 +1,13 @@
+{{- if .Values.sonarqubeReady }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: sonarqube
+  namespace: postgres
+spec:
+  name: sonarqube
+  owner: sonarqube
+  cluster:
+    name: platform
+  databaseReclaimPolicy: retain
+{{- end }}

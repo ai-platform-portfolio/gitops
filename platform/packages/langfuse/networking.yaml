@@ -1,0 +1,63 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: public
+  namespace: langfuse
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-azuredns
+spec:
+  parentRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: public
+    namespace: envoy-gateway-system
+  listeners:
+  - name: https
+    hostname: langfuse.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: langfuse-tls
+    allowedRoutes:
+      namespaces:
+        from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: langfuse
+  namespace: langfuse
+spec:
+  hostnames:
+  - langfuse.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+  parentRefs:
+  - name: public
+    namespace: langfuse
+    sectionName: https
+    kind: ListenerSet
+    group: gateway.networking.k8s.io
+  rules:
+  - backendRefs:
+    - name: langfuse-web
+      port: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  namespace: langfuse
+spec:
+  hostnames:
+  - langfuse.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+  parentRefs:
+  - name: public
+    namespace: envoy-gateway-system
+    sectionName: http
+  rules:
+  - filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: external-dns-azure
+  namespace: external-dns
+data:
+  azure.json: |
+    {
+      "tenantId": "{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}",
+      "subscriptionId": "{{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID }}",
+      "resourceGroup": "{{ required "runtime.AZURE_DNS_RESOURCE_GROUP is required" .Values.runtime.AZURE_DNS_RESOURCE_GROUP }}",
+      "useWorkloadIdentityExtension": true
+    }

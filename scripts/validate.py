@@ -24,7 +24,7 @@ def main():
     assert configmap['kind'] == 'ConfigMap' and configmap['metadata']['name'] == 'argocd-cm'
     outputs = (bootstrap / 'outputs.tf').read_text()
     assert 'data.azurerm_client_config' not in outputs and 'var.account' not in outputs and 'oidc_issuer_url' not in outputs, 'Account identifiers must not be Terraform outputs'
-    runtime = {name: 'example' for path in (ROOT / 'platform/files').rglob('*') if path.is_file()
+    runtime = {name: 'example' for path in (ROOT / 'platform/packages').rglob('*') if path.is_file()
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
     runtime.update(DNS_ZONE='example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
@@ -46,8 +46,16 @@ def main():
         applications = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(ROOT / 'platform'), '-f', str(values))))
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
-        catalog = yaml.safe_load((ROOT / 'platform/values.yaml').read_text())['packages']
-        assert names == set(catalog), 'A package was omitted from the management render'
+        expected = {
+            'namespaces', 'federation', 'envoy-gateway', 'external-secrets',
+            'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
+            'external-dns', 'gateway', 'plugin-barman-cloud', 'postgres', 'clickhouse',
+            'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
+            'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
+        }
+        assert names == expected, 'A platform Application was omitted or renamed'
+        waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+                 for app in applications}
         for app in applications:
             assert app['spec']['destination']['server'] == 'https://kubernetes.default.svc', 'Packages must reconcile locally'
             source = app['spec'].get('source') or app['spec']['sources'][0]
@@ -100,8 +108,8 @@ def main():
         routes = next(a for a in workload if a['metadata']['name'] == 'routes')
         initial_routes = [d for d in yaml.safe_load_all(routes['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert not any(d['metadata']['namespace'] == 'sonarqube' for d in initial_routes), 'Initial routes must not block on a Sonar backend that has not been installed'
-        assert catalog['routes']['wave'] > catalog['sonarqube']['wave'], 'Activate routes after backend health'
-        assert catalog['envoy-gateway']['wave'] < catalog['cert-manager']['wave'] < catalog['configuration']['wave'], 'Install Gateway API CRDs before cert-manager and issuers after it'
+        assert waves['routes'] > waves['sonarqube'], 'Activate routes after backend health'
+        assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
 
 
         def render(app):
