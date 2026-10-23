@@ -175,6 +175,14 @@ class Cluster:
             wait_for(lambda: self.object('application', 'onboard-' + name, 'argocd', self.hub) is None,
                      'Waiting for hub onboarding to detach')
         apps = self.objects('applications.argoproj.io', 'argocd')
+        if any(a['metadata']['name'] == 'azure-service-operator' for a in apps):
+            # Consumer Azure CRs must finish deletion while ASO and its identity
+            # still exist. They are not owned by the platform Application.
+            resources = run(*self.kube, 'api-resources', '--namespaced=true',
+                            '--verbs=list', '-o', 'name', capture=True).splitlines()
+            for resource in resources:
+                if resource.endswith('.azure.com') and self.objects(resource):
+                    raise RuntimeError('Remove ASO Azure resources and wait for finalizers before teardown')
         roots = [a for a in apps if a['metadata']['name'] == 'platform']
 
         def suspend(applications):

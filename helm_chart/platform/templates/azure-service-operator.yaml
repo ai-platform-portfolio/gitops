@@ -1,0 +1,31 @@
+{{- if eq .Values.cluster.role "management" }}
+# cert-manager must be healthy before ASO requests its internal webhook certificates.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: azure-service-operator
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: azureserviceoperator-system
+
+  source:
+    repoURL: https://raw.githubusercontent.com/Azure/azure-service-operator/main/v2/charts
+    chart: azure-service-operator
+    targetRevision: "2.21.1"
+    helm:
+      releaseName: azure-service-operator
+      valuesObject:
+{{ tpl (.Files.Get "packages/azure-service-operator/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
