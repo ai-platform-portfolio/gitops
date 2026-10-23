@@ -12,7 +12,7 @@ wave 60 and its configuration job at wave 70, once `sonarqubeReady` is true.
 | `networking.yaml` | routes | ListenerSet, HTTPS route and redirect after backend health |
 | `namespace.yaml` | namespaces | Public-gateway label and pod-security settings |
 
-`scripts/credentials.py` prepares the role/admin/monitoring Secrets and copies
+`helm_chart/scripts/credentials.py` prepares the role/admin/monitoring Secrets and copies
 PostgreSQL's current CA into the JDBC Secret. The lifecycle then enables the
 managed role in `../postgres/cluster.yaml`, this Database, application and routes.
 Argo checks Database reconciliation before advancing to the SonarQube wave.

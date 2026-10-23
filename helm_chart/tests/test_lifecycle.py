@@ -4,8 +4,8 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts.cluster import Cluster
-from scripts.credentials import ensure_secret, prepare_sonarqube
+from helm_chart.scripts.cluster import Cluster
+from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
 
 
 def encoded(value):
@@ -98,7 +98,7 @@ class TeardownTests(unittest.TestCase):
             self.assertTrue(all(not a.get('operation') for a in apps))
 
         cluster.delete = Mock(side_effect=delete)
-        with patch('scripts.cluster.run', side_effect=patch_application), patch('scripts.cluster.time.sleep'):
+        with patch('helm_chart.scripts.cluster.run', side_effect=patch_application), patch('helm_chart.scripts.cluster.time.sleep'):
             cluster.cleanup()
         self.assertEqual([c.args[1] for c in cluster.delete.call_args_list], [['postgres'], ['platform']])
 
@@ -117,7 +117,7 @@ class TeardownTests(unittest.TestCase):
         def patch_root(*args, **kwargs):
             if 'patch' in args and 'platform' in args and len(apps) == 1:
                 apps.extend([child('sonarqube', 60), child('postgres', 30), child('cloudnative-pg', 10)])
-        with patch('scripts.cluster.run', side_effect=patch_root):
+        with patch('helm_chart.scripts.cluster.run', side_effect=patch_root):
             cluster.cleanup()
         deleted = [call.args[1][0] for call in cluster.delete.call_args_list]
         self.assertEqual(deleted, ['sonarqube', 'postgres', 'cloudnative-pg', 'platform'])
@@ -128,7 +128,7 @@ class TeardownTests(unittest.TestCase):
         cluster.hub = ['kubectl', '--kubeconfig', 'hub']
         cluster.settings = {'cluster': {'role': 'workload', 'name': 'dev'}}
         cluster.delete = Mock()
-        with patch('scripts.cluster.run', side_effect=[None, subprocess.CalledProcessError(1, ['kubectl'])]):
+        with patch('helm_chart.scripts.cluster.run', side_effect=[None, subprocess.CalledProcessError(1, ['kubectl'])]):
             with self.assertRaises(subprocess.CalledProcessError):
                 cluster.cleanup()
         cluster.delete.assert_not_called()
@@ -136,28 +136,28 @@ class TeardownTests(unittest.TestCase):
     def test_only_confirmed_not_found_is_treated_as_absence(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
-        with patch('scripts.cluster.run', return_value='') as run:
+        with patch('helm_chart.scripts.cluster.run', return_value='') as run:
             self.assertIsNone(cluster.object('application', 'app', 'argocd'))
         self.assertIn('--ignore-not-found', run.call_args.args)
 
 
 class AzureAccountTests(unittest.TestCase):
     def test_reads_authenticated_cli_context(self):
-        from scripts.azure import current_account
-        with patch('scripts.azure.subprocess.run', return_value=Mock(
+        from helm_chart.scripts.azure import current_account
+        with patch('helm_chart.scripts.azure.subprocess.run', return_value=Mock(
                 returncode=0, stdout='{"id":"subscription","tenantId":"tenant"}')):
             self.assertEqual(current_account(), {'subscription_id': 'subscription', 'tenant_id': 'tenant'})
 
     def test_missing_login_fails_without_printing_cli_diagnostics(self):
-        from scripts.azure import current_account
-        with patch('scripts.azure.subprocess.run', return_value=Mock(returncode=1, stderr='private details')):
+        from helm_chart.scripts.azure import current_account
+        with patch('helm_chart.scripts.azure.subprocess.run', return_value=Mock(returncode=1, stderr='private details')):
             with self.assertRaisesRegex(RuntimeError, 'authenticate') as error:
                 current_account()
             self.assertNotIn('private details', str(error.exception))
 
     def test_incomplete_account_is_rejected(self):
-        from scripts.azure import current_account
-        with patch('scripts.azure.subprocess.run', return_value=Mock(returncode=0, stdout='{"id":"subscription"}')):
+        from helm_chart.scripts.azure import current_account
+        with patch('helm_chart.scripts.azure.subprocess.run', return_value=Mock(returncode=0, stdout='{"id":"subscription"}')):
             with self.assertRaises(ValueError):
                 current_account()
 

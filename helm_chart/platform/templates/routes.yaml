@@ -21,7 +21,7 @@ spec:
   source:
     repoURL: {{ .Values.git.repository }}
     targetRevision: {{ .Values.git.revision | quote }}
-    path: charts/resources
+    path: helm_chart/charts/resources
     helm:
       valuesObject:
         manifests: |

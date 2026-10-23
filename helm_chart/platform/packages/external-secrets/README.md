@@ -9,4 +9,4 @@ Secrets before the shared configuration stage. `values.yaml` configures the
 Grafana starts. Key Vault URI and tenant context are runtime inputs.
 
 Generated application passwords are separate cluster-local Secrets prepared by
-`scripts/credentials.py`; they are reused during the cluster lifetime.
+`helm_chart/scripts/credentials.py`; they are reused during the cluster lifetime.

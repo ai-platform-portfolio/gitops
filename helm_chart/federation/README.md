@@ -21,7 +21,7 @@ Terraform owns each Argo Helm release; Argo does not manage that same release.
 
 ## Registration and configuration
 
-`scripts/cluster.py` registers a workload using a cluster Secret on management:
+`helm_chart/scripts/cluster.py` registers a workload using a cluster Secret on management:
 
 - The `platform.ai-platform-portfolio/role: workload` label selects it.
 - The `platform.ai-platform-portfolio/root` annotation contains the local root's
@@ -31,7 +31,7 @@ Terraform owns each Argo Helm release; Argo does not manage that same release.
   registration annotation.
 
 The ApplicationSet reads that annotation and applies the root through
-`charts/resources`. Management owns the onboarding Application; workload Argo
+`helm_chart/charts/resources`. Management owns the onboarding Application; workload Argo
 owns package reconciliation. If management becomes unavailable, the existing
 workload root and package Applications continue reconciling locally. Changing a
 registration still requires management to be available.

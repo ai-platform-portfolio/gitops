@@ -37,15 +37,15 @@ plan: init
 
 up: preflight init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
-	$(PYTHON) scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
+	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 
 down: preflight init
-	$(PYTHON) scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)"
+	$(PYTHON) helm_chart/scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)"
 	$(call run_terraform,destroy -input=false -auto-approve -var-file="$(TFVARS)")
 
 validate:
-	$(PYTHON) -m unittest discover -s tests
-	$(PYTHON) scripts/validate.py
+	$(PYTHON) -m unittest discover -s helm_chart/tests
+	$(PYTHON) helm_chart/scripts/validate.py
 
 preflight:
 	@for tool in "$(TERRAFORM)" az kubectl kubelogin "$(PYTHON)"; do command -v "$$tool" >/dev/null || { printf 'Missing tool: %s\n' "$$tool" >&2; exit 1; }; done
