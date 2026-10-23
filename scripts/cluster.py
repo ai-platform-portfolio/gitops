@@ -182,12 +182,32 @@ class Cluster:
                 run(*self.kube, '-n', 'argocd', 'patch', 'application', app['metadata']['name'],
                     '--type=merge', '-p', '{"spec":{"syncPolicy":{"automated":null}}}')
             names = {a['metadata']['name'] for a in applications}
-            wait_for(lambda: all(not a.get('operation') and a.get('status', {}).get('operationState', {}).get('phase')
-                                not in {'Running', 'Terminating'}
-                                for a in self.objects('applications.argoproj.io', 'argocd') if a['metadata']['name'] in names),
-                     'Waiting for active Argo operations to finish')
-        # Let the root finish before taking the child inventory; it may create
-        # additional Applications during an active operation.
+
+            def stopped():
+                idle = True
+                for app in self.objects('applications.argoproj.io', 'argocd'):
+                    if app['metadata']['name'] not in names:
+                        continue
+                    phase = app.get('status', {}).get('operationState', {}).get('phase')
+                    if not app.get('operation') and phase not in {'Running', 'Terminating'}:
+                        continue
+                    idle = False
+                    if phase == 'Terminating':
+                        continue
+                    # Match Argo's termination transition for running syncs;
+                    # cancel queued operations before the controller starts them.
+                    change = ({'status': {'operationState': {'phase': 'Terminating'}}}
+                              if phase == 'Running' else {'operation': None})
+                    # Fail closed if the controller changed the operation since
+                    # this read, rather than overwriting its newer state.
+                    change['metadata'] = {'resourceVersion': app['metadata']['resourceVersion']}
+                    run(*self.kube, '-n', 'argocd', 'patch', 'application', app['metadata']['name'],
+                        '--type=merge', '-p', json.dumps(change))
+                return idle
+
+            wait_for(stopped, 'Waiting for Argo operations to stop')
+        # Stop the root before taking the child inventory; it may create
+        # additional Applications while termination is being processed.
         suspend(roots)
         managed = [a for a in self.objects('applications.argoproj.io', 'argocd')
                    if a['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true']

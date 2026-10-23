@@ -73,8 +73,9 @@ remaining packages. Existing Secrets are reused during repeated `make up` runs
 so encryption keys and passwords stay stable within the cluster. Missing
 credentials beside existing volumes cause an error rather than rotating keys.
 
-Teardown suspends the root and waits for its active operation to finish before
-reading and suspending the complete child Application inventory. Applications
+Teardown disables automated sync and terminates active root operations before
+reading the complete child Application inventory. It then disables child syncs,
+cancels queued operations and waits for running operations to terminate. Applications
 are deleted in reverse wave order, keeping operators until their custom resources
 disappear. Terraform then destroys infrastructure and disposable data containers.
 There is no final-backup gate, Blob credential record or automatic restore.

@@ -63,6 +63,45 @@ class CredentialTests(unittest.TestCase):
 
 
 class TeardownTests(unittest.TestCase):
+    def test_stuck_root_and_children_are_stopped_before_deletion(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        root = {'metadata': {'name': 'platform', 'resourceVersion': '1'},
+                'operation': {'sync': {}},
+                'status': {'operationState': {'phase': 'Running'}}}
+        child = {'metadata': {'name': 'postgres', 'resourceVersion': '2',
+                 'labels': {'platform.ai-platform-portfolio/managed': 'true'}},
+                 'operation': {'sync': {}}}
+        apps = [root]
+        cluster.objects = Mock(side_effect=lambda *args: list(apps))
+        transitions = []
+
+        def patch_application(*args):
+            app = next(a for a in apps if a['metadata']['name'] == args[5])
+            change = json.loads(args[-1])
+            if 'spec' in change:
+                return
+            self.assertEqual(change['metadata']['resourceVersion'], app['metadata']['resourceVersion'])
+            if 'status' in change:
+                self.assertEqual(change['status']['operationState']['phase'], 'Terminating')
+                apps.append(child)
+                app['status']['operationState']['phase'] = 'Failed'
+            else:
+                self.assertIsNone(change['operation'])
+            app.pop('operation')
+            transitions.append(app['metadata']['name'])
+
+        def delete(*args):
+            self.assertEqual(transitions, ['platform', 'postgres'])
+            self.assertTrue(all(not a.get('operation') for a in apps))
+
+        cluster.delete = Mock(side_effect=delete)
+        with patch('scripts.cluster.run', side_effect=patch_application), patch('scripts.cluster.time.sleep'):
+            cluster.cleanup()
+        self.assertEqual([c.args[1] for c in cluster.delete.call_args_list], [['postgres'], ['platform']])
+
     def test_children_created_by_an_active_root_are_included_in_cleanup(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
