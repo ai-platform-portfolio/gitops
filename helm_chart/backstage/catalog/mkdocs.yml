@@ -1,0 +1,6 @@
+site_name: Platform developer portal
+plugins:
+  - techdocs-core
+theme:
+  name: material
+  font: false

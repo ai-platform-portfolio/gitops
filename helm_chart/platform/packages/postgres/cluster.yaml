@@ -13,9 +13,10 @@ spec:
     - platform-pooler.postgres
     - platform-pooler.postgres.svc
     - platform-pooler.postgres.svc.cluster.local
-{{- if .Values.sonarqubeReady }}
+{{- if or .Values.sonarqubeReady (and .Values.backstage.enabled (eq .Values.cluster.role "management")) }}
   managed:
     roles:
+{{- if .Values.sonarqubeReady }}
     - name: sonarqube
       ensure: present
       login: true
@@ -25,6 +26,18 @@ spec:
       replication: false
       passwordSecret:
         name: sonarqube-role
+{{- end }}
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+    - name: backstage
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      passwordSecret:
+        name: backstage-role
+{{- end }}
 {{- end }}
   primaryUpdateStrategy: unsupervised
   primaryUpdateMethod: switchover
@@ -70,4 +83,7 @@ spec:
     - hostnossl all all all reject
     - hostssl app app all scram-sha-256
     - hostssl sonarqube sonarqube all scram-sha-256
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+    - hostssl backstage backstage all scram-sha-256
+{{- end }}
     - host all all all reject

@@ -1,0 +1,39 @@
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: developer-platform
+  description: Shared delivery and developer experience capabilities.
+spec:
+  owner: group:default/platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: platform
+spec:
+  owner: group:default/platform-team
+  domain: developer-platform
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: backstage
+  description: Self-hosted catalog, documentation and reviewed service requests.
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: website
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: platform
+  dependsOn: [resource:default/backstage-database]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: backstage-database
+  description: Isolated database and role on the existing CNPG platform cluster.
+spec:
+  type: database
+  owner: group:default/platform-team
+  system: platform

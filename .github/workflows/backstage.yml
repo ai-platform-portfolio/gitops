@@ -1,0 +1,116 @@
+name: Backstage application
+
+on:
+  pull_request:
+    paths: ['helm_chart/backstage/**', '.github/workflows/backstage.yml']
+  push:
+    branches: [main]
+    paths: ['helm_chart/backstage/**', '.github/workflows/backstage.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: helm_chart/backstage
+
+    env:
+      SCARF_ANALYTICS: 'false'
+      YARN_ENABLE_TELEMETRY: '0'
+      BACKSTAGE_BASE_URL: https://backstage.example.test
+      AUTH_SESSION_SECRET: ci-only-not-a-deployment-secret
+      AUTH_OIDC_METADATA_URL: https://identity.example.test/.well-known/openid-configuration
+      AUTH_OIDC_CLIENT_ID: ci-only
+      AUTH_OIDC_CLIENT_SECRET: ci-only
+      POSTGRES_PASSWORD: ci-only
+      POSTGRES_CA: ci-only
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: corepack enable
+
+      - run: yarn install --immutable
+
+      - run: yarn tsc --noEmit
+
+      - run: yarn test --watch=false --maxWorkers=2
+
+      - run: node scripts/check-template.mjs
+
+      - run: yarn lint:all
+
+      - run: python -m pip install -r scripts/requirements.txt
+
+      - run: bash scripts/build-docs.sh
+
+      - run: yarn build:backend
+
+      - run: docker build --tag backstage:ci --file packages/backend/Dockerfile .
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: application
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      # The application job checks the exact commit first. Publication builds
+      # the same locked source; promotion remains an explicit GitOps digest edit.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build public portfolio image
+        working-directory: helm_chart/backstage
+        env:
+          SCARF_ANALYTICS: 'false'
+          YARN_ENABLE_TELEMETRY: '0'
+          BACKSTAGE_BASE_URL: https://backstage.example.test
+          AUTH_SESSION_SECRET: ci-only-not-a-deployment-secret
+          AUTH_OIDC_METADATA_URL: https://identity.example.test/.well-known/openid-configuration
+          AUTH_OIDC_CLIENT_ID: ci-only
+          AUTH_OIDC_CLIENT_SECRET: ci-only
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_CA: ci-only
+        run: |
+          corepack enable
+          yarn install --immutable
+          yarn tsc --noEmit
+          python -m pip install -r scripts/requirements.txt
+          bash scripts/build-docs.sh
+          yarn build:backend
+          docker build --tag "ghcr.io/${GITHUB_REPOSITORY}/backstage:${GITHUB_SHA}" --file packages/backend/Dockerfile .
+
+      - name: Publish image for reviewed promotion
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker push "ghcr.io/${GITHUB_REPOSITORY}/backstage:${GITHUB_SHA}"

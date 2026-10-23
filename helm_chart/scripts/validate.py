@@ -195,6 +195,68 @@ def main():
         assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
 
 
+        # Exercise the opt-in package separately so default package ownership
+        # remains unchanged and workloads cannot acquire a second portal.
+        portal = {'enabled': True, 'image': 'registry.example.test/backstage@sha256:' + 'a' * 64,
+                  'egress': [{'to': [{'ipBlock': {'cidr': '10.20.0.10/32'}}],
+                              'ports': [{'protocol': 'TCP', 'port': 443}]}]}
+        backstage_resources = []
+        for role in ['management', 'workload']:
+            values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': role, 'role': role},
+                                         'sonarqubeReady': True, 'backstage': portal, 'atlantis': atlantis}))
+            enabled_apps = list(yaml.safe_load_all(command('helm', 'template', 'platform',
+                                str(HELM_CHART / 'platform'), '-f', str(values))))
+            by_name = {a['metadata']['name']: a for a in enabled_apps}
+            assert ('backstage' in by_name) == (role == 'management')
+            assert ('backstage-credentials' in by_name) == (role == 'management')
+            resources = [d for a in enabled_apps
+                         for d in yaml.safe_load_all(a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+            db = [d for d in resources if d['kind'] == 'Database' and d['metadata']['name'] == 'backstage']
+            assert bool(db) == (role == 'management')
+            cluster = next(d for d in resources if d['kind'] == 'Cluster')
+            roles = cluster['spec'].get('managed', {}).get('roles', [])
+            assert any(r['name'] == 'backstage' for r in roles) == (role == 'management')
+            routes = [d for d in resources if d['kind'] == 'ListenerSet' and d['metadata']['namespace'] == 'backstage']
+            assert bool(routes) == (role == 'management')
+            if role == 'management':
+                backstage_resources = [d for d in resources if d['metadata']['name'].startswith('backstage')]
+                r = next(r for r in roles if r['name'] == 'backstage')
+                assert not any(r[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
+                assert db[0]['spec']['owner'] == 'backstage'
+                enabled_waves = {name: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave']) for name, app in by_name.items()}
+                assert enabled_waves['configuration'] < enabled_waves['postgres'] < enabled_waves['backstage-credentials'] < enabled_waves['backstage'] < enabled_waves['routes']
+                early = list(yaml.safe_load_all(by_name['configuration']['spec']['source']['helm']['valuesObject']['manifests']))
+                for secret_name in ['backstage-role', 'backstage-session']:
+                    es = next(d for d in early if d and d['kind'] == 'ExternalSecret' and d['metadata']['name'] == secret_name)
+                    assert es['spec']['refreshPolicy'] == 'CreatedOnce'
+                    assert es['spec']['target']['immutable'] is True
+                    assert es['spec']['target']['creationPolicy'] == 'Orphan'
+                credentials = list(yaml.safe_load_all(by_name['backstage-credentials']['spec']['source']['helm']['valuesObject']['manifests']))
+                reader = next(d for d in credentials if d['kind'] == 'Role')
+                assert reader['metadata']['namespace'] == 'postgres'
+                assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['backstage-role', 'platform-ca'], 'verbs': ['get']}]
+                copied = next(d for d in credentials if d['kind'] == 'ExternalSecret')
+                assert {(d['remoteRef']['key'], d['remoteRef']['property']) for d in copied['spec']['data']} == {('backstage-role', 'password'), ('platform-ca', 'ca.crt')}
+                deployment = next(d for d in resources if d['kind'] == 'Deployment' and d['metadata']['name'] == 'backstage')
+                pod = deployment['spec']['template']['spec']
+                container = pod['containers'][0]
+                assert '@sha256:' in container['image']
+                assert pod['automountServiceAccountToken'] is False
+                assert container['securityContext']['readOnlyRootFilesystem']
+                assert container['resources']['requests']['memory'] == '512Mi'
+                assert not any(d['kind'] in {'ClusterRole', 'ClusterRoleBinding'} and
+                               'backstage' in d['metadata']['name'] for d in resources)
+                network = next(d for d in resources if d['kind'] == 'NetworkPolicy' and d['metadata']['namespace'] == 'backstage')
+                assert network['spec']['policyTypes'] == ['Ingress', 'Egress']
+                assert network['spec']['egress'][-1] == portal['egress'][0]
+        for invalid in [dict(portal, image='registry.example.test/backstage:latest'),
+                        dict(portal, egress=[{'to': [{'ipBlock': {'cidr': '0.0.0.0/0'}}], 'ports': [{'protocol': 'TCP', 'port': 443}]}])]:
+            values.write_text(json.dumps({'runtime': runtime, 'backstage': invalid}))
+            result = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)], text=True, capture_output=True)
+            assert result.returncode and 'schema' in result.stderr, 'Unsafe Backstage settings must fail Helm validation'
+        print('Backstage: GitOps configuration, ESO credential gates, shared database and network isolation verified.')
+
+
         def render(app):
             source = app['spec'].get('source') or app['spec']['sources'][0]
             if 'chart' not in source:
@@ -248,6 +310,21 @@ def main():
                     crds = {d['metadata']['name'] for d in docs if d['kind'] == 'CustomResourceDefinition'}
                     assert {'externalsecrets.external-secrets.io', 'clustersecretstores.external-secrets.io',
                             'passwords.generators.external-secrets.io'} <= crds, 'Secret delivery and password generation APIs must be installed'
+                    schemas = {d['spec']['names']['kind']: next(v['schema']['openAPIV3Schema'] for v in d['spec']['versions'] if v.get('storage'))
+                               for d in docs if d['kind'] == 'CustomResourceDefinition'}
+                    for resource in backstage_resources:
+                        if resource['kind'] not in {'ExternalSecret', 'SecretStore', 'Password'}:
+                            continue
+                        properties = schemas[resource['kind']]['properties']['spec']['properties']
+                        assert resource['spec'].keys() <= properties.keys(), 'Backstage uses fields absent from pinned ESO CRDs'
+                    es = schemas['ExternalSecret']['properties']['spec']['properties']
+                    assert 'CreatedOnce' in es['refreshPolicy']['enum']
+                    assert 'immutable' in es['target']['properties']
+                    auth = schemas['SecretStore']['properties']['spec']['properties']['provider']['properties']['kubernetes']['properties']['auth']['properties']
+                    assert 'serviceAccount' in auth
+                    assert any('serviceaccounts/token' in rule.get('resources', []) and 'create' in rule.get('verbs', [])
+                               for d in docs if d['kind'] == 'ClusterRole' for rule in d['rules']), 'ESO must be allowed to request a bounded reader token'
+
                 if name == 'plugin-barman-cloud':
                     assert any(d['kind'] == 'CustomResourceDefinition'
                                and d['metadata']['name'] == 'objectstores.barmancloud.cnpg.io' for d in docs), 'Barman must expose backup configuration API'

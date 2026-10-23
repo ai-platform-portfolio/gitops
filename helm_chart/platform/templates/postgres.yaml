@@ -26,6 +26,7 @@ spec:
       valuesObject:
 {{ tpl (.Files.Get "packages/postgres/operator-values.yaml") . | indent 8 }}
 
+
 {{ include "platform.syncPolicy" . | indent 2 }}
 
 ---
@@ -56,6 +57,7 @@ spec:
       releaseName: plugin-barman-cloud
       valuesObject:
 {{ tpl (.Files.Get "packages/postgres/barman-values.yaml") . | indent 8 }}
+
 
 {{ include "platform.syncPolicy" . | indent 2 }}
 
@@ -99,5 +101,11 @@ spec:
 {{ tpl (.Files.Get "packages/postgres/network-policy.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/sonarqube/database.yaml") . | indent 10 }}
+
+
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+          ---
+{{ tpl (.Files.Get "packages/backstage/database.yaml") . | indent 10 }}
+{{- end }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}

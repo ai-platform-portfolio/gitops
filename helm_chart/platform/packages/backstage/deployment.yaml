@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backstage
+  namespace: backstage
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backstage
+  namespace: backstage
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backstage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backstage
+    spec:
+{{- with .Values.backstage.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | indent 8 }}
+{{- end }}
+      serviceAccountName: backstage
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: platform
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backstage
+          image: {{ required "backstage.image must be the built portal image digest" .Values.backstage.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7007
+          env:
+            - name: BACKSTAGE_BASE_URL
+              value: https://backstage.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backstage-database
+                  key: password
+            - name: POSTGRES_CA
+              valueFrom:
+                secretKeyRef:
+                  name: backstage-database
+                  key: ca.crt
+            - name: AUTH_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backstage-session
+                  key: secret
+          envFrom:
+            - secretRef:
+                name: backstage-auth
+          startupProbe:
+            httpGet: {path: /.backstage/health/v1/readiness, port: http}
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /.backstage/health/v1/readiness, port: http}
+          livenessProbe:
+            httpGet: {path: /.backstage/health/v1/liveness, port: http}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 1536Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: identity
+              mountPath: /etc/backstage/identity
+              readOnly: true
+            - name: integrations
+              mountPath: /etc/backstage/integrations
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: identity
+          secret:
+            secretName: backstage-identity
+        - name: integrations
+          secret:
+            secretName: backstage-integrations
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backstage
+  namespace: backstage
+spec:
+  selector:
+    app.kubernetes.io/name: backstage
+  ports:
+    - name: http
+      port: 7007
+      targetPort: http

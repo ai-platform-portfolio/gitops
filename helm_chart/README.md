@@ -15,6 +15,7 @@ Terraform handoff.
 gitops/
   bootstrap/           Terraform and the initial Argo release
   helm_chart/
+    backstage/         Developer portal application source and image build
     platform/          Explicit Applications, package configuration and root chart
     federation/        Management ApplicationSet and onboarding guide
     charts/resources/  Minimal chart for manifest-only child Applications

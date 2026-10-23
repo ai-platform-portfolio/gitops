@@ -20,6 +20,18 @@ spec:
     ports:
     - protocol: TCP
       port: 5432
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: backstage
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: backstage
+    ports:
+    - protocol: TCP
+      port: 5432
+{{- end }}
   - from:
     - podSelector:
         matchLabels:

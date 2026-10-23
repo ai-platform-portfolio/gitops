@@ -51,4 +51,12 @@ spec:
 {{ tpl (.Files.Get "packages/atlantis/readiness-rbac.yaml") . | indent 10 }}
 {{- end }}
 
+
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+          ---
+{{ tpl (.Files.Get "packages/backstage/secrets.yaml") . | indent 10 }}
+          ---
+{{ tpl (.Files.Get "packages/backstage/network-policy.yaml") . | indent 10 }}
+{{- end }}
+
 {{ include "platform.syncPolicy" . | indent 2 }}

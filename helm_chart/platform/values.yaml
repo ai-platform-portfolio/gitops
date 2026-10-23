@@ -37,3 +37,11 @@ atlantis:
     # Map approved existing state/deployment targets to built-in Azure role names.
     # Example entries are documented in packages/atlantis/README.md.
     role_assignments: {}
+
+# Explicit opt-in after building the image and defining company-controlled
+# identity/repository endpoints. No Azure resources or external egress by default.
+backstage:
+  enabled: false
+  image: ''
+  imagePullSecrets: []
+  egress: []

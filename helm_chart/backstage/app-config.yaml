@@ -1,0 +1,83 @@
+app:
+  title: Platform developer portal
+  baseUrl: ${BACKSTAGE_BASE_URL}
+  packages: all
+  extensions:
+    - page:catalog:
+        config:
+          path: /
+
+organization:
+  name: Platform engineering
+
+backend:
+  baseUrl: ${BACKSTAGE_BASE_URL}
+  listen: ':7007'
+  cors:
+    origin: ${BACKSTAGE_BASE_URL}
+    methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+    credentials: true
+  csp:
+    connect-src: ["'self'"]
+  database:
+    client: pg
+    pluginDivisionMode: schema
+    connection:
+      host: platform-rw.postgres.svc.cluster.local
+      port: 5432
+      database: backstage
+      user: backstage
+      password: ${POSTGRES_PASSWORD}
+      ssl:
+        rejectUnauthorized: true
+        ca: ${POSTGRES_CA}
+    knexConfig:
+      pool:
+        min: 0
+        max: 5
+
+# The organisation config and deployment-specific auth settings are mounted from
+# existing Secrets. No guest login, remote catalog sources or AI endpoints.
+auth:
+  environment: production
+  session:
+    secret: ${AUTH_SESSION_SECRET}
+  providers:
+    oidc:
+      production:
+        metadataUrl: ${AUTH_OIDC_METADATA_URL}
+        clientId: ${AUTH_OIDC_CLIENT_ID}
+        clientSecret: ${AUTH_OIDC_CLIENT_SECRET}
+        signIn:
+          resolvers:
+            - resolver: emailMatchingUserEntityProfileEmail
+
+permission:
+  enabled: true
+
+platform:
+  operatorGroups: [group:default/platform-team]
+
+catalog:
+  rules:
+    - allow: [Component, System, Domain, API, Resource, Group, User, Template]
+  locations:
+    - type: file
+      target: /app/catalog/entities.yaml
+    - type: file
+      target: /etc/backstage/identity/catalog-org.yaml
+      rules:
+        - allow: [User, Group]
+    - type: file
+      target: /app/templates/service/template.yaml
+      rules:
+        - allow: [Template]
+
+# Documentation is built in CI and bundled into the immutable image. The portal
+# only serves files; no on-demand builds, Docker socket or cloud storage keys.
+techdocs:
+  builder: external
+  publisher:
+    type: local
+    local:
+      publishDirectory: /app/techdocs

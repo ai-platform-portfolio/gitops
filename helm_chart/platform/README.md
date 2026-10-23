@@ -23,7 +23,7 @@ Applications so operator health can gate creation of its custom resources.
 
 Chart pins, destinations and waves are edited in the Application YAML rather than
 a separate package catalog. `values.yaml` holds only the cluster/Git/runtime
-handoff, the SonarQube preparation flag and the optional Atlantis GitOps settings.
+handoff, the SonarQube preparation flag and optional Atlantis/Backstage GitOps settings.
 
 The small `../charts/resources` chart passes manifest YAML through to Argo.
 It lets the root template runtime settings once and supply the resulting resources
@@ -46,8 +46,8 @@ files easier to find.
 | 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
 | 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
-| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional management Atlantis | Backend services are ready |
-| 60 | sonarqube | PostgreSQL role and Database are reconciled; the JDBC Secret exists |
+| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials | Backend services are ready |
+| 60 | sonarqube, optional backstage | PostgreSQL roles, databases and consumer credentials are ready |
 | 70 | sonarqube-configure | SonarQube is healthy before its configuration job runs |
 | 80 | routes | Application backends are ready before public routes are attached |
 
@@ -83,3 +83,12 @@ cluster. Application data and backup containers are disposable on teardown.
 namespace credentials, Azure ownership boundary and consumer lifecycle.
 
 Atlantis is an opt-in management package; see its [setup and operation guide](packages/atlantis/README.md). Its ASO-owned dependencies and configuration live in GitOps, with no Atlantis Terraform inputs or PostgreSQL dependency.
+
+## Optional Backstage
+
+The management-only [Backstage package](packages/backstage/README.md) is disabled
+by default. Configure it directly in GitOps `values.yaml`. Its database belongs
+to the existing postgres Application. ESO generates stable credentials in early
+configuration, then the wave-40 backstage-credentials Application delivers the
+password/CA before the wave-60 portal and wave-80 route. It adds no PostgreSQL
+server, Azure infrastructure or Backstage-specific bootstrap/lifecycle handoff.
