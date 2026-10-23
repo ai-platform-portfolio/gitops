@@ -7,3 +7,4 @@
 crash.log
 .DS_Store
 __pycache__/
+*_override.tf

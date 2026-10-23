@@ -6,26 +6,6 @@ output "resource_group_name" {
   description = "Management resource group."
   value       = azurerm_resource_group.this.name
 }
-output "oidc_issuer_url" {
-  description = "Cluster issuer for federated identities."
-  value       = module.aks.oidc_issuer_url
-  sensitive   = true
-}
-output "dns_settings" {
-  sensitive   = true
-  description = "Runtime identity and configuration for GitOps ExternalDNS."
-  value = {
-    zone_name                 = data.azurerm_dns_zone.existing.name
-    resource_group            = var.dns.zone.resource_group_name
-    subscription_id           = data.azurerm_client_config.current.subscription_id
-    tenant_id                 = data.azurerm_client_config.current.tenant_id
-    client_id                 = module.dns_identity.client_id
-    service_account_namespace = var.dns.service_account.namespace
-    service_account_name      = var.dns.service_account.name
-    txt_owner_id              = var.aks.name
-  }
-}
-
 output "namespace" {
   description = "ArgoCD namespace."
   value       = module.argocd.namespace
@@ -33,4 +13,50 @@ output "namespace" {
 output "port_forward_command" {
   description = "Run against the management context to access ArgoCD at https://localhost:8080."
   value       = "kubectl -n ${module.argocd.namespace} port-forward svc/argocd-server 8080:443"
+}
+
+output "aks_connection" {
+  sensitive = true
+  value = {
+    name           = module.aks.cluster_name
+    resource_group = azurerm_resource_group.this.name
+    server         = module.aks.host
+    ca_data        = base64encode(module.aks.cluster_ca_certificate)
+  }
+}
+
+output "postgres_connection" {
+  sensitive = true
+  value = {
+    storage_account    = data.azurerm_storage_account.platform.name
+    container          = var.platform.storage.containers["postgres"].name
+    metadata_container = var.platform.storage.containers["metadata"].name
+    metadata_prefix    = "${var.platform.cluster_name}/"
+    legacy_metadata    = var.platform.storage.legacy_metadata
+    client_id          = module.identities["postgres"].client_id
+  }
+}
+
+output "platform_settings" {
+  sensitive = true
+  value = {
+    cluster                    = { name = var.platform.cluster_name, role = var.platform.cluster_role }
+    git                        = { repository = var.platform.git_repository, revision = var.platform.git_revision }
+    sonarqube_sso_display_name = var.platform.sonarqube_sso_display_name
+    storage_containers         = { for key, container in var.platform.storage.containers : key => container.name }
+    argocd_identity = {
+      client_id    = module.identities["argocd"].client_id
+      principal_id = module.identities["argocd"].principal_id
+    }
+    runtime = {
+      AZURE_CLIENT_ID          = module.identities["platform"].client_id
+      AZURE_DNS_RESOURCE_GROUP = var.dns.zone.resource_group_name
+      AZURE_KEY_VAULT_URI      = data.azurerm_key_vault.platform.vault_uri
+      AZURE_STORAGE_ACCOUNT    = data.azurerm_storage_account.platform.name
+      DNS_ZONE                 = coalesce(var.platform.domain_name, data.azurerm_dns_zone.existing.name)
+      AZURE_DNS_ZONE           = data.azurerm_dns_zone.existing.name
+      ACME_EMAIL               = var.platform.acme_email
+      CLUSTER_NAME             = var.platform.cluster_name
+    }
+  }
 }

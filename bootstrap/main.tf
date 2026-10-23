@@ -5,7 +5,23 @@ data "azurerm_dns_zone" "existing" {
   resource_group_name = var.dns.zone.resource_group_name
 }
 
+data "azurerm_storage_account" "platform" {
+  name                = var.platform.storage.account_name
+  resource_group_name = var.platform.storage.resource_group_name
+}
+
+data "azurerm_key_vault" "platform" {
+  name                = var.platform.key_vault.name
+  resource_group_name = var.platform.key_vault.resource_group_name
+}
+
 resource "azurerm_resource_group" "this" {
+  lifecycle {
+    precondition {
+      condition     = var.platform.cluster_name == (terraform.workspace == "default" ? "management" : terraform.workspace)
+      error_message = "Select the workspace matching platform.cluster_name; default is reserved for management."
+    }
+  }
   name     = var.azure.resource_group_name
   location = var.azure.location
   tags     = var.azure.tags
@@ -47,31 +63,38 @@ module "aks" {
   tags = var.azure.tags
 }
 
-
-module "dns_identity" {
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/managed-identity?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
-  name                = var.dns.identity_name
+module "identities" {
+  for_each            = var.identities
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/managed-identity?ref=453269ded9ea65cbc40f5ce9a240f022f8bea5bf"
+  name                = each.value.name
   location            = var.azure.location
   resource_group_name = azurerm_resource_group.this.name
   federated_credentials = {
-    external-dns = {
-      issuer  = module.aks.oidc_issuer_url
-      subject = "system:serviceaccount:${var.dns.service_account.namespace}:${var.dns.service_account.name}"
+    for name, credential in each.value.federated_credentials : name => {
+      issuer    = module.aks.oidc_issuer_url
+      subject   = "system:serviceaccount:${credential.namespace}:${credential.service_account}"
+      audiences = credential.audiences
+    }
+  }
+  role_assignments = {
+    for name, assignment in each.value.role_assignments : name => {
+      scope                = local.role_scopes[assignment.scope]
+      role_definition_name = assignment.role_definition_name
     }
   }
   tags = var.azure.tags
 }
 
-resource "azurerm_role_assignment" "dns" {
-  scope                = data.azurerm_dns_zone.existing.id
-  role_definition_name = "DNS Zone Contributor"
-  principal_id         = module.dns_identity.principal_id
-  principal_type       = "ServicePrincipal"
-}
-
 module "argocd" {
   source        = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/argocd-bootstrap?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
   chart_version = var.argocd.chart_version
-  values        = [file("${path.module}/${var.argocd.values_file}")]
-  depends_on    = [module.aks]
+  values = [file("${path.module}/${var.argocd.values_file}"), yamlencode(merge({
+    extraObjects = [yamldecode(file("${path.module}/${var.argocd.configmap_file}"))]
+    }, {
+    for component in var.argocd.identity_components : component => {
+      podLabels      = { "azure.workload.identity/use" = "true" }
+      serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }
+    }
+  }))]
+  depends_on = [module.aks]
 }

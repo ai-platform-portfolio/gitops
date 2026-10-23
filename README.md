@@ -1,59 +1,57 @@
-# GitOps
+# GitOps bootstrap
 
-Platform GitOps configuration and lifecycle entry point.
+This Terraform root provisions AKS, networking, managed identities and the initial
+ArgoCD Helm release. Bootstrap stays in `bootstrap/`; reusable Azure modules come
+from the separate Terraform repository at immutable commits.
+
+The platform charts and backup-aware package lifecycle are introduced separately
+in [PR #10](https://github.com/ai-platform-portfolio/gitops/pull/10).
+
+## Configuration
+
+Copy `bootstrap/terraform.tfvars` to ignored `bootstrap/local.tfvars` and fill in
+the deployment settings. In particular, choose a supported exact AKS Kubernetes
+version, the Entra admin security group and authorized public API CIDRs. Existing
+DNS, Key Vault and one retained platform storage account must already exist.
+The retained account uses separate cluster data containers and metadata prefixes.
+
+The Makefile uses `bootstrap/local.tfvars` for management when present and passes
+it with `-var-file`. Set `TFVARS=/path/to/settings.tfvars` to choose another file.
+Workloads use `CLUSTER=<name>`, the matching Terraform workspace and
+`clusters/<name>/terraform.tfvars`; start from `clusters/workload.tfvars.example`.
+Management uses workspace `default`. Private tfvars and state must stay out of Git.
 
 ## Bootstrap lifecycle
 
-`bootstrap/` contains the Terraform root for the central management AKS cluster
-and initial Helm ArgoCD installation. Platform packages will be migrated from
-Flux to ArgoCD/Helm afterward. The preserved Flux configuration is on
-`feature/migrate-away-from-flux`.
-
-Install Terraform, Azure CLI and kubelogin, then authenticate with `az login`.
-Select the account with `az account set --subscription "<subscription-name>"`.
-The Makefile reads the selected subscription and tenant into process environment
-variables; neither identifier is stored in tfvars.
-Complete the marked AKS version, Entra admin group and API CIDR values in
-`bootstrap/terraform.tfvars` before running:
+Install Terraform >=1.5, Azure CLI, Python 3 and kubelogin (used by the Helm
+provider). Authenticate with Azure CLI and select the intended subscription.
+Local users and CI use that same authentication path; CI can establish its CLI
+session through federated identity or managed identity.
 
 ```sh
 make plan
 make up
-make down
 ```
 
-Each target initializes Terraform first. `make up` applies automatically;
-`make down` destroys the resources managed by that bootstrap state automatically.
-Terraform loads `bootstrap/terraform.tfvars` and keeps state in `bootstrap/`.
-The current backend is local: retain the state for updates and teardown.
-The existing `dev.michaelalinks.com` DNS zone remains outside bootstrap ownership.
+`make up` prepares missing containers in the retained account, then provisions
+AKS and Argo through one Terraform root. It does not seed platform Applications.
+`scripts/prepare_storage.py` reads the grouped storage input and creates missing
+containers; `scripts/azure.py` provides shared CLI account context.
 
-`BOOTSTRAP_DIR` overrides the Terraform root and `TERRAFORM` overrides the executable.
-See [bootstrap/README.md](bootstrap/README.md) for infrastructure details and access.
+The `identities` map configures federated service accounts and scoped roles through
+one reusable identity module loop. Terraform reads its tenant internally from
+`azurerm_client_config.current`; tenant/subscription IDs are not Terraform outputs.
 
-These targets currently manage bootstrap only. Migrating the archived Flux
-packages to ArgoCD/Helm is the next increment.
+Terraform owns Argo's Helm release. `bootstrap/argocd-values.yaml` holds deployment
+settings; the commented `bootstrap/argocd-configmap.yaml` provides custom health
+checks and diff rules for the subsequent platform app-of-apps deployment.
 
-## CI authentication
+Before installing platform workloads, `make down` can remove this bootstrap.
+Once workloads or databases are installed, use the platform lifecycle in PR #10
+for ordered teardown and verified backups; direct Terraform destruction bypasses
+those safeguards. Containers and their storage account are outside this root's
+ownership and survive teardown.
 
-Use the same Make targets after establishing an Azure CLI session for the CI
-identity. For GitHub Actions, authenticate the federated managed identity using
-the org secrets (the job needs `id-token: write`):
-
-```yaml
-- uses: azure/login@v2
-  with:
-    client-id: ${{ secrets.AZURE_CLIENT_ID }}
-    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-- run: make plan
-```
-
-The job must also check out this repository and install Terraform and kubelogin.
-The identity needs GitHub OIDC federation and permissions for the resources it
-manages, including AKS access when Helm runs. An Azure-hosted runner can instead
-establish its CLI session with `az login --identity`.
-
-Terraform and kubelogin both use the resulting CLI session, so the Makefile and
-tfvars work in either environment. The existing CI workflows perform static
-validation only; this snippet shows authentication for a future lifecycle job.
+State is currently local. Protect it and run lifecycle commands serially.
+CI validates Terraform and renders the pinned Argo chart; no infrastructure is
+deployed by validation. See [bootstrap/README.md](bootstrap/README.md) for details.

@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+.DS_Store
+clusters/*/.terraform/
+clusters/*/*.tfstate*
+clusters/*/*.tfplan
+clusters/*/terraform.tfvars
