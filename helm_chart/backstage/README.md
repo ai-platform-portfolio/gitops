@@ -5,7 +5,7 @@ TechDocs, PostgreSQL-backed search and a reviewed service-request template. The
 new frontend/backend systems are used. Guest login, the example allow-all policy,
 MCP, cluster access, notification integrations and generic credentialed proxies
 are not installed. This application is deployed by the
-[Backstage platform package](../helm_chart/platform/packages/backstage/README.md).
+[Backstage platform package](../platform/packages/backstage/README.md).
 
 Source and deployment live in separate directories of this repository so one PR
 can review the application contract and its consumers. A future application repo

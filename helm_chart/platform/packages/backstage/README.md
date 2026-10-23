@@ -15,7 +15,7 @@ storage account or Azure identity. The default remains disabled.
 | `network-policy.yaml` | Default deny with explicit DNS, PostgreSQL and approved endpoint access |
 | `networking.yaml` | Existing per-host ListenerSet and cert-manager ownership pattern |
 
-The application source/build lives in [backstage/](../../../../backstage/README.md).
+The application source/build lives in [backstage/](../../../backstage/README.md).
 Enablement, image promotion and endpoint choices live in GitOps values. There are
 no Backstage-specific Terraform inputs/outputs or lifecycle-script steps.
 

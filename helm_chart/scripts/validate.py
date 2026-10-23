@@ -15,10 +15,7 @@ HELM_CHART = ROOT / 'helm_chart'
 
 
 def command(*args):
-    result = subprocess.run(args, text=True, capture_output=True)
-    if result.returncode:
-        raise RuntimeError(result.stderr)
-    return result.stdout
+    return subprocess.run(args, check=True, text=True, capture_output=True).stdout
 
 
 def main():
@@ -206,7 +203,7 @@ def main():
         backstage_resources = []
         for role in ['management', 'workload']:
             values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': role, 'role': role},
-                                         'sonarqubeReady': True, 'backstage': portal}))
+                                         'sonarqubeReady': True, 'backstage': portal, 'atlantis': atlantis}))
             enabled_apps = list(yaml.safe_load_all(command('helm', 'template', 'platform',
                                 str(HELM_CHART / 'platform'), '-f', str(values))))
             by_name = {a['metadata']['name']: a for a in enabled_apps}

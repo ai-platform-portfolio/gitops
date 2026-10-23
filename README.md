@@ -26,7 +26,7 @@ upstream charts. Live installation and multi-cluster failure behavior have not
 yet been validated in this workspace; passing CI does not establish deployment
 readiness.
 
-Optional developer portal: [Backstage application](backstage/README.md) and
+Optional developer portal: [Backstage application](helm_chart/backstage/README.md) and
 [deployment package](helm_chart/platform/packages/backstage/README.md). It reuses
 CNPG and remains disabled until an image and company-controlled identity/network
 configuration are supplied.
