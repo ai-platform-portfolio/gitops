@@ -36,8 +36,12 @@ input flag is enabled.
 
 ## GitHub App and Key Vault prerequisites
 
-Create an organisation-owned GitHub App and install it only on approved deployment
-repositories. Configure its webhook as `https://atlantis.<DNS_ZONE>/events`, with
+Create an organisation-owned GitHub App. For automatic Backstage repository
+onboarding, install it on all repositories in the approved organisation. If
+installation is limited to selected repositories, the onboarding workflow needs
+to grant App access for each newly created repository; an Atlantis wildcard alone
+does not grant GitHub access. Configure its webhook as
+`https://atlantis.<DNS_ZONE>/events`, with
 TLS verification and the same random webhook secret stored in Key Vault. Use
 one installation for this server. Subscribe to pull requests, issue comments,
 pull-request reviews and pushes, as described by the upstream setup guide.
@@ -45,12 +49,32 @@ Do not add a duplicate repository webhook when using the App webhook.
 
 Follow the upstream [GitHub App permissions](https://www.runatlantis.io/docs/access-credentials#permissions)
 for the pinned release, including organisation Members read access for team
-checks. Review those permissions rather than granting organisation-wide access.
-Supply the numeric App ID, App slug, trusted team slug and exact
-`github.com/owner/repository` IDs in local tfvars. Wildcard repository entries
-are rejected by the bootstrap input validation.
+checks. Review requested API permissions separately from repository installation
+scope.
+Supply the numeric App ID, App slug, trusted team slug and repository patterns
+in local tfvars. Use an organisation pattern so the server configuration stays
+stable as Backstage creates repositories:
 
-Populate these secrets in the existing platform Key Vault outside Git:
+```hcl
+repositories = [
+  "github.com/ai-platform-portfolio/*",
+  "!github.com/ai-platform-portfolio/gitops",
+  "!github.com/ai-platform-portfolio/terraform",
+]
+```
+
+Exact repository IDs also work. The fixed exclusions keep this hosting/bootstrap
+repository and module library out of execution; they are not a growing list of
+application repositories. Other organisations/hosts remain excluded. Kubernetes,
+Azure scopes and human apply gates still control what accepted requests can do.
+[Atlantis allowlist syntax](https://www.runatlantis.io/docs/server-configuration#repo-allowlist)
+supports organisation wildcards and exclusions.
+
+You can add these four secrets manually in the **existing bootstrap Key Vault**.
+The reference chain is `platform.key_vault` in ignored tfvars → Terraform runtime
+vault URI → `ClusterSecretStore/azure-kv` → the Atlantis ExternalSecrets. No new
+vault, secret-writing identity or generated GitHub App is needed. Keep the
+private key's PEM line breaks and enter values outside Git:
 
 | Key Vault secret | Kubernetes target | Purpose |
 | --- | --- | --- |
@@ -81,8 +105,8 @@ token. The UI/GitHub credentials and Azure identity are shared by this server's
 runs: this is a trusted-team runner, not isolated execution for untrusted tenants.
 Even `terraform plan` can execute code, so manual plan access is privileged.
 
-The `terraform` repository is a module library; do not install this App there to
-apply modules directly. A deployment repository contains root configurations
+The `terraform` repository is a module library; exclude it from Atlantis execution.
+The App may still have read access there for cloning private modules. A deployment repository contains root configurations
 referencing pinned modules, a tested provider lock file, a non-secret Azure Blob
 backend configuration and explicit Atlantis projects. It must not depend on
 ignored files from an operator's laptop or hardcode CLI-only authentication.
@@ -119,7 +143,9 @@ an independent operator/runner path for bootstrap, teardown and recovery.
 
 ## Human-in-the-loop workflow
 
-1. An engineer opens a PR in an explicitly allowlisted deployment repository.
+1. Backstage scaffolds an organisation-owned repository with catalog metadata,
+   an explicit `atlantis.yaml`, tested module references and deployment config.
+   An engineer opens the infrastructure PR; existing repositories can do so directly.
 2. A trusted team member comments `atlantis plan -p service-dev`.
 3. Review the generated plan, tests and policy evidence, then approve the PR.
 4. A trusted team member comments `atlantis apply -p service-dev`.
@@ -139,8 +165,32 @@ required pre-apply check, which would create a mergeability dependency cycle.
 Re-plan and review again after base/code changes. These human controls are not
 created by this Helm package and need live verification.
 
-Backstage can later generate these reviewed requests and show status. It does
-not need to receive the managed identity credentials or bypass these gates.
+Backstage integration is an intended consumer of this workflow; the separate
+Backstage branch is not changed by this package. Templates can create repositories,
+generate the explicit projects and show links/status. New organisation repositories
+are accepted without editing Atlantis's allowlist. The current workflow still
+requires trusted-team plan/apply comments; automatic Backstage task execution is
+not implemented here. Backstage does not need the managed identity credentials.
+
+## Azure Service Operator integration boundary
+
+The ASO package has merged, with only ResourceGroup CRDs enabled and no Azure
+provisioning credentials configured. Atlantis remains independent of it. Once ASO
+is deployed with the relevant CRDs and scoped permissions, a
+package can declare supported Azure resources (such as its managed identity,
+federated credential or storage) as ASO custom resources reconciled by Argo/ASO.
+Use the existing platform Key Vault unless a separate vault is actually needed.
+ASO cannot obtain a GitHub App private key from Azure: supply the external GitHub
+credentials to Key Vault, then ESO reads them for Atlantis.
+
+This PR keeps the Atlantis identity under Terraform's existing module loop.
+Moving it to ASO is a later ownership change: do not have Terraform and ASO manage
+the same Azure identity or role assignment simultaneously. Platform bootstrap must
+supply ASO's initial authority; a package cannot grant itself Azure permissions.
+For developer self-service, Backstage may generate either ASO resource manifests
+for Argo or Terraform projects for Atlantis, depending on which engine owns that
+resource. [ASO authentication and credential scopes](https://azure.github.io/azure-service-operator/guide/authentication/)
+describe package/namespace-scoped identities and the bootstrap requirement.
 
 ## Operations and validation
 

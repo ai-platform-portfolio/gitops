@@ -2,7 +2,7 @@ fullnameOverride: atlantis
 replicaCount: 1
 
 atlantisUrl: https://atlantis.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
-orgAllowlist: {{ join "," (required "atlantis.repositories must list exact repositories" .Values.atlantis.repositories) | quote }}
+orgAllowlist: {{ join "," (required "atlantis.repositories must scope allowed repositories or organisations" .Values.atlantis.repositories) | quote }}
 
 githubApp:
   id: {{ required "atlantis.github_app_id is required" .Values.atlantis.github_app_id | quote }}

@@ -38,7 +38,8 @@ def main():
         values = tmp / 'values.json'
         atlantis = {
             'enabled': True, 'github_app_id': '12345', 'github_app_slug': 'platform-atlantis',
-            'github_team': 'platform', 'repositories': ['github.com/example/developer-infra'],
+            'github_team': 'platform',
+            'repositories': ['github.com/example/*', '!github.com/example/gitops', '!github.com/example/terraform'],
             'client_id': '00000000-0000-0000-0000-000000000002',
         }
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True}))
@@ -222,6 +223,7 @@ def main():
                     container = pod['spec']['containers'][0]
                     assert container['image'].endswith(':v0.48.2')
                     env = {e['name']: e for e in container['env']}
+                    assert env['ATLANTIS_REPO_ALLOWLIST']['value'] == 'github.com/example/*,!github.com/example/gitops,!github.com/example/terraform'
                     assert env['ATLANTIS_DISABLE_AUTOPLAN']['value'] == 'true'
                     assert env['ATLANTIS_ALLOW_COMMANDS']['value'] == 'version,plan,apply,unlock'
                     assert env['ATLANTIS_GH_TEAM_ALLOWLIST']['value'] == 'platform:version,platform:plan,platform:apply,platform:unlock'
