@@ -1,60 +1,49 @@
 # GitOps bootstrap
 
-This Terraform root provisions AKS, networking, managed identities and the initial
-ArgoCD Helm release. Bootstrap stays in `bootstrap/`; reusable Azure modules come
-from the separate Terraform repository at immutable commits.
-
-The platform charts and backup-aware package lifecycle are introduced separately
-in [PR #10](https://github.com/ai-platform-portfolio/gitops/pull/10).
+This management-cluster Terraform root provisions networking, AKS, managed
+identities, disposable data containers and the initial ArgoCD Helm release.
+The platform charts and package lifecycle are added in
+[PR #10](https://github.com/ai-platform-portfolio/gitops/pull/10).
+Subsequent clusters use their own Terraform roots.
 
 ## Configuration
 
-Copy `bootstrap/terraform.tfvars` to ignored `bootstrap/local.tfvars` and fill in
-the deployment settings. In particular, choose a supported exact AKS Kubernetes
-version, the Entra admin security group and authorized public API CIDRs. Existing
-DNS, Key Vault and one retained platform storage account must already exist.
-The retained account uses separate cluster data containers and metadata prefixes.
-The application VM size in tfvars is a capacity estimate, not a dependency of this
-bootstrap; validate workload sizing before deployment.
+Copy `bootstrap/terraform.tfvars` to ignored `bootstrap/local.tfvars`. Set the
+AKS version, Entra admin group, API CIDRs and deployment settings there. Make
+passes that file with `-var-file` when present; override it with `TFVARS=/path/to/settings.tfvars`.
+Existing DNS, Key Vault and the single platform storage account are looked up by
+name. Terraform creates and deletes the configured containers within that account.
+Use fresh container names: existing containers must not be silently adopted or deleted.
 
-The Makefile uses `bootstrap/local.tfvars` for management when present and passes
-it with `-var-file`. Set `TFVARS=/path/to/settings.tfvars` to choose another file.
-Workloads use `CLUSTER=<name>`, the matching Terraform workspace and
-`clusters/<name>/terraform.tfvars`; copy the bootstrap tfvars and set the workload
-cluster role, name and unique infrastructure settings.
-Management uses workspace `default`. Private tfvars and state must stay out of Git.
+The application VM size is a capacity estimate; validate it for your workloads.
+Private tfvars and Terraform state stay out of Git. State is currently local.
 
-## Bootstrap lifecycle
+## Lifecycle
 
-Install Terraform >=1.5, Azure CLI, Python 3 and kubelogin (used by the Helm
-provider). Authenticate with Azure CLI and select the intended subscription.
-Local users and CI use that same authentication path; CI can establish its CLI
-session through federated identity or managed identity.
+Install Terraform >=1.5, Azure CLI and kubelogin, then authenticate with Azure CLI
+and select the intended subscription. CI uses that same session through federated
+identity or managed identity.
 
 ```sh
 make plan
 make up
+make down
 ```
 
-`make up` prepares missing containers in the retained account, then provisions
-AKS and Argo through one Terraform root. It does not seed platform Applications.
-`scripts/prepare_storage.py` reads the grouped storage input and creates missing
-containers; `scripts/azure.py` provides shared CLI account context.
+This bootstrap installs Argo but does not seed platform Applications. After
+installing the platform, use its lifecycle from PR #10 to remove packages before
+infrastructure. Teardown is disposable: containers and their data are deleted;
+the existing storage account, DNS zone and Key Vault remain outside this root.
 
-The `identities` map configures federated service accounts and scoped roles through
-one reusable identity module loop. Terraform reads its tenant internally from
-`azurerm_client_config.current`; tenant/subscription IDs are not Terraform outputs.
+Terraform reads account context internally through `azurerm_client_config.current`;
+tenant and subscription IDs are not Terraform outputs. Identity configuration is
+one object-map loop, with one Blob Data Contributor assignment at storage-account
+scope for each identity that accesses storage.
 
-Terraform owns Argo's Helm release. `bootstrap/argocd-values.yaml` holds deployment
-settings; the commented `bootstrap/argocd-configmap.yaml` provides custom health
-checks and diff rules for the subsequent platform app-of-apps deployment.
+`argocd-values.yaml` contains deployment settings. The actual
+`argocd-configmap.yaml` holds documented health and diff customizations. Helm
+installs it as part of the Terraform-owned release. Reusable Azure modules remain
+in the separate Terraform repository at immutable commits.
 
-Before installing platform workloads, `make down` can remove this bootstrap.
-Once workloads or databases are installed, use the platform lifecycle in PR #10
-for ordered teardown and verified backups; direct Terraform destruction bypasses
-those safeguards. Containers and their storage account are outside this root's
-ownership and survive teardown.
-
-State is currently local. Protect it and run lifecycle commands serially.
-CI validates Terraform and renders the pinned Argo chart; no infrastructure is
-deployed by validation. See [bootstrap/README.md](bootstrap/README.md) for details.
+No infrastructure is deployed by validation CI. See
+[bootstrap/README.md](bootstrap/README.md) for Argo access details.

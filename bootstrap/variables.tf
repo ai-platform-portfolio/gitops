@@ -95,7 +95,7 @@ variable "argocd" {
 }
 
 variable "platform" {
-  description = "Per-cluster package runtime settings and references to retained services. One retained platform storage account uses separate containers/prefixes per cluster."
+  description = "Management platform settings and existing Azure services. Terraform owns the disposable data containers."
 
   type = object({
     cluster_name   = string
@@ -117,11 +117,6 @@ variable "platform" {
       containers = map(object({
         name = string
       }))
-
-      legacy_metadata = optional(object({
-        container = string
-        prefix    = optional(string, "")
-      }))
     })
 
     sonarqube_sso_display_name = optional(string, "REPLACE_WITH_ENTRA_SAML_APP_NAME")
@@ -133,7 +128,7 @@ variable "platform" {
   }
 
   validation {
-    condition     = alltrue([for key in ["metadata", "postgres", "loki_chunks", "loki_ruler", "mimir_blocks", "mimir_ruler", "mimir_alertmanager", "tempo_traces"] : contains(keys(var.platform.storage.containers), key)])
-    error_message = "Define the platform metadata, PostgreSQL and observability containers."
+    condition     = alltrue([for key in ["postgres", "loki_chunks", "loki_ruler", "mimir_blocks", "mimir_ruler", "mimir_alertmanager", "tempo_traces"] : contains(keys(var.platform.storage.containers), key)])
+    error_message = "Define the PostgreSQL and observability containers."
   }
 }

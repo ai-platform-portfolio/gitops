@@ -16,30 +16,24 @@ data "azurerm_key_vault" "platform" {
 }
 
 locals {
-  role_scopes = merge(
-    {
-      dns_zone  = data.azurerm_dns_zone.existing.id
-      key_vault = data.azurerm_key_vault.platform.id
-    },
-    {
-      for key, container in var.platform.storage.containers : "storage:${key}" => "${data.azurerm_storage_account.platform.id}/blobServices/default/containers/${container.name}"
-    }
-  )
+  role_scopes = {
+    dns_zone        = data.azurerm_dns_zone.existing.id
+    key_vault       = data.azurerm_key_vault.platform.id
+    storage_account = data.azurerm_storage_account.platform.id
+  }
 }
 
 resource "azurerm_resource_group" "this" {
   name     = var.azure.resource_group_name
   location = var.azure.location
   tags     = var.azure.tags
+}
 
-  # Guard the selected Terraform state: default is management; other workspaces
-  # must match cluster_name. This prevents operating on the wrong cluster state.
-  lifecycle {
-    precondition {
-      condition     = var.platform.cluster_name == (terraform.workspace == "default" ? "management" : terraform.workspace)
-      error_message = "Select the workspace matching platform.cluster_name; default is reserved for management."
-    }
-  }
+resource "azurerm_storage_container" "platform" {
+  for_each              = var.platform.storage.containers
+  name                  = each.value.name
+  storage_account_id    = data.azurerm_storage_account.platform.id
+  container_access_type = "private"
 }
 
 module "network" {
@@ -113,22 +107,11 @@ module "argocd" {
   values = [
     file("${path.module}/${var.argocd.values_file}"),
     yamlencode(merge(
-      {
-        extraObjects = [yamldecode(file("${path.module}/${var.argocd.configmap_file}"))]
-      },
-      {
-        for component in var.argocd.identity_components : component => {
-          podLabels = {
-            "azure.workload.identity/use" = "true"
-          }
-
-          serviceAccount = {
-            annotations = {
-              "azure.workload.identity/client-id" = module.identities["argocd"].client_id
-            }
-          }
-        }
-      }
+      { extraObjects = [yamldecode(file("${path.module}/${var.argocd.configmap_file}"))] },
+      { for component in var.argocd.identity_components : component => {
+        podLabels      = { "azure.workload.identity/use" = "true" }
+        serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }
+      } }
     ))
   ]
 

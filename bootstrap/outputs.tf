@@ -29,19 +29,6 @@ output "aks_connection" {
   }
 }
 
-output "postgres_connection" {
-  sensitive = true
-
-  value = {
-    storage_account    = data.azurerm_storage_account.platform.name
-    container          = var.platform.storage.containers["postgres"].name
-    metadata_container = var.platform.storage.containers["metadata"].name
-    metadata_prefix    = "${var.platform.cluster_name}/"
-    legacy_metadata    = var.platform.storage.legacy_metadata
-    client_id          = module.identities["postgres"].client_id
-  }
-}
-
 output "platform_settings" {
   sensitive = true
 
@@ -50,7 +37,6 @@ output "platform_settings" {
       name = var.platform.cluster_name
       role = var.platform.cluster_role
     }
-
     git = {
       repository = var.platform.git_repository
       revision   = var.platform.git_revision
@@ -58,15 +44,15 @@ output "platform_settings" {
 
     sonarqube_sso_display_name = var.platform.sonarqube_sso_display_name
 
-    storage_containers = { for key, container in var.platform.storage.containers : key => container.name }
+    storage_containers = { for key, container in azurerm_storage_container.platform : key => container.name }
 
     argocd_identity = {
       client_id    = module.identities["argocd"].client_id
       principal_id = module.identities["argocd"].principal_id
     }
-
     runtime = {
       AZURE_CLIENT_ID          = module.identities["platform"].client_id
+      POSTGRES_AZURE_CLIENT_ID = module.identities["postgres"].client_id
       AZURE_DNS_RESOURCE_GROUP = var.dns.zone.resource_group_name
       AZURE_KEY_VAULT_URI      = data.azurerm_key_vault.platform.vault_uri
       AZURE_STORAGE_ACCOUNT    = data.azurerm_storage_account.platform.name

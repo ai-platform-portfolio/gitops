@@ -18,11 +18,9 @@ network = {
     snet-aks-system-management = {
       address_prefixes = ["10.1.0.0/24"]
     }
-
     snet-aks-user-management = {
       address_prefixes = ["10.1.1.0/24"]
     }
-
     snet-pe-management = {
       address_prefixes = ["10.1.2.0/27"]
     }
@@ -84,41 +82,27 @@ platform = {
     resource_group_name = "kubernetes"
 
     containers = {
-      metadata = {
-        name = "platform-metadata"
-      }
-
       postgres = {
         name = "postgres-backups"
       }
-
       loki_chunks = {
         name = "management-loki-chunks"
       }
-
       loki_ruler = {
         name = "management-loki-ruler"
       }
-
       mimir_blocks = {
         name = "management-mimir-blocks"
       }
-
       mimir_ruler = {
         name = "management-mimir-ruler"
       }
-
       mimir_alertmanager = {
         name = "management-mimir-alertmanager"
       }
-
       tempo_traces = {
         name = "management-tempo-traces"
       }
-    }
-
-    legacy_metadata = {
-      container = "postgres-backups"
     }
   }
 }
@@ -132,17 +116,14 @@ identities = {
         namespace       = "cert-manager"
         service_account = "cert-manager"
       }
-
       external-dns = {
         namespace       = "external-dns"
         service_account = "external-dns"
       }
-
       external-secrets = {
         namespace       = "external-secrets"
         service_account = "eso-akv-wi"
       }
-
       lgtm = {
         namespace       = "lgtm"
         service_account = "lgtm"
@@ -154,41 +135,12 @@ identities = {
         scope                = "dns_zone"
         role_definition_name = "DNS Zone Contributor"
       }
-
       secrets = {
         scope                = "key_vault"
         role_definition_name = "Key Vault Secrets User"
       }
-
-      # These assignments share a role but target separate Azure containers.
-      # Namespace/service-account sharing does not grant access to other containers.
-      loki_chunks = {
-        scope                = "storage:loki_chunks"
-        role_definition_name = "Storage Blob Data Contributor"
-      }
-
-      loki_ruler = {
-        scope                = "storage:loki_ruler"
-        role_definition_name = "Storage Blob Data Contributor"
-      }
-
-      mimir_blocks = {
-        scope                = "storage:mimir_blocks"
-        role_definition_name = "Storage Blob Data Contributor"
-      }
-
-      mimir_ruler = {
-        scope                = "storage:mimir_ruler"
-        role_definition_name = "Storage Blob Data Contributor"
-      }
-
-      mimir_alertmanager = {
-        scope                = "storage:mimir_alertmanager"
-        role_definition_name = "Storage Blob Data Contributor"
-      }
-
-      tempo_traces = {
-        scope                = "storage:tempo_traces"
+      storage = {
+        scope                = "storage_account"
         role_definition_name = "Storage Blob Data Contributor"
       }
     }
@@ -206,7 +158,7 @@ identities = {
 
     role_assignments = {
       backups = {
-        scope                = "storage:postgres"
+        scope                = "storage_account"
         role_definition_name = "Storage Blob Data Contributor"
       }
     }
@@ -220,14 +172,10 @@ identities = {
         namespace       = "argocd"
         service_account = "argocd-application-controller"
       }
-
       argocd-server = {
         namespace       = "argocd"
         service_account = "argocd-server"
       }
-    }
-
-    role_assignments = {
     }
   }
 }
