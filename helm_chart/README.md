@@ -1,4 +1,4 @@
-# GitOps
+# Platform configuration and lifecycle
 
 This repository demonstrates a federated Argo CD platform on Azure AKS. Management
 onboards workload clusters; each cluster's own Argo CD reconciles its packages
@@ -12,15 +12,15 @@ onboarding and failure behavior. [Bootstrap](../bootstrap/README.md) describes t
 Terraform handoff.
 
 ```text
-helm_chart/
-  platform/            Explicit Applications, package configuration and root chart
-  federation/          Management ApplicationSet and onboarding guide
-  charts/resources/    Minimal chart for manifest-only child Applications
-  scripts/             Lifecycle, credential preparation and render validation
-  tests/               Credential and teardown regression tests
-
-../bootstrap/          Terraform and the initial Argo release
-../Makefile            Repository-root bootstrap and lifecycle commands
+gitops/
+  bootstrap/           Terraform and the initial Argo release
+  helm_chart/
+    platform/          Explicit Applications, package configuration and root chart
+    federation/        Management ApplicationSet and onboarding guide
+    charts/resources/  Minimal chart for manifest-only child Applications
+    scripts/           Lifecycle, credential preparation and render validation
+    tests/             Credential and teardown regression tests
+  Makefile             Repository-root bootstrap and lifecycle commands
 ```
 
 Run commands from the repository root. To trace PostgreSQL, read

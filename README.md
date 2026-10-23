@@ -3,6 +3,11 @@
 A federated Argo CD platform on Azure AKS. Each cluster reconciles the shared
 platform independently; management onboards workload clusters.
 
+Terraform owns each cluster's initial Argo CD installation. The shared platform
+Helm chart defines local package Applications and their readiness gates; the
+management ApplicationSet seeds independent workload roots. See the guides below
+for ownership, configuration and teardown behavior.
+
 - [bootstrap/](bootstrap/README.md): Terraform infrastructure and the initial
   Argo CD installation.
 - [helm_chart/](helm_chart/README.md): platform and federation charts, package
@@ -15,3 +20,8 @@ ownership and dependency ordering, or the
 Run `make plan`, `make up`, `make down` and `make validate` from the repository
 root. The [configuration and validation guide](helm_chart/README.md) covers
 private inputs, prerequisites and portfolio limits.
+
+Validation covers lifecycle tests, rendered Kubernetes resources and pinned
+upstream charts. Live installation and multi-cluster failure behavior have not
+yet been validated in this workspace; passing CI does not establish deployment
+readiness.
