@@ -15,7 +15,8 @@ Existing DNS, Key Vault and the single platform storage account are looked up by
 name. Terraform creates and deletes the configured containers within that account.
 Use fresh container names: existing containers must not be silently adopted or deleted.
 
-The application VM size is a capacity estimate; validate it for your workloads.
+The initial pools each use one Standard_D4s_v5 node: one system node and one
+application node. Increase capacity when measured portfolio usage requires it.
 Private tfvars and Terraform state stay out of Git. State is currently local.
 
 ## Lifecycle

@@ -46,9 +46,9 @@ aks = {
   user_node_pools = {
     platform = {
       subnet_key = "snet-aks-user-management"
-      # Initial capacity estimate; validate workload sizing before deployment.
-      vm_size    = "Standard_D8s_v5"
-      node_count = 3
+      # Start small for the portfolio; increase capacity when measured usage requires it.
+      vm_size    = "Standard_D4s_v5"
+      node_count = 1
     }
   }
 }

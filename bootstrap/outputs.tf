@@ -37,6 +37,7 @@ output "platform_settings" {
       name = var.platform.cluster_name
       role = var.platform.cluster_role
     }
+
     git = {
       repository = var.platform.git_repository
       revision   = var.platform.git_revision
@@ -50,6 +51,7 @@ output "platform_settings" {
       client_id    = module.identities["argocd"].client_id
       principal_id = module.identities["argocd"].principal_id
     }
+
     runtime = {
       AZURE_CLIENT_ID          = module.identities["platform"].client_id
       POSTGRES_AZURE_CLIENT_ID = module.identities["postgres"].client_id
