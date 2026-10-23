@@ -66,7 +66,8 @@ The role and Database are applied by the `postgres` Application before wave 60.
 1. Open the relevant `templates/<package>.yaml` and check its chart pin and wave.
 2. Edit its referenced `packages/<package>/values.yaml` or manifest.
 3. For a new resource, add an explicit file reference to its owning Application.
-4. Run `make validate PYTHON=.venv/bin/python` as described in the root README.
+4. From the repository root, run `make validate PYTHON=.venv/bin/python` using
+   the [validation setup](../README.md#validation).
 
 LGTM values are grouped in `packages/lgtm/values.yaml`, with separate keys and
 Applications for Loki, Grafana, Tempo and Mimir. Other packages keep their own

@@ -17,8 +17,11 @@ Those containers and their contents are deleted on teardown. There is no
 cross-teardown restore or retained-credential store.
 
 Use Make from the repository root. Once platform packages are installed, use its
-package cleanup before destroying infrastructure. State uses the external Azure Blob backend configured by ignored
-`backend.local.hcl`; keep backend details and private tfvars out of Git. See the [root guide](../README.md).
+package cleanup before destroying infrastructure. State uses the external Azure
+Blob backend configured by ignored `backend.local.hcl`; keep backend details and
+private tfvars out of Git. See the
+[configuration and lifecycle guide](../helm_chart/README.md) for prerequisites,
+backend setup, `make up` and `make down`.
 
 After obtaining cluster credentials, access Argo with:
 
