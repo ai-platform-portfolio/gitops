@@ -63,16 +63,13 @@ class CredentialTests(unittest.TestCase):
 
 
 class PlatformInputTests(unittest.TestCase):
-    def test_root_passes_atlantis_inputs_and_defaults_older_outputs_to_disabled(self):
+    def test_package_configuration_is_not_taken_from_terraform(self):
         cluster = Cluster.__new__(Cluster)
         cluster.settings = {'cluster': {'name': 'management', 'role': 'management'},
-                            'git': {'repository': 'https://example.test/gitops', 'revision': 'main'}}
+                            'git': {'repository': 'https://example.test/gitops', 'revision': 'main'},
+                            'atlantis': {'enabled': True, 'github_app_id': 'legacy-output'}}
         values = cluster.root({}, False)['spec']['source']['helm']['valuesObject']
-        self.assertEqual(values['atlantis'], {'enabled': False})
-        configured = {'enabled': True, 'github_app_id': '12345', 'azure': {'identity_resource_group_name': 'rg-services'}}
-        cluster.settings['atlantis'] = configured
-        values = cluster.root({}, True)['spec']['source']['helm']['valuesObject']
-        self.assertEqual(values['atlantis'], configured)
+        self.assertNotIn('atlantis', values)
 
 
 class TeardownTests(unittest.TestCase):

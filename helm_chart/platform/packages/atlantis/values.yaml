@@ -54,9 +54,65 @@ serviceAccount:
   mount: false
 enableKubernetesBackend: false
 
+podTemplate:
+  annotations:
+    # Re-run the init gate after a role/federation configuration change.
+    gitops.platform/azure-settings: {{ dict "azure" .Values.atlantis.azure "issuer" .Values.runtime.AKS_OIDC_ISSUER_URL | toJson | sha256sum | quote }}
+
+initContainers:
+  - name: await-azure
+    # Official kubectl 1.35 supports the platform's 1.34-1.36 Kubernetes range.
+    image: registry.k8s.io/kubectl:v1.35.0@sha256:0bb95b2a450875fc8ceaea2f9987a99fe27c228846e2e00b93b65ebb0d59034e
+    command: [/bin/kubectl]
+    args:
+      - --cache-dir=/tmp/cache
+      - wait
+      - --namespace=atlantis
+      - --for=condition=Ready
+      - --timeout=1800s
+      - resourcegroups.resources.azure.com/atlantis
+      - userassignedidentities.managedidentity.azure.com/atlantis
+      - federatedidentitycredentials.managedidentity.azure.com/atlantis
+{{- range $name, $_ := .Values.atlantis.azure.role_assignments }}
+      - roleassignments.authorization.azure.com/atlantis-{{ $name }}
+{{- end }}
+    volumeMounts:
+      - name: readiness-api-token
+        mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        readOnly: true
+      - name: readiness-cache
+        mountPath: /tmp
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 64Mi
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+
 # Project a token explicitly: the runtime client ID comes from ASO, so there is
 # no static service-account annotation and no identity-webhook dependency.
 extraVolumes:
+  - name: readiness-api-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            expirationSeconds: 3600
+            path: token
+        - configMap:
+            name: kube-root-ca.crt
+            items:
+              - key: ca.crt
+                path: ca.crt
+  - name: readiness-cache
+    emptyDir:
+      sizeLimit: 16Mi
   - name: azure-identity-token
     projected:
       sources:

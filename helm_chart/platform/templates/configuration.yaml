@@ -47,6 +47,8 @@ spec:
 {{ tpl (.Files.Get "packages/atlantis/secrets.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/atlantis/network-policy.yaml") . | indent 10 }}
+          ---
+{{ tpl (.Files.Get "packages/atlantis/readiness-rbac.yaml") . | indent 10 }}
 {{- end }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}

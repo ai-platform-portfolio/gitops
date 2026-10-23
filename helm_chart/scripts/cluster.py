@@ -117,8 +117,7 @@ class Cluster:
                     'source': {'repoURL': settings['git']['repository'],
                                'targetRevision': settings['git']['revision'], 'path': 'helm_chart/platform',
                                'helm': {'valuesObject': {'cluster': settings['cluster'], 'git': settings['git'],
-                                                        'runtime': runtime, 'sonarqubeReady': sonar_ready,
-                                                        'atlantis': settings.get('atlantis', {'enabled': False})}}},
+                                                        'runtime': runtime, 'sonarqubeReady': sonar_ready}}},
                     'syncPolicy': {'automated': {'prune': True, 'selfHeal': True},
                                    'retry': {'limit': 10, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '3m'}}}}}
 
@@ -266,7 +265,9 @@ def main():
                    'AZURE_TENANT_ID': cluster.account['tenant_id'],
                    'AZURE_SUBSCRIPTION_ID': cluster.account['subscription_id'],
                    **{'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()}}
-        if cluster.settings['cluster']['role'] == 'management' and cluster.settings.get('atlantis', {}).get('enabled'):
+        # Generic cluster context for GitOps-owned federated identities. Package
+        # enablement and deployment choices are never read from Terraform outputs.
+        if cluster.settings['cluster']['role'] == 'management':
             runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
         prepare_credentials(cluster)
         existing = next((app for app in cluster.objects('applications.argoproj.io', 'argocd')

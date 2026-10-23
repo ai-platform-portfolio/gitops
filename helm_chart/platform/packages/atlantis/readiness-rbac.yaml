@@ -1,0 +1,37 @@
+# Only the init container mounts the API token. Terraform runs receive no
+# Kubernetes credential and this Role permits no writes or Secret access.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: atlantis-azure-readiness
+  namespace: atlantis
+rules:
+- apiGroups: [resources.azure.com]
+  resources: [resourcegroups]
+  resourceNames: [atlantis]
+  verbs: [get, list, watch]
+- apiGroups: [managedidentity.azure.com]
+  resources: [userassignedidentities, federatedidentitycredentials]
+  resourceNames: [atlantis]
+  verbs: [get, list, watch]
+- apiGroups: [authorization.azure.com]
+  resources: [roleassignments]
+  resourceNames:
+{{- range $name, $_ := .Values.atlantis.azure.role_assignments }}
+  - atlantis-{{ $name }}
+{{- end }}
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: atlantis-azure-readiness
+  namespace: atlantis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: atlantis-azure-readiness
+subjects:
+- kind: ServiceAccount
+  name: atlantis
+  namespace: atlantis

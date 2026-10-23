@@ -23,7 +23,7 @@ Applications so operator health can gate creation of its custom resources.
 
 Chart pins, destinations and waves are edited in the Application YAML rather than
 a separate package catalog. `values.yaml` holds only the cluster/Git/runtime
-handoff and the SonarQube preparation flag.
+handoff, the SonarQube preparation flag and the optional Atlantis GitOps settings.
 
 The small `../charts/resources` chart passes manifest YAML through to Argo.
 It lets the root template runtime settings once and supply the resulting resources
@@ -82,4 +82,4 @@ cluster. Application data and backup containers are disposable on teardown.
 [Azure Service Operator](packages/azure-service-operator/README.md) describes its
 namespace credentials, Azure ownership boundary and consumer lifecycle.
 
-Atlantis is an opt-in management package; see its [setup and operation guide](packages/atlantis/README.md). It uses a persistent disk and existing Key Vault integration, with no PostgreSQL dependency.
+Atlantis is an opt-in management package; see its [setup and operation guide](packages/atlantis/README.md). Its ASO-owned dependencies and configuration live in GitOps, with no Atlantis Terraform inputs or PostgreSQL dependency.

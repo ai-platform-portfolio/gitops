@@ -13,7 +13,7 @@ and briefly interrupt reconciliation and admission for ASO resources.
 
 Terraform retains ownership of existing AKS, networking, platform identities/roles,
 storage containers and the initial Argo installation. Enabling Atlantis lets its
-package create its own identity, federation and roles through ASO; no existing
+package create its own resource group, identity, federation and roles through ASO; no existing
 Terraform resources are adopted. This package installs an operator; it contains no Azure
 resource instances and creates no billable Azure services.
 

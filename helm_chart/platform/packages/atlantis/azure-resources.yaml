@@ -1,6 +1,17 @@
 {{- $azure := .Values.atlantis.azure -}}
 {{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
 {{- $identityGroup := required "atlantis.azure.identity_resource_group_name is required" $azure.identity_resource_group_name -}}
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: atlantis
+  namespace: atlantis
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  azureName: {{ $identityGroup }}
+  location: {{ required "atlantis.azure.location is required" $azure.location | quote }}
+---
 apiVersion: managedidentity.azure.com/v1api20230131
 kind: UserAssignedIdentity
 metadata:
@@ -10,9 +21,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 spec:
   azureName: id-{{ .Values.cluster.name }}-atlantis
-  location: {{ required "runtime.AZURE_LOCATION is required" .Values.runtime.AZURE_LOCATION }}
+  location: {{ required "atlantis.azure.location is required" $azure.location | quote }}
   owner:
-    armId: /subscriptions/{{ $subscription }}/resourceGroups/{{ $identityGroup }}
+    name: atlantis
   operatorSpec:
     configMaps:
       clientId:

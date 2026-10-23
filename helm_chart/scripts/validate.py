@@ -31,7 +31,7 @@ def main():
     runtime.update(DNS_ZONE='example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
                    SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
-                   AZURE_LOCATION='uksouth', AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
+                   AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
     for key in ['AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_CLIENT_ID',
                 'POSTGRES_AZURE_CLIENT_ID']:
         runtime[key] = '00000000-0000-0000-0000-000000000001'
@@ -54,6 +54,26 @@ def main():
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True}))
         disabled = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'atlantis' not in {app['metadata']['name'] for app in disabled}, 'Atlantis must be opt-in'
+        for label, overrides in {
+            'app-id': {'github_app_id': ''},
+            'team': {'github_team': ''},
+            'global-repo': {'repositories': ['*']},
+            'owner-wildcard': {'repositories': ['github.com/*/repo']},
+            'exclusions-only': {'repositories': ['!github.com/example/repo']},
+            'missing-roles': {'azure': {'role_assignments': {}}},
+            'identity-group': {'azure': {'identity_resource_group_name': ''}},
+            'location': {'azure': {'location': ''}},
+            'role-key': {'azure': {'role_assignments': {'Bad_Role': {'resource_group_name': 'rg', 'role_definition_name': 'Reader'}}}},
+            'role-group': {'azure': {'role_assignments': {'state': {'resource_group_name': '', 'role_definition_name': 'Reader'}}}},
+            'role-name': {'azure': {'role_assignments': {'state': {'resource_group_name': 'rg', 'role_definition_name': ''}}}},
+            'storage-name': {'azure': {'role_assignments': {'state': {'resource_group_name': 'rg', 'storage_account_name': 'INVALID', 'role_definition_name': 'Reader'}}}},
+        }.items():
+            values.write_text(json.dumps({'runtime': runtime, 'atlantis': {**atlantis, **overrides}}))
+            try:
+                command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))
+            except subprocess.CalledProcessError:
+                continue
+            raise AssertionError('Invalid Atlantis GitOps input was accepted: ' + label)
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis}))
         argo_values = tmp / 'argocd.json'
         argo_values.write_text(json.dumps({**bootstrap_values, 'extraObjects': [configmap]}))
@@ -102,8 +122,11 @@ def main():
                     database = next(d for d in documents if d['kind'] == 'Database')
                     assert database['spec']['owner'] == 'sonarqube' and database['spec']['databaseReclaimPolicy'] == 'retain'
                 if app['metadata']['name'] == 'atlantis-azure':
-                    assert {d['kind'] for d in documents} == {'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
+                    assert {d['kind'] for d in documents} == {'ResourceGroup', 'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
+                    group = next(d for d in documents if d['kind'] == 'ResourceGroup')
+                    assert group['spec']['azureName'] == atlantis['azure']['identity_resource_group_name']
                     identity = next(d for d in documents if d['kind'] == 'UserAssignedIdentity')
+                    assert identity['spec']['owner'] == {'name': 'atlantis'}
                     assert identity['metadata']['namespace'] == 'atlantis'
                     assert identity['spec']['operatorSpec']['configMaps']['clientId'] == {'name': 'atlantis-identity', 'key': 'clientId'}
                     federation = next(d for d in documents if d['kind'] == 'FederatedIdentityCredential')
@@ -121,10 +144,14 @@ def main():
                 if app['metadata']['name'] == 'configuration':
                     secrets = {d['metadata']['name']: d for d in documents if d['kind'] == 'ExternalSecret'}
                     assert {'atlantis-github', 'atlantis-web'} <= secrets.keys()
-                    credential = next(d for d in documents if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential')
-                    assert credential['metadata']['namespace'] == 'atlantis'
-                    assert base64.b64decode(credential['data']['AZURE_CLIENT_ID']).decode() == runtime['ASO_AZURE_CLIENT_ID']
-                    assert base64.b64decode(credential['data']['USE_WORKLOAD_IDENTITY_AUTH']).decode() == 'true'
+                    credential = secrets['atlantis-aso-credential']
+                    assert credential['spec']['target']['name'] == 'aso-credential'
+                    assert credential['spec']['data'][0]['remoteRef']['key'] == 'aso-provisioner-client-id'
+                    assert credential['spec']['target']['template']['data']['AZURE_CLIENT_ID'] == '{{ .clientId }}'
+                    assert credential['spec']['target']['template']['data']['USE_WORKLOAD_IDENTITY_AUTH'] == 'true'
+                    reader = next(d for d in documents if d['kind'] == 'Role' and d['metadata']['name'] == 'atlantis-azure-readiness')
+                    assert all(set(r['verbs']) == {'get', 'list', 'watch'} and r['resourceNames'] for r in reader['rules'])
+                    assert not any('secrets' in r['resources'] for r in reader['rules'])
                     assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
                     assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
                 if app['metadata']['name'] == 'gateway':
@@ -253,7 +280,14 @@ def main():
                     assert any(s.get('serviceAccountToken', {}).get('audience') == 'api://AzureADTokenExchange'
                                for v in pod['spec']['volumes'] for s in v.get('projected', {}).get('sources', []))
                     assert pod['spec']['automountServiceAccountToken'] is False
+                    gate = next(c for c in pod['spec']['initContainers'] if c['name'] == 'await-azure')
+                    assert gate['image'].startswith('registry.k8s.io/kubectl:v1.35.0@sha256:')
+                    assert '--for=condition=Ready' in gate['args']
+                    assert 'resourcegroups.resources.azure.com/atlantis' in gate['args']
+                    assert 'roleassignments.authorization.azure.com/atlantis-state' in gate['args']
+                    assert {m['name'] for m in gate['volumeMounts']} == {'readiness-api-token', 'readiness-cache'}
                     container = pod['spec']['containers'][0]
+                    assert 'readiness-api-token' not in {m['name'] for m in container['volumeMounts']}
                     assert container['image'].endswith(':v0.48.2')
                     env = {e['name']: e for e in container['env']}
                     assert env['ATLANTIS_REPO_ALLOWLIST']['value'] == 'github.com/example/*,!github.com/example/gitops,!github.com/example/terraform'

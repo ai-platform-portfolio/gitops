@@ -1,137 +1,153 @@
 # Atlantis
 
-Management-only Terraform PR execution using official chart **6.16.2**, Atlantis
-**v0.48.2**, verified latest stable on 2026-10-23. One replica and a 5 GiB Azure
-Disk store BoltDB locks, checkouts and saved plans. No PostgreSQL or Redis is
-required. Terraform state stays in the consumer roots' existing Azure Blob backend.
+Management-only Terraform PR execution, installed and configured through GitOps.
+Official chart **6.16.2** / Atlantis **v0.48.2** was verified latest stable when
+added. One replica and a 5 GiB Azure Disk store BoltDB locks, checkouts and saved
+plans. No PostgreSQL, Redis, additional Key Vault or state account is required.
 
-The package requests 100m CPU/256 MiB memory, with a 1 GiB memory limit. Measure
-actual Terraform run usage before increasing capacity. The runner defaults to
-Terraform 1.17.0; consumer projects should pin tested Terraform/provider versions.
+**There is no Atlantis Terraform root, tfvars setting, Terraform identity resource
+or Terraform output handoff.** Configure the `atlantis` object in
+`helm_chart/platform/values.yaml`, open a reviewed GitOps PR, and Argo/ASO reconcile
+it. Existing AKS, Argo, ASO, the platform Key Vault and persistent state backend
+are platform foundations; this package does not recreate or adopt them.
 
-## Ownership and ordering
+## Package configuration
 
-| Owner | Resources | Wave |
-| --- | --- | --- |
-| Terraform bootstrap | AKS, initial Argo, ASO provisioner identity/authority and Argo health checks | Before platform |
-| namespaces Application | Atlantis namespace | -10 |
-| configuration Application | GitHub/UI ExternalSecrets, namespace ASO credential, NetworkPolicy | 10 |
-| Azure Service Operator Application | Operator and required identity/role CRDs; watches Atlantis when enabled | 10 |
-| atlantis-azure Application | UserAssignedIdentity, FederatedIdentityCredential, scoped RoleAssignments | 20 |
-| ASO controller | Exports client/principal IDs into `atlantis-identity` ConfigMap | Before Azure Ready |
-| atlantis Application | Runner, service account, disk and internal Service | 40 |
-| routes Application | Application-owned ListenerSet, HTTPS route and redirect | 80 |
+Enable the package and supply non-secret GitOps choices:
 
-`azure-resources.yaml` defines the package-owned Azure resources. Their namespace
-is `atlantis`, which is added to ASO's watched namespaces only when enabled. ASO
-uses the namespace `aso-credential` populated from bootstrap's provisioner identity.
-The operator's global credential stays empty. These identity contexts are different:
-ASO can create the application identity; Atlantis uses that new identity for runs.
+```yaml
+atlantis:
+  enabled: true
+  github_app_id: "REPLACE_WITH_NUMERIC_APP_ID"
+  github_app_slug: platform-atlantis
+  github_team: platform
+  repositories:
+    - github.com/ai-platform-portfolio/*
+    - "!github.com/ai-platform-portfolio/gitops"
+    - "!github.com/ai-platform-portfolio/terraform"
 
-Bootstrap's wildcard Azure health check requires ASO Ready for the resource's
-current generation. Individual resource waves create identity, federation and
-roles in order; the root waits for all of them before starting the runner. Azure
-RBAC propagation can still delay initial access after the control plane reports
-Ready; test the initial backend operation and retry after propagation as needed.
+  aso_client_id_secret: aso-provisioner-client-id
 
-ASO writes `clientId` and `principalId` to the ConfigMap in this namespace. The
-runner reads client ID through `configMapKeyRef`, projects its own service-account
-token with audience `api://AzureADTokenExchange`, and supplies it to both AzureRM
-and Blob backend auth. It needs no static client-ID annotation, token-copy Job,
-Azure CLI session, extra ConfigMap reflector or Kubernetes backend RBAC.
+  azure:
+    location: uksouth
+    # ASO owns and deletes this group. Use a fresh package-only name.
+    identity_resource_group_name: rg-management-atlantis
+    role_assignments:
+      state:
+        resource_group_name: rg-developer-state
+        storage_account_name: REPLACE_WITH_EXISTING_STATE_ACCOUNT
+        role_definition_name: Storage Blob Data Contributor
+      deployment:
+        resource_group_name: rg-service-dev
+        role_definition_name: Contributor
+```
 
-## Bootstrap and private inputs
+The existing target state account/deployment group must be approved for developer
+runs. Roles use resource-group or storage-account scope, never per-container
+assignments. Account-level Blob access covers all blobs in that account; sharing
+management/developer state in one account shares that trust boundary. Repository
+exclusions do not isolate state. All targets use the existing cluster runtime's
+subscription context. Keep company deployment choices in an approved private Git
+source; do not copy private settings into this public portfolio.
 
-[Bootstrap configuration](../../../../bootstrap/README.md#optional-atlantis-and-aso-inputs)
-contains complete input examples for GitHub, the existing identity resource group,
-state/deployment role targets and `identities.aso`. Merge both Atlantis PRs before
-enabling it. Older Terraform outputs without Atlantis settings leave it disabled;
-workload clusters omit all Atlantis resources even if the flag is supplied.
+The existing platform lifecycle reads generic account context and the management
+AKS OIDC issuer, storing them in the local Argo root's runtime values. No issuer
+or account identifiers are added to Terraform outputs. This context is reusable
+by GitOps identity consumers; Atlantis enablement is never taken from Terraform.
+If a cluster was seeded with an earlier lifecycle, refresh its root once with
+`python3 helm_chart/scripts/cluster.py up --infra-dir bootstrap` using the existing
+initialized state. This reads existing infrastructure outputs and reconciles the
+platform without Terraform apply. Later package changes are ordinary GitOps PRs.
 
-The service-identity resource group and target state account/deployment resource
-groups must already exist. All targets use the selected subscription. Roles are
-configured as a map of resource group, optional storage account and built-in role
-name. Storage roles use account scope. Names produce stable Azure role-assignment
-GUIDs during rendering. No new storage account or Key Vault is created.
+## Dependencies owned by ASO
 
-The provisioner needs identity-management permission on the service-identity group
-and role-administration permission on each target scope. Terraform's identity module
-owns those initial permissions; ASO owns the application's grants. This is real
-role-administration authority, not an implemented tenant permission model. Keep
-package/ASO credential namespace writes limited to trusted platform operators until
-that model is designed and tested. The pinned ASO release uses its controller's
-projected token; do not assume newer strict per-namespace token isolation.
+| Stage | Owner/resources |
+| --- | --- |
+| Namespace, wave -10 | Package namespace |
+| Configuration, wave 10 | Key Vault-backed App/UI/ASO ExternalSecrets, NetworkPolicy and scoped readiness RBAC |
+| ASO, wave 10 | Existing operator, watching Atlantis only when enabled |
+| atlantis-azure, wave 20 | New package ResourceGroup, UserAssignedIdentity, FederatedIdentityCredential and configured RoleAssignments |
+| Atlantis, wave 40 | Runner, service account, disk, Service and read-only readiness init container |
+| Routes, wave 80 | Application-owned ListenerSet, HTTPS route and redirect |
 
-Do not configure `identities.atlantis` in Terraform. Bootstrap rejects mixed ownership.
-Existing Terraform-owned foundations and the persistent backend are not adopted
-by ASO. If an earlier draft was manually applied, review the state/resource ownership
-transition first; this implementation does not automatically detach or import it.
-The lifecycle privately reads the AKS OIDC issuer at runtime; it is not a new
-Terraform output. Bootstrap and lifecycle still use the current Azure CLI login.
+ASO creates the group, identity, federation and grants from `azure-resources.yaml`.
+Their owner/reference relationships let ASO resolve dependencies. ASO exports
+`clientId` and `principalId` into `ConfigMap/atlantis-identity` in the same namespace.
+The runner reads client ID through `configMapKeyRef` and explicitly projects its
+Azure-audience token. No static identity annotation, patch Job or reflector is used.
+Terraform does not own these resources. Never select an existing/shared resource
+group name: ASO can adopt an existing Azure resource, and package deletion would
+then put its contents at risk.
 
-## Existing Key Vault and GitHub App
+The pinned official kubectl 1.35 init container waits for Ready on every declared
+Azure resource. Native `kubectl wait` checks ASO's observedGeneration against the
+resource generation, so stale readiness does not release startup. A configuration
+hash reruns this gate when role/federation inputs change. Only this init container
+mounts a Kubernetes API token; its namespace Role permits named-resource reads and
+watches, no writes or Secret reads. Terraform runs receive no Kubernetes credential.
+The main container's separate token is for Azure authentication.
 
-Use the **same Key Vault selected by `platform.key_vault` in bootstrap**. Its URI
-feeds the existing `ClusterSecretStore/azure-kv`, used by Atlantis's ExternalSecrets.
-You can manually add these values in the vault, preserving the PEM line breaks:
+This gate needs no Terraform-installed Argo customization. It covers startup and
+configuration rollouts; it is not continuous ASO health monitoring. Inspect ASO
+conditions for later Azure drift/errors. RBAC propagation can also lag Ready;
+verify the first real backend operation before accepting the deployment.
+
+## ASO's initial authority and existing Key Vault
+
+ASO must already have an Azure identity authorised to provision package resources.
+An operator cannot grant itself initial Azure access. This is a one-time platform
+prerequisite, not an Atlantis Terraform dependency. The package does not create
+that initial authority or change its permissions.
+
+For the pinned ASO controller-token model, that identity must trust the management
+AKS OIDC issuer with subject
+`system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default`
+and audience `api://AzureADTokenExchange`. Its approved permissions must cover
+creating the package resource group/managed identity and managing role assignments
+on the specified state/deployment scopes. Resource-group creation requires parent
+subscription authority; review that authority and policy before use. The actual
+permission model and live permission checks are not established by this package.
+
+Put the existing provisioner's client ID in the **same Key Vault selected by
+bootstrap `platform.key_vault`**, using `aso-provisioner-client-id` or an existing
+key selected by `aso_client_id_secret`. ESO reads that ID through
+`ClusterSecretStore/azure-kv` and creates a namespace `aso-credential`, combining it
+with existing runtime account context. The ASO global credential stays empty.
+Only trusted platform operators should write this namespace/credential; the pinned
+ASO release does not provide strict per-namespace token isolation.
+
+Manually add the GitHub/UI secrets to that same vault:
 
 | Key Vault secret | Purpose |
 | --- | --- |
-| `atlantis-github-app-key` | GitHub App private key |
+| `atlantis-github-app-key` | GitHub App private key, preserving PEM line breaks |
 | `atlantis-github-webhook-secret` | Random webhook signing secret |
-| `atlantis-web-username` | Web UI basic-auth username |
+| `atlantis-web-username` | UI basic-auth username |
 | `atlantis-web-password` | Independent strong UI password |
 
-The namespace ASO credential contains public identity/account context, not a client
-secret. Its bootstrap-managed identity authenticates through the ASO controller's
-token. GitHub credentials remain external inputs; Azure Service Operator does not
-create a GitHub App or obtain its private key.
-
-Create an organisation-owned GitHub App with the upstream
-[required permissions](https://www.runatlantis.io/docs/access-credentials#permissions),
-including organisation Members read for team checks. Set its webhook to
-`https://atlantis.<DNS_ZONE>/events`, enable TLS verification and use the vault's
-webhook secret. Subscribe to pull requests, issue comments, pull-request reviews
-and pushes. Use one App installation and avoid duplicate repository webhooks.
-
-To cover new Backstage-created repositories, install the App on all repositories
-in the approved organisation, or automate installation access during onboarding.
-An Atlantis pattern does not itself grant the App GitHub access. API permissions
-and repository installation scope are separate choices.
-
-```hcl
-repositories = [
-  "github.com/ai-platform-portfolio/*",
-  "!github.com/ai-platform-portfolio/gitops",
-  "!github.com/ai-platform-portfolio/terraform",
-]
-```
-
-Organisation patterns avoid per-application server updates. Fixed exclusions keep
-hosting/bootstrap and module-library repositories outside execution; the App may
-still read a private module repository for cloning. Exact repo IDs also work.
-[Atlantis syntax](https://www.runatlantis.io/docs/server-configuration#repo-allowlist)
-supports these patterns and exclusions.
-
-After secret rotation, wait for ESO Ready, drain runs and restart the StatefulSet
-so environment credentials refresh. Secret updates alone do not restart Atlantis.
-The UI uses basic auth; commands use GitHub team checks and webhook signatures.
-The command API is not enabled.
+ASO does not obtain GitHub credentials. After rotation, wait for ESO Ready, drain
+runs and restart Atlantis so environment credentials refresh. Secret updates alone
+do not restart its process. The command API is not enabled.
 
 ## Backstage and human review
 
+Create an organisation-owned GitHub App with the upstream
+[required permissions](https://www.runatlantis.io/docs/access-credentials#permissions),
+including Members read for trusted-team checks. Configure the App webhook at
+`https://atlantis.<DNS_ZONE>/events`, with TLS verification and the vault's signing
+secret. Subscribe to pull requests, issue comments, pull-request reviews and pushes.
+Use one App installation and avoid duplicate repository webhooks.
+
+Organisation patterns cover new Backstage-created repositories without per-repo
+server edits. Install the App on all repos in the approved organisation, or automate
+installation access during onboarding: a wildcard does not grant GitHub App access.
+Fixed exclusions keep bootstrap and the Terraform module library outside execution.
+The App may still read private modules without accepting their repository for runs.
+
 Backstage can generate catalog metadata, consumer deployment configuration and an
-explicit project file in a new organisation-owned repository. Template actions
-and status integration belong to the separate Backstage implementation. This PR
-provides its execution path; it does not implement automatic Backstage tasks.
-
-A consumer repository composes pinned Terraform modules and contains a provider
-lock file plus backend configuration available to the runner. The `terraform`
-repository is a module library, not a deployment root. Do not add
-`gitops/bootstrap` as a project or give the runner unintended management-state
-access. Bootstrap/recovery must remain independently executable outside AKS.
-
-Example consumer repository `atlantis.yaml`:
+explicit `atlantis.yaml` in an organisation-owned repository. Actual template/task
+integration belongs to the separate Backstage work. This PR supplies the execution
+path; developers should not need platform tfvars or Azure credentials.
 
 ```yaml
 version: 3
@@ -149,49 +165,46 @@ projects:
       enabled: false
 ```
 
-1. Backstage or an engineer opens a PR for an approved consumer project.
+Consumer roots compose pinned modules, a tested provider lock file and existing
+backend configuration available to the runner. The `terraform` repo is a module
+library; do not apply it directly or add hosting `gitops/bootstrap` as a project.
+
+1. Backstage or an engineer opens a consumer PR.
 2. A trusted team member comments `atlantis plan -p service-dev`.
-3. Review the plan, checks and owner requirements, then approve the PR.
+3. Review the plan/checks and approve the PR.
 4. A trusted team member comments `atlantis apply -p service-dev`.
-5. Merge after successful apply; check application readiness through Argo.
+5. Merge after successful apply; inspect application readiness through Argo.
 
-Autoplan and fork/draft handling are disabled. Applies require approval,
-mergeability and an undiverged base. Repository custom workflows and requirement
-overrides are disabled; unselected bulk apply is disabled. PR locks complement
-Blob state leases. Apply uses the saved plan and happens before merge. Undoing an
-apply requires another reviewed plan; a Git revert alone changes no Azure resources.
-
-Configure branch protection/rulesets separately: required CI/owner reviews,
-stale-review dismissal and deliberate bypass/self-approval rules. Do not require
-Atlantis's apply check before apply, which creates a mergeability cycle. The
-server shares its identity and credentials across runs; even plan access permits
-code execution. It is a trusted-team runner, not isolated untrusted execution.
+Autoplan, fork/draft handling, custom repository workflows and requirement overrides
+are disabled. Applies require approval, mergeability and an undiverged base; bulk
+apply without project selection is disabled. Configure branch protection/owner
+reviews and stale-review dismissal separately. Do not require the apply status
+before apply, which creates a mergeability cycle. The shared runner is for trusted
+teams: even plan access permits code execution. Reverting Git alone does not undo
+an apply; execute another reviewed plan.
 
 For future self-service, Backstage may generate ASO manifests for Argo or Terraform
-projects for Atlantis. Give every Azure resource one owning engine. GitHub-hosted
-plans/comments/logs must fit the company boundary; self-hosting the runner alone
-does not establish that boundary. NetworkPolicy allows gateway ingress, DNS and
-HTTPS egress, without an FQDN allowlist.
+projects for Atlantis. Each Azure resource has one owning engine. GitHub-hosted
+plans/comments/logs must fit the company boundary; self-hosting the runner does
+not establish it. NetworkPolicy permits gateway ingress, DNS and HTTPS egress,
+without an FQDN allowlist.
 
-## Teardown and verification
+## Teardown and acceptance
 
-Drain active runs before upgrades or `make down`. The preStop hook waits for
-Terraform/Tofu processes up to the 300-second termination grace period; longer
-runs or forced termination can still be interrupted. Treat the disk as sensitive.
-Disk loss requires new plans and lock review, while remote Terraform state survives.
+Drain runs before upgrades or teardown. The preStop hook waits for Terraform/Tofu
+up to the 300-second grace period; forced or longer-running termination can still
+interrupt a run. Treat the disk as sensitive. Losing it requires fresh plans and
+lock review, while remote Terraform state survives.
 
-Cleanup permits only exact Azure CRs listed in the platform-managed
-`atlantis-azure` Application's inventory. Any unrelated or untracked Azure CR still
-blocks teardown before the platform stops. Reverse waves delete the runner, its
-roles/federation/identity, and only then ASO and the namespace credential. ASO and
-its bootstrap authority remain available for finalizers; deletion errors prevent
-Terraform destroy. Externally provisioned developer infrastructure and persistent
-Terraform state are not deleted by removing Atlantis.
+Cleanup permits only exact Azure CRs in the platform-managed `atlantis-azure`
+Application inventory; unrelated/untracked CRs still block before the platform
+stops. Reverse waves remove the runner, roles, federation, identity and its group
+before ASO and the namespace credential. ASO's initial platform authority must
+remain available until all finalizers finish. Removing Atlantis does not delete
+the existing state backend or externally provisioned developer infrastructure.
 
-Validation covers the identity/resource graph, role scopes and deterministic
-names, ConfigMap handoff, projected token, namespace credential/watch settings,
-current/stale health, teardown ownership and all pinned charts. These offline
-checks do not prove Azure provisioning, RBAC propagation or live self-service.
-Before real use, test allowed/denied commands, stale reviews, conflicting PRs,
-create/update/delete, token/secret rotation, restart between plan/apply, partial
-failure recovery and complete teardown with ASO finalizers.
+Offline validation covers GitOps inputs, resource graph, stable names, credential
+sources, readiness/token/RBAC scope, teardown and all pinned charts. It does not
+prove live Azure permissions, propagation or finalizers. Exercise approved/denied
+commands, stale reviews, concurrent PRs, create/update/delete, restart between
+plan/apply, token/secret rotation, partial failure and complete teardown before use.

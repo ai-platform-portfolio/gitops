@@ -13,7 +13,27 @@ runtime: {}
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
-# Optional management-only runner. Bootstrap passes the private tfvars settings
-# and ASO provisioner context; see packages/atlantis/README.md.
+# Management-only package choices live in GitOps, not Terraform/tfvars.
+# Enable through a reviewed values change after supplying Key Vault credentials.
 atlantis:
   enabled: false
+
+  github_app_id: ""
+  github_app_slug: ""
+  github_team: ""
+  repositories:
+    - github.com/ai-platform-portfolio/*
+    - "!github.com/ai-platform-portfolio/gitops"
+    - "!github.com/ai-platform-portfolio/terraform"
+
+  # Existing ASO provisioner's client ID in the same platform Key Vault.
+  # Its Azure permissions and controller federation are platform prerequisites.
+  aso_client_id_secret: aso-provisioner-client-id
+
+  azure:
+    location: uksouth
+    # ASO creates this package-owned group; do not select an existing/shared RG.
+    identity_resource_group_name: rg-management-atlantis
+    # Map approved existing state/deployment targets to built-in Azure role names.
+    # Example entries are documented in packages/atlantis/README.md.
+    role_assignments: {}
