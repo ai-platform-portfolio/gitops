@@ -1,0 +1,79 @@
+{{- range $name, $package := .Values.packages }}
+{{- if and (ne $package.enabled false) (or (not (hasPrefix "sonarqube" $name)) $.Values.sonarqubeReady) (or (ne $name "federation") (eq $.Values.cluster.role "management")) }}
+{{- $source := dict }}
+{{- if $package.chart }}
+{{- $_ := set $source "repoURL" $package.repository }}
+{{- $_ := set $source "chart" $package.chart }}
+{{- $_ := set $source "targetRevision" $package.version }}
+{{- $values := tpl ($.Files.Get (printf "files/values/%s.yaml" (default $name $package.valuesGroup))) $ | fromYaml }}
+{{- if $package.valuesGroup }}
+{{- if not (hasKey $values $name) }}
+{{- fail (printf "Missing values for %s in values group %s" $name $package.valuesGroup) }}
+{{- end }}
+{{- $values = index $values $name }}
+{{- end }}
+{{- $helm := dict "releaseName" $name "valuesObject" $values }}
+{{- if eq $name "langfuse" }}
+{{- $_ := set $helm "apiVersions" (list "clickhouse.com/v1alpha1/ClickHouseCluster" "clickhouse.com/v1alpha1/KeeperCluster") }}
+{{- end }}
+{{- $_ := set $source "helm" $helm }}
+{{- else }}
+{{- $_ := set $source "repoURL" $.Values.git.repository }}
+{{- $_ := set $source "targetRevision" $.Values.git.revision }}
+{{- $_ := set $source "path" $package.path }}
+{{- $values := dict "git" $.Values.git }}
+{{- if ne $name "federation" }}
+{{- $values = dict "manifests" (tpl ($.Files.Get (printf "files/manifests/%s.yaml" $package.group)) $) }}
+{{- end }}
+{{- $_ := set $source "helm" (dict "valuesObject" $values) }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $package.wave | quote }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $package.namespace }}
+  {{- if eq $name "mimir" }}
+  # The final source replaces only the eviction webhook, matching the old Flux
+  # patch. Other rollout webhooks retain their upstream failurePolicy=Fail.
+  sources:
+    - {{- toYaml $source | nindent 6 }}
+    - repoURL: {{ $.Values.git.repository }}
+      targetRevision: {{ $.Values.git.revision | quote }}
+      path: charts/resources
+      helm:
+        valuesObject:
+          manifests: |
+            {{- $.Files.Get "files/manifests/mimir-eviction.yaml" | nindent 12 }}
+  {{- else }}
+  source:
+    {{- toYaml $source | nindent 4 }}
+  {{- end }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=true
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+{{- end }}
+{{- end }}
