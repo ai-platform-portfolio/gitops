@@ -23,7 +23,7 @@ Applications so operator health can gate creation of its custom resources.
 
 Chart pins, destinations and waves are edited in the Application YAML rather than
 a separate package catalog. `values.yaml` holds only the cluster/Git/runtime
-handoff and the SonarQube preparation flag.
+handoff, the SonarQube preparation flag and the optional Atlantis GitOps settings.
 
 The small `../charts/resources` chart passes manifest YAML through to Argo.
 It lets the root template runtime settings once and supply the resulting resources
@@ -44,9 +44,9 @@ files easier to find.
 | 0 | envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
 | 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
 | 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
-| 20 | plugin-barman-cloud, external-dns, gateway | Operators/configuration are available |
+| 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
-| 40 | langfuse, opentelemetry-collector, k8s-monitoring | Backend services are ready |
+| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional management Atlantis | Backend services are ready |
 | 60 | sonarqube | PostgreSQL role and Database are reconciled; the JDBC Secret exists |
 | 70 | sonarqube-configure | SonarQube is healthy before its configuration job runs |
 | 80 | routes | Application backends are ready before public routes are attached |
@@ -81,3 +81,5 @@ cluster. Application data and backup containers are disposable on teardown.
 
 [Azure Service Operator](packages/azure-service-operator/README.md) describes its
 namespace credentials, Azure ownership boundary and consumer lifecycle.
+
+Atlantis is an opt-in management package; see its [setup and operation guide](packages/atlantis/README.md). Its ASO-owned dependencies and configuration live in GitOps, with no Atlantis Terraform inputs or PostgreSQL dependency.

@@ -11,9 +11,10 @@ and briefly interrupt reconciliation and admission for ASO resources.
 
 ## Ownership and CRDs
 
-Terraform retains ownership of AKS, networking, identities, role assignments,
-storage containers and the initial Argo installation. ASO creates or adopts none
-of those resources. This package installs an operator; it contains no Azure
+Terraform retains ownership of existing AKS, networking, platform identities/roles,
+storage containers and the initial Argo installation. Enabling Atlantis lets its
+package create its own resource group, identity, federation and roles through ASO; no existing
+Terraform resources are adopted. This package installs an operator; it contains no Azure
 resource instances and creates no billable Azure services.
 
 ASO installs and upgrades its own CRDs using `installCRDs: true`. Enabled groups
@@ -86,7 +87,9 @@ Before creating a consumer resource:
    Secret read permission. A resource-scoped credential reference must also be
    in the same namespace.
 
-Only `azure-resources` is watched. This watch filter is not Kubernetes RBAC
+The base installation watches `azure-resources`. Enabling Atlantis adds its
+`atlantis` namespace, namespace credential and package-owned identity/federation/
+role resources. The Atlantis guide describes their bootstrap authority and lifecycle. This watch filter is not Kubernetes RBAC
 isolation: the upstream chart grants broad cluster permissions, including Secret
 access and CRD create/update. It also installs admission webhook configurations
 for supported APIs beyond the initial CRD subset. Do not treat this installation
@@ -120,8 +123,9 @@ together; a Helm rollback alone may not undo CRD/storage-version migrations.
 
 Remove consumer Applications/CRs and wait for ASO finalizers and intended Azure
 deletion before `make down`. Keep the operator and credential available throughout
-deletion. The lifecycle fails before stopping the platform when namespaced Azure
-CRs remain; it never force-removes finalizers. Use an explicitly reviewed reconcile
+deletion. The lifecycle fails before stopping the platform when unrelated namespaced Azure
+CRs remain; only exact resources tracked by the platform-managed `atlantis-azure`
+Application may be removed through its ordered package cleanup. It never force-removes finalizers. Use an explicitly reviewed reconcile
 policy if Azure resources must survive. Never place Terraform state resources
 under disposable ASO ownership. The operator does not remove CRDs on uninstall;
 they remain on a retained cluster and disappear with a destroyed AKS cluster.

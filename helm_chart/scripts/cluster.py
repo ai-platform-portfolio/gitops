@@ -97,6 +97,17 @@ class Cluster:
         return {'SONAR_SAML_APPLICATION_ID': 'api://' + principal['appId'],
                 'SONAR_SAML_CERTIFICATE': certs[0]['key']}
 
+    def oidc_issuer(self):
+        connection = self.connection
+        result = subprocess.run(['az', 'aks', 'show', '--subscription', connection['subscription_id'],
+            '--resource-group', connection['resource_group'], '--name', connection['name'],
+            '--query', 'oidcIssuerProfile.issuerUrl', '-o', 'tsv', '--only-show-errors'],
+            text=True, capture_output=True)
+        issuer = result.stdout.strip()
+        if result.returncode or not issuer.startswith('https://'):
+            raise RuntimeError('Cannot read the AKS OIDC issuer required by ASO-managed federation')
+        return issuer
+
     def root(self, runtime, sonar_ready):
         settings = self.settings
         return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
@@ -176,13 +187,23 @@ class Cluster:
                      'Waiting for hub onboarding to detach')
         apps = self.objects('applications.argoproj.io', 'argocd')
         if any(a['metadata']['name'] == 'azure-service-operator' for a in apps):
-            # Consumer Azure CRs must finish deletion while ASO and its identity
-            # still exist. They are not owned by the platform Application.
+            # External consumer CRs must finish deletion first. Only exact Azure
+            # resources tracked by the platform-owned Atlantis Application may
+            # remain: reverse waves delete them before ASO and its credential.
+            owned = {(r.get('group'), r.get('kind'), r.get('namespace'), r.get('name'))
+                     for app in apps if app['metadata']['name'] == 'atlantis-azure'
+                     and app['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true'
+                     for r in app.get('status', {}).get('resources', [])}
             resources = run(*self.kube, 'api-resources', '--namespaced=true',
                             '--verbs=list', '-o', 'name', capture=True).splitlines()
             for resource in resources:
-                if resource.endswith('.azure.com') and self.objects(resource):
-                    raise RuntimeError('Remove ASO Azure resources and wait for finalizers before teardown')
+                if not resource.endswith('.azure.com'):
+                    continue
+                for obj in self.objects(resource):
+                    key = (obj.get('apiVersion', '').split('/')[0], obj.get('kind'),
+                           obj['metadata'].get('namespace'), obj['metadata']['name'])
+                    if key not in owned:
+                        raise RuntimeError('Remove ASO Azure resources and wait for finalizers before teardown')
         roots = [a for a in apps if a['metadata']['name'] == 'platform']
 
         def suspend(applications):
@@ -244,6 +265,10 @@ def main():
                    'AZURE_TENANT_ID': cluster.account['tenant_id'],
                    'AZURE_SUBSCRIPTION_ID': cluster.account['subscription_id'],
                    **{'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()}}
+        # Generic cluster context for GitOps-owned federated identities. Package
+        # enablement and deployment choices are never read from Terraform outputs.
+        if cluster.settings['cluster']['role'] == 'management':
+            runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
         prepare_credentials(cluster)
         existing = next((app for app in cluster.objects('applications.argoproj.io', 'argocd')
                          if app['metadata']['name'] == 'platform'), None)

@@ -18,6 +18,9 @@ crdPattern:
 
 azureTargetNamespaces:
   - azure-resources
+{{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
+  - atlantis
+{{- end }}
 
 # The settings Secret is required even without a global Azure credential.
 # Namespace-scoped aso-credential Secrets supply private account/identity values.
