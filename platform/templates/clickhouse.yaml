@@ -1,0 +1,60 @@
+# Install foundational controllers and management onboarding.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse-operator
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clickhouse
+
+  source:
+    repoURL: ghcr.io/clickhouse
+    chart: clickhouse-operator-helm
+    targetRevision: "0.0.8"
+    helm:
+      releaseName: clickhouse-operator
+      valuesObject:
+{{ tpl (.Files.Get "packages/clickhouse/operator-values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+# Storage and secret dependencies are ready for databases and observability.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clickhouse
+
+  source:
+    repoURL: ghcr.io/clickhouse
+    chart: clickhouse-cluster-helm
+    targetRevision: "0.0.8"
+    helm:
+      releaseName: clickhouse
+      valuesObject:
+{{ tpl (.Files.Get "packages/clickhouse/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}

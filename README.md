@@ -1,5 +1,32 @@
 # GitOps
 
+This repository demonstrates a federated Argo CD platform on Azure AKS. Management
+onboards workload clusters; each cluster's own Argo CD reconciles its packages
+independently. Terraform provisions infrastructure and installs each initial Argo
+release. Application configuration is organised by package, following the original
+Flux layout while making the Argo ownership and dependency order explicit.
+
+Start with [the platform guide](platform/README.md) for the package layout and
+installation sequence, then [federation](federation/README.md) for cluster
+onboarding and failure behavior. [Bootstrap](bootstrap/README.md) describes the
+Terraform handoff.
+
+```text
+bootstrap/             Terraform + initial Argo release
+federation/            Management ApplicationSet + onboarding guide
+platform/
+  templates/           Explicit package Applications and readiness stages
+  packages/            Package values, namespaces, networking and custom resources
+  values.yaml          Cluster/Git/runtime handoff
+charts/resources/      Minimal chart for manifest-only child Applications
+scripts/               Lifecycle, credential preparation and render validation
+tests/                 Credential and teardown regression tests
+```
+
+To trace PostgreSQL, read `platform/templates/postgres.yaml`, then follow its
+references into `platform/packages/postgres/`. The operator, Barman and database
+remain independently ordered Applications. Other packages follow the same path.
+
 `make up` provisions the management AKS cluster, installs ArgoCD and reconciles
 the platform packages. This is a disposable portfolio deployment: `make down`
 removes packages, infrastructure and Terraform-managed data containers.
@@ -97,14 +124,16 @@ multi-cluster provisioning or workload tfvars template.
 
 ## Packages and ingress
 
-The catalog pins 16 releases: cert-manager, External Secrets, Envoy Gateway,
+Explicit Applications pin 16 releases: cert-manager, External Secrets, Envoy Gateway,
 ExternalDNS, Loki, Mimir, Tempo, Grafana, Kubernetes Monitoring/Alloy,
 OpenTelemetry, ClickHouse operator/cluster, CloudNativePG, Barman, Langfuse and
 SonarQube Developer. Argo Application health gates dependency waves.
 
-Loki, Grafana, Tempo and Mimir values share `platform/files/values/lgtm.yaml`,
-selected by `valuesGroup: lgtm`. Each retains its own Application. Other values
-stay separate, including ClickHouse's operator and database releases.
+Loki, Grafana, Tempo and Mimir values share `platform/packages/lgtm/values.yaml`.
+Each explicit Application selects its values by name. Other packages keep their
+own values, including ClickHouse's independently ordered operator and database.
+Package-specific ingress and policies live beside their values; the shared
+configuration and routes Applications preserve readiness gates.
 
 CNPG owns SonarQube's role and Database declaratively. Argo waits for the current
 Database generation before installing SonarQube. The lifecycle prepares its

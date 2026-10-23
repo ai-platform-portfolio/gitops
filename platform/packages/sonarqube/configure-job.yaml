@@ -19,7 +19,7 @@ spec:
         - sh
         - -ec
         - |
-{{ tpl (.Files.Get "files/sonarqube-configure.sh") . | indent 10 }}
+{{ tpl (.Files.Get "packages/sonarqube/configure.sh") . | indent 10 }}
         env:
         - name: ADMIN_PASSWORD
           valueFrom:

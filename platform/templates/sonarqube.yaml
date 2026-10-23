@@ -1,0 +1,64 @@
+{{- if .Values.sonarqubeReady }}
+# The PostgreSQL role, Database and JDBC Secret are ready.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarqube
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "60"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sonarqube
+
+  source:
+    repoURL: https://sonarsource.github.io/helm-chart-sonarqube
+    chart: sonarqube
+    targetRevision: "2026.5.1002"
+    helm:
+      releaseName: sonarqube
+      valuesObject:
+{{ tpl (.Files.Get "packages/sonarqube/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
+
+---
+{{- if .Values.sonarqubeReady }}
+# Configure SonarQube after its application is healthy.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarqube-configure
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "70"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sonarqube
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/sonarqube/configure-job.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

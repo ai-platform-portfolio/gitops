@@ -1,0 +1,130 @@
+# Storage and secret dependencies are ready for databases and observability.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lgtm
+
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: loki
+    targetRevision: "18.15.1"
+    helm:
+      releaseName: loki
+      valuesObject:
+{{ (tpl (.Files.Get "packages/lgtm/values.yaml") . | fromYaml).loki | toYaml | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+# Storage and secret dependencies are ready for databases and observability.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lgtm
+
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: grafana
+    targetRevision: "13.5.0"
+    helm:
+      releaseName: grafana
+      valuesObject:
+{{ (tpl (.Files.Get "packages/lgtm/values.yaml") . | fromYaml).grafana | toYaml | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+# Storage and secret dependencies are ready for databases and observability.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lgtm
+
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: tempo
+    targetRevision: "3.1.0"
+    helm:
+      releaseName: tempo
+      valuesObject:
+{{ (tpl (.Files.Get "packages/lgtm/values.yaml") . | fromYaml).tempo | toYaml | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+# Storage and secret dependencies are ready for databases and observability.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mimir
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lgtm
+
+  sources:
+    # Replace only the eviction webhook in the final source.
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: mimir-distributed
+      targetRevision: "6.2.1"
+      helm:
+        releaseName: mimir
+        valuesObject:
+{{ (tpl (.Files.Get "packages/lgtm/values.yaml") . | fromYaml).mimir | toYaml | indent 10 }}
+    - repoURL: {{ .Values.git.repository }}
+      targetRevision: {{ .Values.git.revision | quote }}
+      path: charts/resources
+      helm:
+        valuesObject:
+          manifests: |
+{{ .Files.Get "packages/lgtm/mimir-eviction.yaml" | indent 12 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
