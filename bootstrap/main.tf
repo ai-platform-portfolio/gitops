@@ -110,15 +110,27 @@ module "argocd" {
   source        = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/argocd-bootstrap?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
   chart_version = var.argocd.chart_version
 
-  values = [file("${path.module}/${var.argocd.values_file}"), yamlencode(merge({
-    extraObjects = [yamldecode(file("${path.module}/${var.argocd.configmap_file}"))]
-    }, {
-    for component in var.argocd.identity_components : component => {
-      podLabels = { "azure.workload.identity/use" = "true" }
+  values = [
+    file("${path.module}/${var.argocd.values_file}"),
+    yamlencode(merge(
+      {
+        extraObjects = [yamldecode(file("${path.module}/${var.argocd.configmap_file}"))]
+      },
+      {
+        for component in var.argocd.identity_components : component => {
+          podLabels = {
+            "azure.workload.identity/use" = "true"
+          }
 
-      serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }
-    }
-  }))]
+          serviceAccount = {
+            annotations = {
+              "azure.workload.identity/client-id" = module.identities["argocd"].client_id
+            }
+          }
+        }
+      }
+    ))
+  ]
 
   depends_on = [module.aks]
 }

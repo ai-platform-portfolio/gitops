@@ -46,9 +46,16 @@ output "platform_settings" {
   sensitive = true
 
   value = {
-    cluster = { name = var.platform.cluster_name, role = var.platform.cluster_role }
+    cluster = {
+      name = var.platform.cluster_name
+      role = var.platform.cluster_role
+    }
 
-    git                        = { repository = var.platform.git_repository, revision = var.platform.git_revision }
+    git = {
+      repository = var.platform.git_repository
+      revision   = var.platform.git_revision
+    }
+
     sonarqube_sso_display_name = var.platform.sonarqube_sso_display_name
 
     storage_containers = { for key, container in var.platform.storage.containers : key => container.name }

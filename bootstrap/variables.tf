@@ -52,7 +52,10 @@ variable "dns" {
   description = "Existing public DNS zone."
 
   type = object({
-    zone = object({ name = string, resource_group_name = string })
+    zone = object({
+      name                = string
+      resource_group_name = string
+    })
   })
 }
 
@@ -111,8 +114,14 @@ variable "platform" {
       account_name        = string
       resource_group_name = string
 
-      containers      = map(object({ name = string }))
-      legacy_metadata = optional(object({ container = string, prefix = optional(string, "") }))
+      containers = map(object({
+        name = string
+      }))
+
+      legacy_metadata = optional(object({
+        container = string
+        prefix    = optional(string, "")
+      }))
     })
 
     sonarqube_sso_display_name = optional(string, "REPLACE_WITH_ENTRA_SAML_APP_NAME")
