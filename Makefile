@@ -1,38 +1,42 @@
 .DEFAULT_GOAL := help
+.NOTPARALLEL:
 
 BOOTSTRAP_DIR ?= $(CURDIR)/bootstrap
 TERRAFORM ?= terraform
-AZ ?= az
+LOCAL_TFVARS := $(shell if test -f "$(BOOTSTRAP_DIR)/local.tfvars"; then printf yes; fi)
+TFVARS ?= $(BOOTSTRAP_DIR)/$(if $(LOCAL_TFVARS),local,terraform).tfvars
+BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
-.PHONY: help init plan up down
+.PHONY: help init plan up down preflight
 
-# Both local users and CI identities provide an authenticated Azure CLI context.
+# Azure CLI supplies authentication and account context.
 define run_terraform
-	@set -eu; \
-	ARM_SUBSCRIPTION_ID="$$( $(AZ) account show --query id --output tsv --only-show-errors )"; \
-	ARM_TENANT_ID="$$( $(AZ) account show --query tenantId --output tsv --only-show-errors )"; \
-	test -n "$$ARM_SUBSCRIPTION_ID"; \
-	test -n "$$ARM_TENANT_ID"; \
-	export ARM_SUBSCRIPTION_ID ARM_TENANT_ID; \
-	$(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" $(1)
+	@subscription_id="$$(az account show --query id -o tsv --only-show-errors)" && \
+	  tenant_id="$$(az account show --query tenantId -o tsv --only-show-errors)" && \
+	  ARM_SUBSCRIPTION_ID="$$subscription_id" ARM_TENANT_ID="$$tenant_id" $(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" $(1)
 endef
 
 help:
 	@printf '%s\n' \
-	  'make up    Provision management infrastructure and ArgoCD' \
-	  'make down  Destroy the resources managed by bootstrap' \
+	  'make up    Provision AKS, managed identities and the initial ArgoCD release' \
+	  'make down  Destroy bootstrap infrastructure before platform workloads are installed' \
 	  'make plan  Preview bootstrap changes' \
 	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
 init:
+	@test -f "$(TFVARS)" || { printf 'Cluster tfvars not found: %s\n' "$(TFVARS)" >&2; exit 1; }
 	@test -f "$(BOOTSTRAP_DIR)/main.tf" || { printf 'Bootstrap root not found: %s\n' "$(BOOTSTRAP_DIR)" >&2; exit 1; }
-	$(call run_terraform,init -input=false)
+	@test -f "$(BACKEND_CONFIG)" || { printf 'Backend config not found: %s; see README\n' "$(BACKEND_CONFIG)" >&2; exit 1; }
+	$(call run_terraform,init -input=false -backend-config="$(BACKEND_CONFIG)")
 
 plan: init
-	$(call run_terraform,plan -input=false)
+	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")
 
-up: init
-	$(call run_terraform,apply -input=false -auto-approve)
+up: preflight init
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
 
-down: init
-	$(call run_terraform,destroy -input=false -auto-approve)
+down: preflight init
+	$(call run_terraform,destroy -input=false -auto-approve -var-file="$(TFVARS)")
+
+preflight:
+	@for tool in "$(TERRAFORM)" az kubelogin; do command -v "$$tool" >/dev/null || { printf 'Missing tool: %s\n' "$$tool" >&2; exit 1; }; done

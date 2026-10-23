@@ -1,4 +1,4 @@
-# Initial installation only. Move the same values to GitOps during handover.
+# Terraform owns ArgoCD; configuration lives in argocd-configmap.yaml.
 fullnameOverride: argocd
 server:
   replicas: 1
@@ -10,3 +10,6 @@ applicationSet:
   replicas: 1
 controller:
   replicas: 1
+configs:
+  cm:
+    create: false

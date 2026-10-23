@@ -1,20 +1,56 @@
-# GitOps
+# GitOps bootstrap
 
-Platform GitOps configuration and lifecycle entry point.
+This management-cluster Terraform root provisions networking, AKS, managed
+identities, disposable data containers and the initial ArgoCD Helm release.
+The platform charts and package lifecycle are added in
+[PR #10](https://github.com/ai-platform-portfolio/gitops/pull/10).
+Subsequent clusters use their own Terraform roots.
 
-## Bootstrap lifecycle
+## Configuration
 
-`bootstrap/` contains the Terraform root for the central management AKS cluster
-and initial Helm ArgoCD installation. Platform packages will be migrated from
-Flux to ArgoCD/Helm afterward. The preserved Flux configuration is on
-`feature/migrate-away-from-flux`.
+Copy `bootstrap/terraform.tfvars` to ignored `bootstrap/local.tfvars`. Set the
+AKS version, Entra admin group, API CIDRs and deployment settings there. Make
+passes that file with `-var-file` when present; override it with `TFVARS=/path/to/settings.tfvars`.
+Existing DNS, Key Vault and the single platform storage account are looked up by
+name. Terraform creates and deletes the configured containers within that account.
+Use fresh container names: existing containers must not be silently adopted or deleted.
 
-Install Terraform, Azure CLI and kubelogin, then authenticate with `az login`.
-Select the account with `az account set --subscription "<subscription-name>"`.
-The Makefile reads the selected subscription and tenant into process environment
-variables; neither identifier is stored in tfvars.
-Complete the marked AKS version, Entra admin group and API CIDR values in
-`bootstrap/terraform.tfvars` before running:
+The initial pools each use one Standard_D4s_v5 node: one system node and one
+application node. Increase capacity when measured portfolio usage requires it.
+Private tfvars, backend settings and Terraform state stay out of Git.
+
+## Remote Terraform state
+
+The root uses an Azure Blob backend with Microsoft Entra authentication, not
+storage account keys. Backend settings are separate from deployment tfvars
+because Terraform reads them during `init`, before provider data sources.
+
+Set up ignored `bootstrap/backend.local.hcl` with the existing state storage
+account, container and a unique state key:
+
+```hcl
+storage_account_name = "YOUR_STATE_ACCOUNT"
+container_name       = "tfstate"
+key                  = "gitops/management.tfstate"
+resource_group_name  = "YOUR_STATE_RESOURCE_GROUP"
+```
+
+The selected backend's subscription/tenant can also be set in this ignored file.
+Otherwise Make supplies account context from the authenticated CLI session through
+`ARM_SUBSCRIPTION_ID` and `ARM_TENANT_ID`. Override the file path with
+`BACKEND_CONFIG=/path/to/backend.hcl`. The identity needs Blob Data Contributor
+access to the state container for state reads, writes and lease locking.
+
+`make init` passes this file to Terraform. It does not automatically migrate local
+state or overwrite another deployment's state; review any migration explicitly.
+CI uses `terraform init -backend=false` and does not access live state. The state
+account/container are external to this root and survive application teardown.
+
+## Lifecycle
+
+Install Terraform >=1.5, Azure CLI and kubelogin, then authenticate with Azure CLI
+and select the intended subscription. CI uses that same session through federated
+identity or managed identity.
 
 ```sh
 make plan
@@ -22,38 +58,20 @@ make up
 make down
 ```
 
-Each target initializes Terraform first. `make up` applies automatically;
-`make down` destroys the resources managed by that bootstrap state automatically.
-Terraform loads `bootstrap/terraform.tfvars` and keeps state in `bootstrap/`.
-The current backend is local: retain the state for updates and teardown.
-The existing `dev.michaelalinks.com` DNS zone remains outside bootstrap ownership.
+This bootstrap installs Argo but does not seed platform Applications. After
+installing the platform, use its lifecycle from PR #10 to remove packages before
+infrastructure. Teardown is disposable: containers and their data are deleted;
+the existing storage account, DNS zone and Key Vault remain outside this root.
 
-`BOOTSTRAP_DIR` overrides the Terraform root and `TERRAFORM` overrides the executable.
-See [bootstrap/README.md](bootstrap/README.md) for infrastructure details and access.
+Terraform reads account context internally through `azurerm_client_config.current`;
+tenant and subscription IDs are not Terraform outputs. Identity configuration is
+one object-map loop, with one Blob Data Contributor assignment at storage-account
+scope for each identity that accesses storage.
 
-These targets currently manage bootstrap only. Migrating the archived Flux
-packages to ArgoCD/Helm is the next increment.
+`argocd-values.yaml` contains deployment settings. The actual
+`argocd-configmap.yaml` holds documented health and diff customizations. Helm
+installs it as part of the Terraform-owned release. Reusable Azure modules remain
+in the separate Terraform repository at immutable commits.
 
-## CI authentication
-
-Use the same Make targets after establishing an Azure CLI session for the CI
-identity. For GitHub Actions, authenticate the federated managed identity using
-the org secrets (the job needs `id-token: write`):
-
-```yaml
-- uses: azure/login@v2
-  with:
-    client-id: ${{ secrets.AZURE_CLIENT_ID }}
-    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-- run: make plan
-```
-
-The job must also check out this repository and install Terraform and kubelogin.
-The identity needs GitHub OIDC federation and permissions for the resources it
-manages, including AKS access when Helm runs. An Azure-hosted runner can instead
-establish its CLI session with `az login --identity`.
-
-Terraform and kubelogin both use the resulting CLI session, so the Makefile and
-tfvars work in either environment. The existing CI workflows perform static
-validation only; this snippet shows authentication for a future lifecycle job.
+No infrastructure is deployed by validation CI. See
+[bootstrap/README.md](bootstrap/README.md) for Argo access details.

@@ -1,0 +1,91 @@
+# Argo CD controller configuration, installed by Terraform's Argo Helm release.
+# Custom health checks let the platform app-of-apps wait for each dependency's
+# readiness before advancing to the next sync wave. Diff rules preserve CA
+# bundles populated by controllers instead of repeatedly replacing them from Git.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Propagate a child Application's health to the parent only after Argo has
+  # synced its current source/values. Old Healthy status must not release the
+  # next wave while changed configuration is still being reconciled.
+  resource.customizations.health.argoproj.io_Application: |
+    local function matches(desired, observed)
+      if type(desired) ~= "table" then return desired == observed end
+      if type(observed) ~= "table" then return false end
+      for key, value in pairs(desired) do
+        if not matches(value, observed[key]) then return false end
+      end
+      return true
+    end
+    hs = {status = "Progressing", message = "Waiting for current source reconciliation"}
+    local sync = (obj.status or {}).sync or {}
+    local compared = sync.comparedTo or {}
+    if sync.status == "Synced" and obj.status.health ~= nil and (obj.spec.source == nil or matches(obj.spec.source, compared.source)) and (obj.spec.sources == nil or matches(obj.spec.sources, compared.sources)) then
+      hs.status = obj.status.health.status
+      hs.message = obj.status.health.message or ""
+    end
+    return hs
+  # Hold dependent applications until CNPG reports the PostgreSQL cluster Ready.
+  resource.customizations.health.postgresql.cnpg.io_Cluster: |
+    hs = {status = "Progressing", message = "Waiting for PostgreSQL"}
+    for _, condition in ipairs((obj.status or {}).conditions or {}) do
+      if condition.type == "Ready" and condition.status == "True" then
+        hs.status = "Healthy"
+      end
+    end
+    return hs
+  # Wait for CNPG to apply this Database's current generation, so SonarQube
+  # cannot start against a database that is absent or still being configured.
+  resource.customizations.health.postgresql.cnpg.io_Database: |
+    local status = obj.status or {}
+    if status.applied == true and status.observedGeneration == obj.metadata.generation then
+      return {status = "Healthy"}
+    end
+    return {status = "Progressing", message = status.message or "Waiting for database reconciliation"}
+  # Wait for External Secrets to report successful secret reconciliation before
+  # starting applications that need credentials fetched from Key Vault.
+  resource.customizations.health.external-secrets.io_ExternalSecret: |
+    hs = {status = "Progressing", message = "Waiting for external secret"}
+    for _, condition in ipairs((obj.status or {}).conditions or {}) do
+      if condition.type == "Ready" and condition.status == "True" then hs.status = "Healthy" end
+    end
+    return hs
+  # Webhook controllers/cert-manager inject their serving CA into these bundles.
+  # Ignore only that injected value; keep the rest of each webhook under GitOps.
+  resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration: |
+    jqPathExpressions:
+      - '.webhooks[]?.clientConfig.caBundle'
+  # Apply the same CA-bundle exception to validating admission webhooks.
+  resource.customizations.ignoreDifferences.admissionregistration.k8s.io_ValidatingWebhookConfiguration: |
+    jqPathExpressions:
+      - '.webhooks[]?.clientConfig.caBundle'
+  # Conversion webhook CA bundles are also injected at runtime into CRDs.
+  resource.customizations.ignoreDifferences.apiextensions.k8s.io_CustomResourceDefinition: |
+    jqPathExpressions:
+      - '.spec.conversion.webhook.clientConfig.caBundle'
+  # HTTPS ingress is ready only when Envoy has accepted and programmed the
+  # current ListenerSet generation; stale conditions must not count as ready.
+  resource.customizations.health.gateway.networking.k8s.io_ListenerSet: |
+    local ready = {Accepted = false, Programmed = false}
+    for _, condition in ipairs((obj.status or {}).conditions or {}) do
+      if condition.status == "True" and condition.observedGeneration == obj.metadata.generation then
+        ready[condition.type] = true
+      end
+    end
+    if ready.Accepted and ready.Programmed then return {status = "Healthy"} end
+    return {status = "Progressing", message = "Waiting for ListenerSet acceptance and programming"}
+  # A certificate is ready only after cert-manager reports Ready for its
+  # current generation, rather than an earlier issued certificate configuration.
+  resource.customizations.health.cert-manager.io_Certificate: |
+    for _, condition in ipairs((obj.status or {}).conditions or {}) do
+      if condition.type == "Ready" and condition.status == "True" and condition.observedGeneration == obj.metadata.generation then
+        return {status = "Healthy"}
+      end
+    end
+    return {status = "Progressing", message = "Waiting for the hostname certificate"}
