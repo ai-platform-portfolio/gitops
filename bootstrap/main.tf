@@ -22,6 +22,7 @@ resource "azurerm_resource_group" "this" {
       error_message = "Select the workspace matching platform.cluster_name; default is reserved for management."
     }
   }
+
   name     = var.azure.resource_group_name
   location = var.azure.location
   tags     = var.azure.tags
@@ -52,6 +53,7 @@ module "aks" {
     node_count      = var.aks.system_node_pool.node_count
     os_disk_size_gb = var.aks.system_node_pool.os_disk_size_gb
   }
+
   user_node_pools = {
     for name, pool in var.aks.user_node_pools : name => {
       vm_size         = pool.vm_size
@@ -60,6 +62,7 @@ module "aks" {
       vnet_subnet_id  = module.network.subnet_ids[pool.subnet_key]
     }
   }
+
   tags = var.azure.tags
 }
 
@@ -76,12 +79,14 @@ module "identities" {
       audiences = credential.audiences
     }
   }
+
   role_assignments = {
     for name, assignment in each.value.role_assignments : name => {
       scope                = local.role_scopes[assignment.scope]
       role_definition_name = assignment.role_definition_name
     }
   }
+
   tags = var.azure.tags
 }
 
@@ -95,6 +100,7 @@ module "argocd" {
       podLabels      = { "azure.workload.identity/use" = "true" }
       serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }
     }
+
   }))]
   depends_on = [module.aks]
 }

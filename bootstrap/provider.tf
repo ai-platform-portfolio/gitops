@@ -1,5 +1,6 @@
 terraform {
   required_version = ">= 1.5.0, < 2.0.0"
+
   required_providers {
     azurerm = { source = "hashicorp/azurerm", version = "~> 4.0" }
     helm    = { source = "hashicorp/helm", version = "~> 2.0" }
@@ -15,6 +16,7 @@ provider "helm" {
   kubernetes {
     host                   = module.aks.host
     cluster_ca_certificate = module.aks.cluster_ca_certificate
+
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "kubelogin"

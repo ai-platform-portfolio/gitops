@@ -2,14 +2,17 @@ output "cluster_name" {
   description = "Management cluster name."
   value       = module.aks.cluster_name
 }
+
 output "resource_group_name" {
   description = "Management resource group."
   value       = azurerm_resource_group.this.name
 }
+
 output "namespace" {
   description = "ArgoCD namespace."
   value       = module.argocd.namespace
 }
+
 output "port_forward_command" {
   description = "Run against the management context to access ArgoCD at https://localhost:8080."
   value       = "kubectl -n ${module.argocd.namespace} port-forward svc/argocd-server 8080:443"
@@ -48,6 +51,7 @@ output "platform_settings" {
       client_id    = module.identities["argocd"].client_id
       principal_id = module.identities["argocd"].principal_id
     }
+
     runtime = {
       AZURE_CLIENT_ID          = module.identities["platform"].client_id
       AZURE_DNS_RESOURCE_GROUP = var.dns.zone.resource_group_name

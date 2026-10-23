@@ -63,6 +63,7 @@ variable "identities" {
       role_definition_name = string
     })), {})
   }))
+
   validation {
     condition     = alltrue([for key in ["platform", "postgres", "argocd"] : contains(keys(var.identities), key)])
     error_message = "Define platform, postgres and argocd identities."
@@ -100,10 +101,12 @@ variable "platform" {
     })
     sonarqube_sso_display_name = optional(string, "REPLACE_WITH_ENTRA_SAML_APP_NAME")
   })
+
   validation {
     condition     = contains(["management", "workload"], var.platform.cluster_role)
     error_message = "cluster_role must be management or workload."
   }
+
   validation {
     condition     = alltrue([for key in ["metadata", "postgres", "loki_chunks", "loki_ruler", "mimir_blocks", "mimir_ruler", "mimir_alertmanager", "tempo_traces"] : contains(keys(var.platform.storage.containers), key)])
     error_message = "Define the platform metadata, PostgreSQL and observability containers."
