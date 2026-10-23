@@ -1,0 +1,54 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: python-service-request
+  title: Request a Python service
+  description: Propose a service and deployment through a reviewed pull request.
+spec:
+  owner: group:default/platform-team
+  type: service
+  parameters:
+    - title: Service
+      required: [name, owner, issue]
+      properties:
+        name:
+          title: Service name
+          type: string
+          pattern: '^[a-z][a-z0-9-]{2,39}$'
+          description: Use a unique name; an existing branch or service requires review.
+        issue:
+          title: Linear issue
+          type: string
+          pattern: '^AI-[0-9]+$'
+          description: Existing issue covering the requested service.
+        owner:
+          title: Owning team
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: Group
+  steps:
+    - id: fetch
+      name: Generate service and deployment
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          owner: ${{ parameters.owner }}
+    - id: propose
+      name: Open the deployment review
+      action: publish:github:pull-request
+      input:
+        repoUrl: ${{ globals.gitopsRepoUrl }}
+        branchName: backstage/${{ parameters.issue | lower }}-${{ parameters.name }}
+        title: '${{ parameters.issue }} Add service ${{ parameters.name }}'
+        description: 'Tracks ${{ parameters.issue }}. Generated service request; review ownership, image build and destination before merge.'
+        update: false
+        sourcePath: .
+        targetPath: services/${{ parameters.name }}
+  output:
+    links:
+      - title: Review service request
+        url: ${{ steps.propose.output.remoteUrl }}

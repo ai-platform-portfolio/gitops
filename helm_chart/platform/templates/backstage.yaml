@@ -1,0 +1,67 @@
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+# PostgreSQL is healthy before ESO reads its CA and role Secret. Keeping this
+# separate from early configuration avoids waiting for a CA before CNPG exists.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage-credentials
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: backstage
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/backstage/database-secret.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+---
+{{- end }}
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+{{- if not (regexMatch "^.+@sha256:[a-f0-9]{64}$" .Values.backstage.image) }}
+{{- fail "backstage.image must be an immutable registry image@sha256 digest" }}
+{{- end }}
+# CNPG and the ESO credential Application are healthy before portal startup.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "60"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: backstage
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/backstage/deployment.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

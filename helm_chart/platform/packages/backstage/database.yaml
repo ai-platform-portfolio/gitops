@@ -1,0 +1,13 @@
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: backstage
+  namespace: postgres
+spec:
+  name: backstage
+  owner: backstage
+  cluster:
+    name: platform
+  databaseReclaimPolicy: retain
+{{- end }}

@@ -1,0 +1,17 @@
+**
+!.yarnrc.yml
+!backstage.json
+!package.json
+!yarn.lock
+!app-config.yaml
+!packages/
+!packages/backend/
+!packages/backend/dist/
+!packages/backend/dist/skeleton.tar.gz
+!packages/backend/dist/bundle.tar.gz
+!catalog/
+!catalog/**
+!templates/
+!templates/**
+!techdocs/
+!techdocs/**

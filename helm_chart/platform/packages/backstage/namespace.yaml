@@ -1,0 +1,9 @@
+{{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backstage
+  labels:
+    gitops.platform/gateway: public
+    pod-security.kubernetes.io/enforce: restricted
+{{- end }}
