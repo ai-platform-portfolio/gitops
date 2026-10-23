@@ -144,10 +144,10 @@ variable "platform" {
       can(regex("^[0-9]+$", var.platform.atlantis.github_app_id)) &&
       can(regex("^[a-zA-Z0-9-]+$", var.platform.atlantis.github_app_slug)) &&
       can(regex("^[a-zA-Z0-9-]+$", var.platform.atlantis.github_team)) &&
-      length(var.platform.atlantis.repositories) > 0 &&
-      alltrue([for repo in var.platform.atlantis.repositories : can(regex("^github\\.com/[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+$", repo))])
+      anytrue([for repo in var.platform.atlantis.repositories : !startswith(repo, "!")]) &&
+      alltrue([for repo in var.platform.atlantis.repositories : can(regex("^!?github\\.com/[a-zA-Z0-9-]+/([a-zA-Z0-9_.-]+|\\*)$", repo))])
     )
-    error_message = "Atlantis requires management role, numeric GitHub App ID, App/team slugs and exact github.com/owner/repository IDs (no wildcards)."
+    error_message = "Atlantis requires management role, numeric GitHub App ID, App/team slugs and github.com/owner/repository or github.com/owner/* patterns; ! exclusions are allowed, with at least one positive pattern."
   }
 
   validation {

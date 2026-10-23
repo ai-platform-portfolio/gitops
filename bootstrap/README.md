@@ -42,9 +42,26 @@ atlantis = {
   github_app_id   = "REPLACE_WITH_NUMERIC_APP_ID"
   github_app_slug = "REPLACE_WITH_APP_SLUG"
   github_team     = "REPLACE_WITH_TRUSTED_TEAM_SLUG"
-  repositories    = ["github.com/YOUR_ORG/YOUR_DEPLOYMENT_REPO"]
+  repositories = [
+    "github.com/YOUR_ORG/*",
+    "!github.com/YOUR_ORG/gitops",
+    "!github.com/YOUR_ORG/terraform",
+  ]
 }
 ```
+
+Organisation patterns automatically cover new Backstage-created repositories;
+there is no per-repository Atlantis server update. Exact repository IDs remain
+supported, and `!` patterns exclude fixed platform/bootstrap or module-library
+repositories. Wildcard host or organisation names are rejected. The GitHub App's
+installation must independently grant access to new repositories: install it on
+all repositories in the organisation or include installation access in the
+repository onboarding workflow. These patterns do not grant Azure permissions.
+
+Atlantis reads secrets from the same `platform.key_vault` used by bootstrap and
+External Secrets. No separate Key Vault is created. Add the four secret values
+manually to that existing vault as described in the Atlantis package guide; do
+not put them in Terraform inputs.
 
 Add a dedicated entry to the existing `identities` map in ignored local tfvars:
 
