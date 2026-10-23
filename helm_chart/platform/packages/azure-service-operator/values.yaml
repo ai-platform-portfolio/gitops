@@ -1,0 +1,29 @@
+# One controller fits the initial non-HA portfolio; retain upstream resource limits.
+replicaCount: 1
+
+podDisruptionBudget:
+  enabled: false
+
+serviceAccount:
+  name: azureserviceoperator-default
+
+# ASO owns CRD installation/upgrades. Start with only the resource-group API;
+# extend whole API groups when a reviewed consumer actually needs them.
+installCRDs: true
+crdPattern: resources.azure.com/*
+
+azureTargetNamespaces:
+  - azure-resources
+
+# The settings Secret is required even without a global Azure credential.
+# Namespace-scoped aso-credential Secrets supply private account/identity values.
+createAzureOperatorSecret: true
+azureTenantID: ""
+azureSubscriptionID: ""
+azureClientID: ""
+useWorkloadIdentityAuth: true
+
+# The upstream policy also permits SQL database traffic which this CRD set needs
+# no access to. Use the package-owned DNS/API-only policy instead.
+networkPolicies:
+  enable: false

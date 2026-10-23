@@ -125,10 +125,15 @@ multi-cluster provisioning or workload tfvars template.
 
 ## Packages and ingress
 
-Explicit Applications pin 16 releases: cert-manager, External Secrets, Envoy Gateway,
+Explicit Applications pin 17 releases on management (16 on workloads): cert-manager, External Secrets, Envoy Gateway,
 ExternalDNS, Loki, Mimir, Tempo, Grafana, Kubernetes Monitoring/Alloy,
 OpenTelemetry, ClickHouse operator/cluster, CloudNativePG, Barman, Langfuse and
-SonarQube Developer. Argo Application health gates dependency waves.
+SonarQube Developer, plus Azure Service Operator on management. Argo Application health gates dependency waves.
+
+[ASO](platform/packages/azure-service-operator/README.md) starts without a global
+Azure credential and installs only resource-group CRDs. Azure operations require
+a separately provisioned namespace credential; existing infrastructure stays in
+Terraform. Teardown refuses to stop ASO while Azure custom resources remain.
 
 Loki, Grafana, Tempo and Mimir values share `helm_chart/platform/packages/lgtm/values.yaml`.
 Each explicit Application selects its values by name. Other packages keep their

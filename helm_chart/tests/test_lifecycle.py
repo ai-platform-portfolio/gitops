@@ -63,6 +63,49 @@ class CredentialTests(unittest.TestCase):
 
 
 class TeardownTests(unittest.TestCase):
+    def test_azure_resources_block_teardown_before_operator_or_identity_removal(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        cluster.objects = Mock(side_effect=[
+            [{'metadata': {'name': 'azure-service-operator'}}],
+            [{'metadata': {'name': 'consumer-resource'}}],
+        ])
+        cluster.delete = Mock()
+        with patch('helm_chart.scripts.cluster.run', return_value='resourcegroups.resources.azure.com\n') as run:
+            with self.assertRaisesRegex(RuntimeError, 'Remove ASO Azure resources'):
+                cluster.cleanup()
+        cluster.delete.assert_not_called()
+        self.assertEqual(run.call_count, 1)
+        self.assertIn('api-resources', run.call_args.args)
+
+    def test_empty_azure_inventory_allows_teardown_and_read_errors_fail_closed(self):
+        for inventory_error in [False, True]:
+            with self.subTest(inventory_error=inventory_error):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                app = {'metadata': {'name': 'azure-service-operator',
+                       'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
+                def objects(kind, namespace=None):
+                    if kind == 'applications.argoproj.io':
+                        return [app]
+                    if inventory_error:
+                        raise subprocess.CalledProcessError(1, ['kubectl', 'get'])
+                    return []
+                cluster.objects = Mock(side_effect=objects)
+                cluster.delete = Mock()
+                with patch('helm_chart.scripts.cluster.run', return_value='resourcegroups.resources.azure.com\n'):
+                    if inventory_error:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            cluster.cleanup()
+                        cluster.delete.assert_not_called()
+                    else:
+                        cluster.cleanup()
+                        self.assertEqual(cluster.delete.call_args_list[0].args[1], ['azure-service-operator'])
+
     def test_stuck_root_and_children_are_stopped_before_deletion(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']

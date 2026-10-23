@@ -43,7 +43,7 @@ files easier to find.
 | -10 | namespaces | Namespaces exist before resources and credentials are consumed |
 | 0 | envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
 | 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
-| 10 | cloudnative-pg, configuration | Foundation controllers can reconcile issuers, secret stores and external secrets |
+| 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
 | 20 | plugin-barman-cloud, external-dns, gateway | Operators/configuration are available |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
 | 40 | langfuse, opentelemetry-collector, k8s-monitoring | Backend services are ready |
@@ -77,3 +77,6 @@ Runtime values come from Terraform outputs and authenticated account context,
 not checked-in deployment identifiers. Private deployment inputs remain in
 ignored tfvars. Credentials are Kubernetes Secrets reused within the running
 cluster. Application data and backup containers are disposable on teardown.
+
+[Azure Service Operator](packages/azure-service-operator/README.md) describes its
+namespace credentials, Azure ownership boundary and consumer lifecycle.

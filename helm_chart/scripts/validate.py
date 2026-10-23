@@ -53,6 +53,7 @@ def main():
             'external-dns', 'gateway', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
+            'azure-service-operator',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
@@ -101,6 +102,9 @@ def main():
         values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}}))
         workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'federation' not in {a['metadata']['name'] for a in workload}, 'Workload must not manage the hub'
+        assert 'azure-service-operator' not in {a['metadata']['name'] for a in workload}, 'ASO belongs on management only'
+        workload_namespaces = next(a for a in workload if a['metadata']['name'] == 'namespaces')
+        assert 'azureserviceoperator-system' not in workload_namespaces['spec']['source']['helm']['valuesObject']['manifests']
         assert not any(a['metadata']['name'].startswith('sonarqube') for a in workload), 'Sonar must wait for cluster credential preparation'
         initial_postgres = next(a for a in workload if a['metadata']['name'] == 'postgres')
         initial_database_docs = [d for d in yaml.safe_load_all(initial_postgres['spec']['source']['helm']['valuesObject']['manifests']) if d]
@@ -111,6 +115,7 @@ def main():
         assert not any(d['metadata']['namespace'] == 'sonarqube' for d in initial_routes), 'Initial routes must not block on a Sonar backend that has not been installed'
         assert waves['routes'] > waves['sonarqube'], 'Activate routes after backend health'
         assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
+        assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
 
 
         def render(app):
@@ -132,6 +137,22 @@ def main():
                     '--kube-version', '1.34.1', '-f', str(values))
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
+                if name == 'azure-service-operator':
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    pod = deployment['spec']['template']['spec']
+                    manager = next(c for c in pod['containers'] if c['name'] == 'manager')
+                    assert deployment['spec']['replicas'] == 1
+                    assert manager['image'].endswith(':v2.21.1')
+                    assert '--crd-pattern=resources.azure.com/*' in manager['args']
+                    assert pod['serviceAccountName'] == 'azureserviceoperator-default'
+                    assert any(s.get('serviceAccountToken', {}).get('audience') == 'api://AzureADTokenExchange'
+                               for v in pod['volumes'] for s in v.get('projected', {}).get('sources', []))
+                    settings = next(d for d in docs if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-controller-settings')['data']
+                    assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
+                    assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
+                    assert settings['AZURE_TARGET_NAMESPACES'] == 'YXp1cmUtcmVzb3VyY2Vz'
+                    assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
+                    assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
                 if name == 'cloudnative-pg':
                     schemas = {d['spec']['names']['kind']: next(v['schema']['openAPIV3Schema']
                         for v in d['spec']['versions'] if v['name'] == 'v1')

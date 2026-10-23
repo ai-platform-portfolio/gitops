@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: azure-service-operator
+  namespace: azureserviceoperator-system
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: controller-manager
+  policyTypes: [Ingress, Egress]
+
+  # API-server webhook calls and health/metrics probes require inbound access.
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 9443 }
+        - { protocol: TCP, port: 8081 }
+        - { protocol: TCP, port: 8443 }
+
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+
+    # Azure token/ARM endpoints and the Kubernetes API. This permits HTTPS to
+    # any destination; it is not enforcement of a company data perimeter.
+    - ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
