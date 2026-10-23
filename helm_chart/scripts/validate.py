@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render the complete platform and pinned upstream charts without Azure access."""
 from concurrent.futures import ThreadPoolExecutor
+import base64
 import json
 from pathlib import Path
 import re
@@ -29,7 +30,8 @@ def main():
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
     runtime.update(DNS_ZONE='example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
-                   SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example')
+                   SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
+                   AZURE_LOCATION='uksouth', AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
     for key in ['AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_CLIENT_ID',
                 'POSTGRES_AZURE_CLIENT_ID']:
         runtime[key] = '00000000-0000-0000-0000-000000000001'
@@ -40,7 +42,14 @@ def main():
             'enabled': True, 'github_app_id': '12345', 'github_app_slug': 'platform-atlantis',
             'github_team': 'platform',
             'repositories': ['github.com/example/*', '!github.com/example/gitops', '!github.com/example/terraform'],
-            'client_id': '00000000-0000-0000-0000-000000000002',
+            'azure': {
+                'identity_resource_group_name': 'rg-service-identities',
+                'role_assignments': {
+                    'state': {'resource_group_name': 'rg-state', 'storage_account_name': 'examplestate',
+                              'role_definition_name': 'Storage Blob Data Contributor'},
+                    'deployment': {'resource_group_name': 'rg-developer', 'role_definition_name': 'Contributor'},
+                },
+            },
         }
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True}))
         disabled = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
@@ -62,7 +71,7 @@ def main():
             'external-dns', 'gateway', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
-            'azure-service-operator', 'atlantis',
+            'azure-service-operator', 'atlantis', 'atlantis-azure',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
@@ -92,9 +101,30 @@ def main():
                     assert role['login'] and not any(role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
                     database = next(d for d in documents if d['kind'] == 'Database')
                     assert database['spec']['owner'] == 'sonarqube' and database['spec']['databaseReclaimPolicy'] == 'retain'
+                if app['metadata']['name'] == 'atlantis-azure':
+                    assert {d['kind'] for d in documents} == {'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
+                    identity = next(d for d in documents if d['kind'] == 'UserAssignedIdentity')
+                    assert identity['metadata']['namespace'] == 'atlantis'
+                    assert identity['spec']['operatorSpec']['configMaps']['clientId'] == {'name': 'atlantis-identity', 'key': 'clientId'}
+                    federation = next(d for d in documents if d['kind'] == 'FederatedIdentityCredential')
+                    assert federation['spec']['owner'] == {'name': 'atlantis'}
+                    assert federation['spec']['subject'] == 'system:serviceaccount:atlantis:atlantis'
+                    assert federation['spec']['issuer'] == runtime['AKS_OIDC_ISSUER_URL']
+                    roles = [d for d in documents if d['kind'] == 'RoleAssignment']
+                    assert len(roles) == 2
+                    assert {r['spec']['roleDefinitionReference']['wellKnownName'] for r in roles} == {'Contributor', 'Storage Blob Data Contributor'}
+                    assert all(r['spec']['principalIdFromConfig'] == {'name': 'atlantis-identity', 'key': 'principalId'} for r in roles)
+                    assert all(re.fullmatch(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', r['spec']['azureName']) for r in roles)
+                    state_role = next(r for r in roles if r['metadata']['name'] == 'atlantis-state')
+                    assert state_role['spec']['owner']['armId'].endswith('/resourceGroups/rg-state/providers/Microsoft.Storage/storageAccounts/examplestate')
+                    assert not any('/containers/' in r['spec']['owner']['armId'] for r in roles)
                 if app['metadata']['name'] == 'configuration':
                     secrets = {d['metadata']['name']: d for d in documents if d['kind'] == 'ExternalSecret'}
                     assert {'atlantis-github', 'atlantis-web'} <= secrets.keys()
+                    credential = next(d for d in documents if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential')
+                    assert credential['metadata']['namespace'] == 'atlantis'
+                    assert base64.b64decode(credential['data']['AZURE_CLIENT_ID']).decode() == runtime['ASO_AZURE_CLIENT_ID']
+                    assert base64.b64decode(credential['data']['USE_WORKLOAD_IDENTITY_AUTH']).decode() == 'true'
                     assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
                     assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
                 if app['metadata']['name'] == 'gateway':
@@ -119,7 +149,8 @@ def main():
         workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'atlantis' not in {a['metadata']['name'] for a in workload}, 'Workload must not install Atlantis even when enabled'
         assert not any('namespace: atlantis' in json.dumps(a) for a in workload), 'Workload must not create Atlantis prerequisites or routes'
-        assert waves['configuration'] < waves['atlantis'] < waves['routes']
+        assert waves['configuration'] < waves['atlantis-azure'] < waves['atlantis'] < waves['routes']
+        assert waves['azure-service-operator'] < waves['atlantis-azure']
         assert 'federation' not in {a['metadata']['name'] for a in workload}, 'Workload must not manage the hub'
         assert 'azure-service-operator' not in {a['metadata']['name'] for a in workload}, 'ASO belongs on management only'
         workload_namespaces = next(a for a in workload if a['metadata']['name'] == 'namespaces')
@@ -169,7 +200,7 @@ def main():
                     settings = next(d for d in docs if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-controller-settings')['data']
                     assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
                     assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
-                    assert settings['AZURE_TARGET_NAMESPACES'] == 'YXp1cmUtcmVzb3VyY2Vz'
+                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,atlantis'
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
                 if name == 'cloudnative-pg':
@@ -218,7 +249,9 @@ def main():
                     server = next(d for d in docs if d['kind'] == 'StatefulSet')
                     assert server['spec']['replicas'] == 1
                     pod = server['spec']['template']
-                    assert pod['metadata']['labels']['azure.workload.identity/use'] == 'true'
+                    assert 'azure.workload.identity/use' not in pod['metadata']['labels']
+                    assert any(s.get('serviceAccountToken', {}).get('audience') == 'api://AzureADTokenExchange'
+                               for v in pod['spec']['volumes'] for s in v.get('projected', {}).get('sources', []))
                     assert pod['spec']['automountServiceAccountToken'] is False
                     container = pod['spec']['containers'][0]
                     assert container['image'].endswith(':v0.48.2')
@@ -231,6 +264,7 @@ def main():
                     assert env['ATLANTIS_WEB_BASIC_AUTH']['value'] == 'true'
                     assert env['ATLANTIS_GH_WEBHOOK_SECRET']['valueFrom']['secretKeyRef'] == {'name': 'atlantis-github', 'key': 'github_secret'}
                     assert env['ATLANTIS_WEB_PASSWORD']['valueFrom']['secretKeyRef'] == {'name': 'atlantis-web', 'key': 'password'}
+                    assert env['ARM_CLIENT_ID']['valueFrom']['configMapKeyRef'] == {'name': 'atlantis-identity', 'key': 'clientId'}
                     assert env['ARM_USE_CLI']['value'] == 'false'
                     assert env['ARM_USE_OIDC']['value'] == 'true'
                     assert env['ARM_OIDC_TOKEN_FILE_PATH']['value'] == '/var/run/secrets/azure/tokens/azure-identity-token'

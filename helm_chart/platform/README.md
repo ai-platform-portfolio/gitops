@@ -44,7 +44,7 @@ files easier to find.
 | 0 | envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
 | 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
 | 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
-| 20 | plugin-barman-cloud, external-dns, gateway | Operators/configuration are available |
+| 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
 | 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional management Atlantis | Backend services are ready |
 | 60 | sonarqube | PostgreSQL role and Database are reconciled; the JDBC Secret exists |

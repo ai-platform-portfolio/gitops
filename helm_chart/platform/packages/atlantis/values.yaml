@@ -36,21 +36,38 @@ environment:
   ARM_USE_OIDC: "true"
   ARM_USE_AZUREAD: "true"
   ARM_USE_CLI: "false"
-  ARM_CLIENT_ID: {{ required "atlantis.client_id is required" .Values.atlantis.client_id | quote }}
   ARM_TENANT_ID: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
   ARM_SUBSCRIPTION_ID: {{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID | quote }}
   ARM_OIDC_TOKEN_FILE_PATH: /var/run/secrets/azure/tokens/azure-identity-token
+
+# ASO creates this ConfigMap in the same namespace after Azure provisioning.
+environmentRaw:
+  - name: ARM_CLIENT_ID
+    valueFrom:
+      configMapKeyRef:
+        name: atlantis-identity
+        key: clientId
 
 serviceAccount:
   create: true
   name: atlantis
   mount: false
-  annotations:
-    azure.workload.identity/client-id: {{ required "atlantis.client_id is required" .Values.atlantis.client_id | quote }}
-podTemplate:
-  labels:
-    azure.workload.identity/use: "true"
 enableKubernetesBackend: false
+
+# Project a token explicitly: the runtime client ID comes from ASO, so there is
+# no static service-account annotation and no identity-webhook dependency.
+extraVolumes:
+  - name: azure-identity-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: api://AzureADTokenExchange
+            expirationSeconds: 3600
+            path: azure-identity-token
+extraVolumeMounts:
+  - name: azure-identity-token
+    mountPath: /var/run/secrets/azure/tokens
+    readOnly: true
 
 service:
   type: ClusterIP

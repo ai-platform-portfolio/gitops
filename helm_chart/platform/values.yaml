@@ -14,6 +14,6 @@ runtime: {}
 sonarqubeReady: false
 
 # Optional management-only runner. Bootstrap passes the private tfvars settings
-# and dedicated managed identity ID; see packages/atlantis/README.md.
+# and ASO provisioner context; see packages/atlantis/README.md.
 atlantis:
   enabled: false

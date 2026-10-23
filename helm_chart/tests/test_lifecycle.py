@@ -69,13 +69,43 @@ class PlatformInputTests(unittest.TestCase):
                             'git': {'repository': 'https://example.test/gitops', 'revision': 'main'}}
         values = cluster.root({}, False)['spec']['source']['helm']['valuesObject']
         self.assertEqual(values['atlantis'], {'enabled': False})
-        configured = {'enabled': True, 'github_app_id': '12345', 'client_id': 'dedicated-identity'}
+        configured = {'enabled': True, 'github_app_id': '12345', 'azure': {'identity_resource_group_name': 'rg-services'}}
         cluster.settings['atlantis'] = configured
         values = cluster.root({}, True)['spec']['source']['helm']['valuesObject']
         self.assertEqual(values['atlantis'], configured)
 
 
 class TeardownTests(unittest.TestCase):
+    def test_tracked_package_azure_resources_delete_before_operator(self):
+        for extra in [False, True]:
+            with self.subTest(untracked_resource=extra):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                def app(name, wave):
+                    return {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
+                                         'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
+                apps = [app('azure-service-operator', 10), app('atlantis-azure', 20), app('atlantis', 40)]
+                resource = {'apiVersion': 'managedidentity.azure.com/v1api20230131', 'kind': 'UserAssignedIdentity',
+                            'metadata': {'name': 'atlantis', 'namespace': 'atlantis'}}
+                apps[1]['status'] = {'resources': [{'group': 'managedidentity.azure.com', 'kind': 'UserAssignedIdentity',
+                                                  'namespace': 'atlantis', 'name': 'atlantis'}]}
+                inventory = [resource]
+                if extra:
+                    inventory.append({**resource, 'metadata': {'name': 'untracked', 'namespace': 'atlantis'}})
+                cluster.objects = Mock(side_effect=lambda kind, namespace=None: apps if kind == 'applications.argoproj.io' else inventory)
+                cluster.delete = Mock()
+                with patch('helm_chart.scripts.cluster.run', return_value='userassignedidentities.managedidentity.azure.com\n'):
+                    if extra:
+                        with self.assertRaisesRegex(RuntimeError, 'Remove ASO Azure resources'):
+                            cluster.cleanup()
+                        cluster.delete.assert_not_called()
+                    else:
+                        cluster.cleanup()
+                        self.assertEqual([c.args[1][0] for c in cluster.delete.call_args_list],
+                                         ['atlantis', 'atlantis-azure', 'azure-service-operator', 'platform'])
+
     def test_azure_resources_block_teardown_before_operator_or_identity_removal(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
@@ -198,6 +228,19 @@ class TeardownTests(unittest.TestCase):
 
 
 class AzureAccountTests(unittest.TestCase):
+    def test_oidc_issuer_lookup_captures_private_diagnostics(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.connection = {'subscription_id': 'subscription', 'resource_group': 'group', 'name': 'cluster'}
+        for code, output in [(0, 'https://issuer.example.test/'), (1, 'private-error'), (0, '')]:
+            with patch('helm_chart.scripts.cluster.subprocess.run', return_value=Mock(returncode=code, stdout=output)) as run:
+                if code == 0 and output:
+                    self.assertEqual(cluster.oidc_issuer(), output)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'Cannot read the AKS OIDC issuer'):
+                        cluster.oidc_issuer()
+                self.assertTrue(run.call_args.kwargs['capture_output'])
+
+
     def test_reads_authenticated_cli_context(self):
         from helm_chart.scripts.azure import current_account
         with patch('helm_chart.scripts.azure.subprocess.run', return_value=Mock(

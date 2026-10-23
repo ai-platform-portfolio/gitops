@@ -1,0 +1,63 @@
+{{- $azure := .Values.atlantis.azure -}}
+{{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $identityGroup := required "atlantis.azure.identity_resource_group_name is required" $azure.identity_resource_group_name -}}
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: atlantis
+  namespace: atlantis
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  azureName: id-{{ .Values.cluster.name }}-atlantis
+  location: {{ required "runtime.AZURE_LOCATION is required" .Values.runtime.AZURE_LOCATION }}
+  owner:
+    armId: /subscriptions/{{ $subscription }}/resourceGroups/{{ $identityGroup }}
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: atlantis-identity
+        key: clientId
+      principalId:
+        name: atlantis-identity
+        key: principalId
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: atlantis
+  namespace: atlantis
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  owner:
+    name: atlantis
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:atlantis:atlantis
+{{- range $name, $role := required "atlantis.azure.role_assignments is required" $azure.role_assignments }}
+{{- $scope := printf "/subscriptions/%s/resourceGroups/%s" $subscription $role.resource_group_name }}
+{{- if $role.storage_account_name }}
+{{- $scope = printf "%s/providers/Microsoft.Storage/storageAccounts/%s" $scope $role.storage_account_name }}
+{{- end }}
+{{- $hash := sha256sum (printf "%s/%s/%s/%s" $identityGroup $.Values.cluster.name $scope $role.role_definition_name) | trunc 32 }}
+---
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: atlantis-{{ $name }}
+  namespace: atlantis
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  # Stable Azure role-assignment GUID; no random values during Helm rendering.
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner:
+    armId: {{ $scope }}
+  principalIdFromConfig:
+    name: atlantis-identity
+    key: principalId
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    wellKnownName: {{ $role.role_definition_name | quote }}
+{{- end }}
