@@ -33,7 +33,6 @@ variable "aks" {
     admin_group = object({
       display_name = string
       description  = string
-      owners       = set(string)
       members      = set(string)
     })
 

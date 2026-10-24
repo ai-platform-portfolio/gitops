@@ -48,9 +48,11 @@ backend setup and validation.
 
 `aks.admin_group` configures the Terraform library's `entra-group` module.
 Terraform creates this group before AKS and passes its `object_id` output directly
-to the cluster. Set its display name, description, owners and members in the
-tracked `terraform.tfvars`. Principal IDs are configuration metadata. Owners and members are explicit,
-separate sets. Bootstrap does not assign Azure RBAC roles to this group.
+to the cluster. Set its display name, description and members in the tracked
+`terraform.tfvars`. The owner is the authenticated principal returned by
+`data.azurerm_client_config.current.object_id`; no owner ID is hardcoded.
+Membership is configured separately because group ownership does not grant AKS
+access. Bootstrap does not assign Azure RBAC roles to this group.
 
 The AzureAD provider uses the calling root's authenticated context; the caller
 needs Microsoft Graph authority to manage the group and membership. This is a

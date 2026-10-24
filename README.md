@@ -18,16 +18,17 @@ select the intended subscription.
 Review the deployment configuration and configure the state backend:
 
 1. Review `bootstrap/terraform.tfvars`, including the AKS version, admin-group
-   owners/members, API CIDRs and existing Azure resource references. This tracked
+   members, API CIDRs and existing Azure resource references. This tracked
    file is the deployment configuration; complete the API allowlist before use.
 2. Create `bootstrap/backend.local.hcl` for the existing Azure Blob Terraform
    state backend. Use the example in the
    [configuration guide](helm_chart/README.md#remote-terraform-state).
 
 Terraform creates the Entra security group described by `aks.admin_group` and
-passes its object ID directly to AKS. Set explicit owner and member object IDs in
-`bootstrap/terraform.tfvars`; group ownership alone does not grant cluster access. The bootstrap
-caller needs Microsoft Graph permissions to manage that group. No Azure role
+passes its object ID directly to AKS. The authenticated Terraform principal owns
+the group through `data.azurerm_client_config.current.object_id`. Configure admin
+members in `bootstrap/terraform.tfvars`; ownership alone does not grant cluster
+access. The caller needs Microsoft Graph permissions to manage the group. No Azure role
 assignments are granted to it. The group and its managed memberships are removed
 with this disposable cluster on `make down`.
 

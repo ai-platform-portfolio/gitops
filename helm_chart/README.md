@@ -43,8 +43,9 @@ resource names, API CIDRs and email are configuration metadata. Credentials,
 private keys, backend configuration and Terraform state stay out of Git.
 
 - `azure`, `network`, `aks`, `dns`: management infrastructure and the existing DNS zone.
-  `aks.admin_group` creates a bootstrap-owned Entra security group with explicit
-  owners/members; AKS consumes its module output. No Azure roles are assigned.
+  `aks.admin_group` creates an Entra security group owned by the authenticated
+  Terraform principal, with explicit admin members. AKS consumes the group's
+  module output. No Azure roles are assigned.
 - `identities`: one module loop over identities, federated service accounts and
   roles. Blob permissions use the existing storage account's ID as scope.
 - `platform.key_vault`: the existing vault used by External Secrets for application secrets.

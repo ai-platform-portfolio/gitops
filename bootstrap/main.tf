@@ -54,7 +54,7 @@ module "aks_admin_group" {
   source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-group?ref=3e883abf9680cf033fae533a1883d64341bde7ef"
   display_name = var.aks.admin_group.display_name
   description  = var.aks.admin_group.description
-  owners       = var.aks.admin_group.owners
+  owners       = [data.azurerm_client_config.current.object_id]
   members      = var.aks.admin_group.members
 }
 
