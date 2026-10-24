@@ -362,6 +362,16 @@ def main():
                     assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,atlantis'
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
+                if name in {'langfuse-reloader', 'backstage-reloader'}:
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    pod = deployment['spec']['template']['spec']
+                    assert pod['securityContext']['runAsNonRoot'] is True
+                    assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+                    for container in pod['containers']:
+                        security = container['securityContext']
+                        assert security['allowPrivilegeEscalation'] is False
+                        assert security['readOnlyRootFilesystem'] is True
+                        assert security['capabilities']['drop'] == ['ALL']
                 if name == 'langfuse':
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
                     assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'langfuse-sso'
