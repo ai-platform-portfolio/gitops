@@ -47,6 +47,8 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/external-secrets/namespace.yaml") . | indent 10 }}
           ---
+{{ tpl (.Files.Get "packages/reflector/namespace.yaml") . | indent 10 }}
+          ---
 {{ tpl (.Files.Get "packages/postgres/namespace.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/lgtm/namespace.yaml") . | indent 10 }}

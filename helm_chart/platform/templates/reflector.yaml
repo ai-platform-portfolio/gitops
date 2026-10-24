@@ -1,0 +1,29 @@
+# Annotation-driven replication is available before shared configuration.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reflector
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reflector
+
+  source:
+    repoURL: https://emberstack.github.io/helm-charts
+    chart: reflector
+    targetRevision: "10.0.65"
+    helm:
+      releaseName: reflector
+      valuesObject:
+{{ tpl (.Files.Get "packages/reflector/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
