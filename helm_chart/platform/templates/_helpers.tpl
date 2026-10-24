@@ -1,5 +1,30 @@
 {{/* Shared reconciliation settings; package sources and ordering are explicit. */}}
 {{- define "platform.syncPolicy" -}}
+# Normalize only exact AKS-owned selectors; other webhook drift stays visible.
+ignoreDifferences:
+  - group: admissionregistration.k8s.io
+    kind: MutatingWebhookConfiguration
+    jqPathExpressions:
+      - >-
+        .webhooks[]?.namespaceSelector | select(. == {"matchExpressions": [
+        {"key": "control-plane", "operator": "NotIn", "values": ["true"]},
+        {"key": "kubernetes.azure.com/managedby", "operator": "NotIn", "values": ["aks"]}]})
+
+  - group: admissionregistration.k8s.io
+    kind: ValidatingWebhookConfiguration
+    jqPathExpressions:
+      - >-
+        .webhooks[]?.namespaceSelector | select(. == {"matchExpressions": [
+        {"key": "control-plane", "operator": "NotIn", "values": ["true"]},
+        {"key": "kubernetes.azure.com/managedby", "operator": "NotIn", "values": ["aks"]}]})
+
+  # Kubernetes defaults an omitted CRD conversion strategy to None.
+  # Conversion webhooks and additional fields still participate in comparison.
+  - group: apiextensions.k8s.io
+    kind: CustomResourceDefinition
+    jqPathExpressions:
+      - '.spec.conversion | select(. == {"strategy": "None"})'
+
 syncPolicy:
   automated:
     prune: true

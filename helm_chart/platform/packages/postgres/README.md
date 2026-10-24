@@ -24,3 +24,7 @@ JDBC Secret. There is one PostgreSQL instance and no synchronous standby
 requirement. Backups demonstrate the Barman integration during the cluster
 lifetime; the backup container and database volumes are disposable on teardown.
 No cross-teardown restore or final-backup gate is configured.
+
+The operator Application ignores only the API server's default CRD conversion
+object, `strategy: None`, which is absent from the pinned chart. A conversion
+webhook or any other conversion fields remain visible to Argo's diff checks.
