@@ -162,6 +162,7 @@ class TeardownTests(unittest.TestCase):
         transitions = []
 
         def patch_application(*args):
+            self.assertEqual(args[4], 'applications.argoproj.io')
             app = next(a for a in apps if a['metadata']['name'] == args[5])
             change = json.loads(args[-1])
             if 'spec' in change:

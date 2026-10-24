@@ -309,6 +309,8 @@ def main():
                 assert '@sha256:' in container['image']
                 assert pod['automountServiceAccountToken'] is False
                 native_env = {e['name']: e for e in container['env']}
+                assert native_env['APP_CONFIG_backend_database_ensureExists']['value'] == 'false'
+                assert native_env['APP_CONFIG_backend_database_ensureSchemaExists']['value'] == 'true'
                 assert native_env['AUTH_MICROSOFT_CLIENT_SECRET']['valueFrom']['secretKeyRef'] == {'name': 'backstage-sso', 'key': 'client-secret'}
                 assert any(v.get('configMap', {}).get('name') == 'backstage-identity' for v in pod['volumes'])
                 assert 'backstage-reloader' in by_name

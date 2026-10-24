@@ -245,7 +245,7 @@ class Cluster:
         if self.hub:
             name = self.settings['cluster']['name']
             run(*self.hub, '-n', 'argocd', 'delete', 'secret', 'cluster-' + name, '--ignore-not-found')
-            wait_for(lambda: self.object('application', 'onboard-' + name, 'argocd', self.hub) is None,
+            wait_for(lambda: self.object('applications.argoproj.io', 'onboard-' + name, 'argocd', self.hub) is None,
                      'Waiting for hub onboarding to detach')
         apps = self.objects('applications.argoproj.io', 'argocd')
         if any(a['metadata']['name'] == 'azure-service-operator' for a in apps):
@@ -270,7 +270,7 @@ class Cluster:
 
         def suspend(applications):
             for app in applications:
-                run(*self.kube, '-n', 'argocd', 'patch', 'application', app['metadata']['name'],
+                run(*self.kube, '-n', 'argocd', 'patch', 'applications.argoproj.io', app['metadata']['name'],
                     '--type=merge', '-p', '{"spec":{"syncPolicy":{"automated":null}}}')
             names = {a['metadata']['name'] for a in applications}
 
@@ -292,7 +292,7 @@ class Cluster:
                     # Fail closed if the controller changed the operation since
                     # this read, rather than overwriting its newer state.
                     change['metadata'] = {'resourceVersion': app['metadata']['resourceVersion']}
-                    run(*self.kube, '-n', 'argocd', 'patch', 'application', app['metadata']['name'],
+                    run(*self.kube, '-n', 'argocd', 'patch', 'applications.argoproj.io', app['metadata']['name'],
                         '--type=merge', '-p', json.dumps(change))
                 return idle
 

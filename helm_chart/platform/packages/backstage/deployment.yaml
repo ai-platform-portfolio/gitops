@@ -49,6 +49,11 @@ spec:
             - name: http
               containerPort: 7007
           env:
+            # CNPG owns database creation; Backstage creates only plugin schemas.
+            - name: APP_CONFIG_backend_database_ensureExists
+              value: "false"
+            - name: APP_CONFIG_backend_database_ensureSchemaExists
+              value: "true"
             - name: BACKSTAGE_BASE_URL
               value: https://backstage.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
             - name: POSTGRES_PASSWORD
