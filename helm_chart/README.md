@@ -30,8 +30,8 @@ Run commands from the repository root. To trace PostgreSQL, read
 independently ordered Applications. Other packages follow the same path.
 
 `make up` provisions the management AKS cluster, installs ArgoCD and reconciles
-the platform packages. Use `make bootstrap` to install only the foundations needed
-for Argo HTTPS first. This is a disposable portfolio deployment: `make down`
+the platform packages. `make bootstrap` is the equivalent complete-deployment
+command. This is a disposable portfolio deployment: `make down`
 removes packages, infrastructure and Terraform-managed data containers.
 Credentials and application data are not restored into the next deployment.
 
@@ -93,21 +93,22 @@ established through federated identity or managed identity.
 
 ```sh
 make plan       # Preview bootstrap infrastructure and Argo CD changes
-make bootstrap  # Apply AKS/Argo and reconcile only its HTTPS foundations
-make up         # Apply bootstrap, then seed and reconcile platform packages
+make bootstrap  # Apply AKS/Argo and reconcile the full platform
+make up         # Alias for make bootstrap
 make down
 ```
 
 `make bootstrap` runs Terraform init and apply automatically, creating the
 containers, networking, AKS, identities and initial Argo release. It then seeds
-`profile: foundations` into the existing platform root: Envoy Gateway,
-cert-manager, ExternalDNS, shared namespaces/configuration and Argo's HTTPS route.
-Databases, observability, federation and applications remain disabled.
-`make plan` is a separate preview; `make bootstrap` automatically approves its apply and does not consume a saved plan file.
+the full platform root, including Envoy Gateway, cert-manager, ExternalDNS,
+databases, observability, federation and enabled application packages.
+`make plan` is a separate preview; `make bootstrap` automatically approves its
+apply and does not consume a saved plan file.
 
-`make up` applies Terraform and enables `profile: full` on the same local root.
-The full lifecycle prepares Kubernetes Secrets, waits for PostgreSQL, copies its
-current CA for SonarQube and enables the remaining packages. Existing Secrets are reused during repeated `make up` runs
+`make up` is an alias for this same complete deployment. The lifecycle prepares
+Kubernetes Secrets, waits for PostgreSQL, copies its current CA for SonarQube and
+enables the remaining packages. Existing Secrets are reused during repeated
+`make up` runs
 so encryption keys and passwords stay stable within the cluster. Missing
 credentials beside existing volumes cause an error rather than rotating keys.
 
@@ -159,7 +160,7 @@ credentials and current CA without executing SQL provisioning commands.
 The shared Gateway accepts application-owned HTTPS ListenerSets. Their issuer
 annotations let cert-manager generate individual hostname certificates.
 Cert-manager starts after Envoy installs Gateway API CRDs. ExternalDNS enables
-ListenerSet discovery with matching RBAC. Argo routes attach at wave 25 in both profiles. Application routes follow
+ListenerSet discovery with matching RBAC. Argo routes attach at wave 25. Application routes follow
 backend health at wave 80; the full lifecycle omits Sonar routes until its
 credentials/CA are ready.
 

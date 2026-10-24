@@ -1,4 +1,3 @@
-{{- if eq .Values.profile "full" }}
 # Storage and secret dependencies are ready for databases and observability.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -129,5 +128,3 @@ spec:
 {{ .Files.Get "packages/lgtm/mimir-eviction.yaml" | indent 12 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
-
-{{- end }}

@@ -1,7 +1,3 @@
-# The lifecycle selects foundations for bootstrap and full for make up.
-# Full remains the default for existing roots and workload onboarding.
-profile: full
-
 cluster:
   name: management
   role: management

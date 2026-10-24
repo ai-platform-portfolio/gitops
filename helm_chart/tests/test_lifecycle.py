@@ -258,40 +258,7 @@ class AzureAccountTests(unittest.TestCase):
                 current_account()
 
 
-class FoundationTests(unittest.TestCase):
-    def test_bootstrap_seeds_foundations_without_application_dependencies(self):
-        from helm_chart.scripts.cluster import main
-        for existing in [None, {'spec': {'source': {'helm': {'valuesObject': {'profile': 'foundations'}}}}},
-                         {'spec': {'source': {'helm': {'valuesObject': {}}}}},
-                         {'spec': {'source': {'helm': {'valuesObject': {'profile': 'full',
-                             'sonarqubeReady': True, 'runtime': {'SONAR_SAML_CERTIFICATE': 'retained'}}}}}}]:
-            with self.subTest(existing=existing):
-                cluster = Mock()
-                cluster.settings = {'runtime': {'DNS_ZONE': 'example.test'}}
-                cluster.account = {'tenant_id': 'tenant', 'subscription_id': 'subscription'}
-                cluster.object.return_value = existing
-                with patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
-                     patch('helm_chart.scripts.cluster.prepare_credentials') as credentials, \
-                     patch('helm_chart.scripts.cluster.prepare_sonarqube') as sonar, \
-                     patch('sys.argv', ['cluster.py', 'bootstrap', '--infra-dir', '/tmp/infra']):
-                    main()
-                cluster.sso.assert_not_called()
-                cluster.oidc_issuer.assert_not_called()
-                credentials.assert_not_called()
-                sonar.assert_not_called()
-                cluster.check_dns.assert_called_once()
-                cluster.ingress_ready.assert_called_once()
-                if existing and existing['spec']['source']['helm']['valuesObject'].get('profile', 'full') == 'full':
-                    values = cluster.seed.call_args.args[0]['spec']['source']['helm']['valuesObject']
-                    self.assertEqual(values.get('profile', 'full'), 'full')
-                    self.assertEqual(values['runtime']['ARGOCD_HOSTNAME'], 'argocd-management.example.test')
-                    if values.get('sonarqubeReady'):
-                        self.assertEqual(values['runtime']['SONAR_SAML_CERTIFICATE'], 'retained')
-                    cluster.ready.assert_not_called()
-                else:
-                    self.assertEqual(cluster.root.call_args.kwargs, {'profile': 'foundations'})
-                    cluster.ready.assert_called_once_with(profile='foundations')
-
+class ArgoIngressTests(unittest.TestCase):
     def test_dns_preflight_rejects_unowned_records_and_accepts_only_matching_owner(self):
         cluster = Cluster.__new__(Cluster)
         cluster.account = {'subscription_id': 'subscription'}

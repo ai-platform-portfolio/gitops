@@ -54,33 +54,8 @@ def main():
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True}))
         disabled = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'atlantis' not in {app['metadata']['name'] for app in disabled}, 'Atlantis must be opt-in'
-        # Bootstrap must require only DNS context, never application credentials.
-        foundation_runtime = {k: runtime[k] for k in ['DNS_ZONE', 'ACME_EMAIL', 'AZURE_TENANT_ID',
-            'AZURE_SUBSCRIPTION_ID', 'AZURE_CLIENT_ID', 'AZURE_DNS_RESOURCE_GROUP', 'AZURE_DNS_ZONE']}
-        foundation_runtime['ARGOCD_HOSTNAME'] = 'argocd-management.example.test'
-        values.write_text(json.dumps({'runtime': foundation_runtime, 'profile': 'foundations',
-                                     'atlantis': {'enabled': True}, 'backstage': {'enabled': False}}))
-        foundations = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
-        assert {a['metadata']['name'] for a in foundations} == {
-            'namespaces', 'envoy-gateway', 'cert-manager', 'configuration', 'gateway', 'external-dns', 'argocd-route'}
-        foundation_docs = {a['metadata']['name']: list(yaml.safe_load_all(a['spec']['source']['helm']['valuesObject']['manifests']))
-                           for a in foundations if 'manifests' in a['spec']['source']['helm']['valuesObject']}
-        namespaces = foundation_docs['namespaces']
-        assert {d['metadata']['name'] for d in namespaces} == {'argocd', 'envoy-gateway-system', 'cert-manager', 'external-dns'}
-        namespace = next(d for d in namespaces if d['metadata']['name'] == 'argocd')
-        assert namespace['metadata']['annotations']['argocd.argoproj.io/sync-options'] == 'Prune=false,Delete=false'
-        assert {d['kind'] for d in foundation_docs['configuration']} == {'ConfigMap', 'ClusterIssuer'}
-        route_docs = foundation_docs['argocd-route']
-        listener = next(d for d in route_docs if d['kind'] == 'ListenerSet')
-        assert listener['spec']['listeners'][0]['hostname'] == foundation_runtime['ARGOCD_HOSTNAME']
-        assert listener['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
-        assert not any(d['kind'] == 'Certificate' for d in route_docs)
-        route = next(d for d in route_docs if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'argocd')
-        assert route['spec']['rules'][0]['backendRefs'] == [{'name': 'argocd-server', 'port': 80}]
-        assert route['spec']['parentRefs'][0]['kind'] == 'ListenerSet'
         assert bootstrap_values['configs']['params']['server.insecure'] is True
         assert bootstrap_values['server']['service']['type'] == 'ClusterIP'
-        print('Foundations: seven Applications, DNS-only context, retained Argo namespace and issuer-owned HTTPS verified.')
         for label, overrides in {
             'app-id': {'github_app_id': ''},
             'team': {'github_team': ''},
@@ -181,6 +156,14 @@ def main():
                     assert not any('secrets' in r['resources'] for r in reader['rules'])
                     assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
                     assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
+                if app['metadata']['name'] == 'argocd-route':
+                    listener = next(d for d in documents if d['kind'] == 'ListenerSet')
+                    assert listener['spec']['listeners'][0]['hostname'] == 'argocd-management.example.test'
+                    assert listener['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
+                    assert not any(d['kind'] == 'Certificate' for d in documents)
+                    route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'argocd')
+                    assert route['spec']['rules'][0]['backendRefs'] == [{'name': 'argocd-server', 'port': 80}]
+                    assert route['spec']['parentRefs'][0]['kind'] == 'ListenerSet'
                 if app['metadata']['name'] == 'gateway':
                     gateway = next(d for d in documents if d['kind'] == 'Gateway')
                     assert gateway['spec']['allowedListeners']['namespaces']['from'] == 'Selector'

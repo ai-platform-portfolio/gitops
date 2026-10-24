@@ -5,9 +5,9 @@ platform independently; management onboards workload clusters.
 
 Terraform provisions the management infrastructure and installs its initial
 Argo CD Helm release. The platform Helm chart defines the application packages
-that Argo CD reconciles, with readiness gates between dependencies. Bootstrap
-and platform installation are separate steps so you can bring up AKS and Argo CD
-with trusted HTTPS before deploying the applications.
+that Argo CD reconciles, with readiness gates between dependencies. One Make
+command applies the bootstrap and reconciles the full platform,
+including Argo CD access through Envoy and a per-host HTTPS certificate.
 
 ## Before you start
 
@@ -32,7 +32,7 @@ The initial portfolio configuration uses one Standard_D4s_v5 system node and one
 Standard_D4s_v5 application node. See the configuration guide for prerequisites
 and limits before applying.
 
-## Bootstrap with Argo HTTPS: plan and apply
+## Plan and deploy the platform
 
 Preview the Terraform infrastructure and initial Argo CD installation
 (GitOps chart changes are validated separately with `make validate`):
@@ -52,19 +52,31 @@ CLI account context. There is no separate `terraform init` or environment-variab
 setup to run. `make bootstrap` automatically approves Terraform apply; it computes
 its plan at apply time rather than consuming a saved plan from `make plan`.
 
-Bootstrap creates networking, AKS, managed identities, disposable application data
-containers and the Argo CD Helm release. It then seeds the existing platform chart
-with `profile: foundations`. Argo installs only Envoy Gateway, cert-manager,
-ExternalDNS and the shared configuration, namespaces and route needed for its own
-HTTPS endpoint. Databases, observability, federation and application packages stay
-disabled. Application credentials and SonarQube SSO are not prepared in this mode.
+`make bootstrap` creates networking, AKS, managed identities, disposable application
+data containers and the Argo CD Helm release. It then seeds the full platform
+chart into Argo CD, prepares application credentials and waits for reconciliation.
+Envoy Gateway, cert-manager, ExternalDNS, databases, observability and the enabled
+applications are included. Packages configured as disabled remain disabled.
+
+`make up` is an alias for the same complete deployment:
+
+```sh
+make up
+```
+
+There is no foundations profile or separate ingress deployment step. Configure
+packages in `helm_chart/platform/` before applying. SonarQube SSO and application
+prerequisites must be configured for the full deployment; optional packages such
+as Backstage have their own prerequisites.
+
+## Argo CD HTTPS access
 
 The default URL is `https://argocd-management.<your-platform-domain>`. Override the
-prefix with `argocd.dns_label` in your ignored tfvars. The lifecycle prints the URL
-only after the certificate is ready, DNS resolves to the current Gateway and an
-HTTPS health check succeeds with normal certificate verification. The configured
-ACME email must be real, and the existing bootstrap identity needs its DNS-zone
-role and cert-manager/ExternalDNS federations.
+prefix with `argocd.dns_label` in ignored tfvars. The lifecycle prints the URL after
+the certificate is ready, DNS resolves to the current Gateway and an HTTPS health
+check succeeds with normal certificate verification. The configured ACME email
+must be real, and the existing bootstrap identity needs its DNS-zone role and
+cert-manager/ExternalDNS federations.
 
 An existing exact A, AAAA or CNAME record blocks seeding unless its ExternalDNS TXT
 ownership matches this cluster and Argo route. Existing records are not adopted.
@@ -74,27 +86,9 @@ custom label.
 
 Argo remains a ClusterIP service. Envoy terminates HTTPS using the per-host
 certificate cert-manager generates from Argo's issuer-annotated ListenerSet.
-ExternalDNS owns the DNS entry; Terraform owns the Argo release and its canonical
-URL. There is no separate load balancer or ingress controller just for Argo.
-
-On a fresh cluster, stop here if you only want bootstrap and Argo access. Repeating
-`make bootstrap` preserves an existing full platform root; it does not switch it
-back to foundations or prune application packages. Both modes use the same root
-and foundation Applications, so later enablement keeps their ownership.
-
-## Deploy the platform later
-
-```sh
-make up
-```
-
-This applies Terraform, prepares application Secrets and changes the same root
-to `profile: full`, then waits for the platform packages to reconcile. Argo CD automatically applies the enabled packages from
-Git after the root is seeded. You do not need a separate Helm install command.
-
-Configure packages in `helm_chart/platform/` before this step. Optional packages
-have their own prerequisites; Backstage, for example, stays disabled until its
-image and company identity/network settings are supplied.
+Envoy forwards HTTP to Argo inside the cluster; backend encryption and restricted
+workload access remain hardening work. ExternalDNS owns the DNS entry; Terraform
+owns the Argo release and its canonical URL. No port forwarding is required.
 
 ## Other commands
 

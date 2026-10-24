@@ -114,13 +114,6 @@
           }
         }
       ]
-    },
-    "profile": {
-      "type": "string",
-      "enum": [
-        "foundations",
-        "full"
-      ]
     }
   }
 }

@@ -111,7 +111,7 @@ class Cluster:
             raise RuntimeError('Cannot read the AKS OIDC issuer required by ASO-managed federation')
         return issuer
 
-    def root(self, runtime, sonar_ready, profile="full"):
+    def root(self, runtime, sonar_ready):
         settings = self.settings
         return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
                 'metadata': {'name': 'platform', 'namespace': 'argocd'},
@@ -120,8 +120,7 @@ class Cluster:
                     'source': {'repoURL': settings['git']['repository'],
                                'targetRevision': settings['git']['revision'], 'path': 'helm_chart/platform',
                                'helm': {'valuesObject': {'cluster': settings['cluster'], 'git': settings['git'],
-                                                        'runtime': runtime, 'sonarqubeReady': sonar_ready,
-                                                        'profile': profile}}},
+                                                        'runtime': runtime, 'sonarqubeReady': sonar_ready}}},
                     'syncPolicy': {'automated': {'prune': True, 'selfHeal': True},
                                    'retry': {'limit': 10, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '3m'}}}}}
 
@@ -156,7 +155,7 @@ class Cluster:
                 'annotations': {'platform.ai-platform-portfolio/root': json.dumps(root)}},
             'stringData': {'name': name, 'server': self.connection['server'], 'config': json.dumps(config)}}, self.hub)
 
-    def ready(self, profile="full"):
+    def ready(self):
         def current(app):
             status = app.get('status', {})
             compared = status.get('sync', {}).get('comparedTo', {})
@@ -172,10 +171,7 @@ class Cluster:
             if not root or not root.get('status', {}).get('resources'):
                 return False
             expected = {r['name'] for r in root['status']['resources'] if r['kind'] == 'Application'}
-            required = ({'namespaces', 'envoy-gateway', 'cert-manager', 'configuration',
-                         'gateway', 'external-dns', 'argocd-route'} if profile == 'foundations'
-                        else {'sonarqube', 'sonarqube-configure', 'argocd-route'})
-            if not required <= expected:
+            if not {'sonarqube', 'sonarqube-configure', 'argocd-route'} <= expected:
                 return False
             found = {a['metadata']['name']: a for a in apps}
             return bool(expected) and expected <= found.keys() and all(
@@ -214,7 +210,7 @@ class Cluster:
         hostname = runtime['ARGOCD_HOSTNAME']
 
         def available():
-            # Repeated bootstrap may find a full root still installing controllers.
+            # A repeated deployment may find its root still installing controllers.
             apis = run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
             if not {'certificates.cert-manager.io', 'gateways.gateway.networking.k8s.io'} <= set(apis):
                 return False
@@ -319,7 +315,7 @@ class Cluster:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['bootstrap', 'up', 'down'])
+    parser.add_argument('action', choices=['up', 'down'])
     parser.add_argument('--infra-dir', type=Path, required=True)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='platform-aks-') as directory:
@@ -333,24 +329,9 @@ def main():
         runtime.setdefault('ARGOCD_HOSTNAME', 'argocd-management.' + runtime['DNS_ZONE'])
         cluster.check_dns(runtime)
         existing = cluster.object('applications.argoproj.io', 'platform', 'argocd')
-        if args.action == 'bootstrap':
-            # Never prune application packages by switching a full root backwards.
-            if existing and existing['spec']['source']['helm']['valuesObject'].get('profile', 'full') == 'full':
-                # Refresh bootstrap context (including the hostname) while retaining
-                # application inputs and the full profile on repeated bootstrap.
-                values = existing['spec']['source']['helm']['valuesObject']
-                values.setdefault('runtime', {}).update(runtime)
-                cluster.seed({'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
-                    'metadata': {'name': 'platform', 'namespace': 'argocd'}, 'spec': existing['spec']})
-                print('Full platform already enabled; preserving its application configuration.', flush=True)
-            else:
-                cluster.seed(cluster.root(runtime, False, profile='foundations'))
-                cluster.ready(profile='foundations')
-            cluster.ingress_ready(runtime)
-            return
         runtime.update(cluster.sso())
         runtime.update({'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()})
-        # Only the full profile needs generic context for service federation.
+        # Generic context for GitOps-owned service federation.
         if cluster.settings['cluster']['role'] == 'management':
             runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
         prepare_credentials(cluster)

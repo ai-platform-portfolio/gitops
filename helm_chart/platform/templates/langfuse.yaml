@@ -1,4 +1,3 @@
-{{- if eq .Values.profile "full" }}
 # Observability backends are ready for collectors and application packages.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -31,5 +30,3 @@ spec:
 {{ tpl (.Files.Get "packages/langfuse/values.yaml") . | indent 8 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
-
-{{- end }}

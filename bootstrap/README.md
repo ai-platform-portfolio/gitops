@@ -17,11 +17,11 @@ Those containers and their contents are deleted on teardown. There is no
 cross-teardown restore or retained-credential store.
 
 Run `make plan` from the repository root to preview Terraform changes, then
-`make bootstrap` to initialize/apply infrastructure and install the small GitOps
-foundations profile. This installs Envoy Gateway, cert-manager and ExternalDNS,
-then exposes Argo through its own issuer-annotated ListenerSet and HTTPRoutes.
-It does not deploy databases, observability, federation or application packages.
-Use `make up` later to enable the full platform through the same root Application.
+`make bootstrap` to initialize/apply infrastructure and deploy the full platform
+chart. This includes Envoy Gateway, cert-manager, ExternalDNS, databases,
+observability, federation and enabled applications. Argo is exposed through its
+own issuer-annotated ListenerSet and HTTPRoutes. `make up` is an alias for the same
+complete deployment; there is no foundations-only mode.
 
 The URL defaults to `https://argocd-management.<platform-domain>`; set the prefix
 with `argocd.dns_label` in ignored local tfvars. Terraform supplies the same URL to
