@@ -55,7 +55,7 @@ files easier to find.
 | -10 | namespaces | Namespaces exist before resources and credentials are consumed |
 | 0 | envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
 | 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
-| 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
+| 10 | atlas-operator, cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
 | 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
 | 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
@@ -105,3 +105,7 @@ to the existing postgres Application. ESO generates stable credentials in early
 configuration, then the wave-40 backstage-credentials Application delivers the
 password/CA before the wave-60 portal and wave-80 route. It adds no PostgreSQL
 server, Azure infrastructure or Backstage-specific bootstrap/lifecycle handoff.
+
+[Atlas](packages/atlas/README.md) installs the free/basic operator without cloud
+credentials or database migrations. Existing database ownership stays with CNPG
+and application migration systems.

@@ -1,0 +1,26 @@
+# Free/basic operator only: no Atlas Cloud token or paid features.
+prewarmDevDB: false
+allowCustomConfig: false
+watchNamespaces: [atlas-system]
+
+# No cross-namespace credential access for this idle installation.
+rbac:
+  clusterWideSecretAccess: false
+watchSecrets: false
+
+# The chart otherwise renders only fsGroup and omits podSecurityContext.
+persistence:
+  enabled: false
+  fsGroup: null
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi

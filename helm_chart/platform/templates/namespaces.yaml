@@ -41,6 +41,8 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/postgres/operator-namespace.yaml") . | indent 10 }}
           ---
+{{ tpl (.Files.Get "packages/atlas/namespace.yaml") . | indent 10 }}
+          ---
 {{ tpl (.Files.Get "packages/sonarqube/namespace.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/external-secrets/namespace.yaml") . | indent 10 }}

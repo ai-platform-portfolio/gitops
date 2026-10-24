@@ -1,0 +1,29 @@
+# Free schema tooling is installed before any future migration resources.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: atlas-operator
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: atlas-system
+
+  source:
+    repoURL: ghcr.io/ariga/charts
+    chart: atlas-operator
+    targetRevision: "0.8.4"
+    helm:
+      releaseName: atlas-operator
+      valuesObject:
+{{ tpl (.Files.Get "packages/atlas/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
