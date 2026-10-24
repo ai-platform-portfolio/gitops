@@ -89,6 +89,12 @@ plans/applies. The CI validation workflow uses no Azure credentials and does not
 read this secret. Updating it changes the allowlist at the next plan/apply; the
 existing Key Vault and secret are not deleted with the cluster.
 
+Both AKS node subnets explicitly allow Internet TCP 80/443 through their subnet
+NSGs for the public gateway load balancer. Azure evaluates subnet and NIC NSGs;
+AKS's managed NIC rules cannot override a subnet deny. The load balancer uses
+backend ports 80/443, so the NodePort range is not opened. The private-endpoint
+subnet has no public ingress rule. Kubernetes API restrictions remain separate.
+
 Argo uses server-side diff: it asks the Kubernetes API to dry-run the desired
 resource before comparing it with the live object. This accounts for CRD defaults,
 including Gateway API route matches and backend/certificate references, without
