@@ -78,9 +78,9 @@ aks = {
   user_node_pools = {
     platform = {
       subnet_key = "snet-aks-user-management"
-      # Start small for the portfolio; increase capacity when measured usage requires it.
+      # Each node supports eight Azure disks; the full chart exceeds one node's limit.
       vm_size    = "Standard_D4as_v4"
-      node_count = 1
+      node_count = 2
     }
   }
 }
