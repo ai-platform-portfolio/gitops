@@ -24,9 +24,9 @@ jobs:
       YARN_ENABLE_TELEMETRY: '0'
       BACKSTAGE_BASE_URL: https://backstage.example.test
       AUTH_SESSION_SECRET: ci-only-not-a-deployment-secret
-      AUTH_OIDC_METADATA_URL: https://identity.example.test/.well-known/openid-configuration
-      AUTH_OIDC_CLIENT_ID: ci-only
-      AUTH_OIDC_CLIENT_SECRET: ci-only
+      AUTH_MICROSOFT_TENANT_ID: 00000000-0000-0000-0000-000000000001
+      AUTH_MICROSOFT_CLIENT_ID: ci-only
+      AUTH_MICROSOFT_CLIENT_SECRET: ci-only
       POSTGRES_PASSWORD: ci-only
       POSTGRES_CA: ci-only
 
@@ -94,9 +94,9 @@ jobs:
           YARN_ENABLE_TELEMETRY: '0'
           BACKSTAGE_BASE_URL: https://backstage.example.test
           AUTH_SESSION_SECRET: ci-only-not-a-deployment-secret
-          AUTH_OIDC_METADATA_URL: https://identity.example.test/.well-known/openid-configuration
-          AUTH_OIDC_CLIENT_ID: ci-only
-          AUTH_OIDC_CLIENT_SECRET: ci-only
+          AUTH_MICROSOFT_TENANT_ID: 00000000-0000-0000-0000-000000000001
+          AUTH_MICROSOFT_CLIENT_ID: ci-only
+          AUTH_MICROSOFT_CLIENT_SECRET: ci-only
           POSTGRES_PASSWORD: ci-only
           POSTGRES_CA: ci-only
         run: |

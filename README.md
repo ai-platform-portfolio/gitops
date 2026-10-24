@@ -160,13 +160,14 @@ Sources: [Argo Entra SSO](https://argo-cd.readthedocs.io/en/stable/operator-manu
 [Argo RBAC](https://argo-cd.readthedocs.io/en/stable/operator-manual/rbac/),
 [Entra group claims](https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/how-to-connect-fed-group-claims).
 
-## Langfuse and SonarQube sign-in
+## Platform service sign-in
 
 Both use native Microsoft Entra authentication. After merging service changes,
 run `make up`; there is no separate identity setup command.
 
 | Service | Native provider | Access configuration |
 | --- | --- | --- |
+| [Backstage](https://backstage.dev.michaelalinks.com) | Native Entra; object-ID catalog matching | `backstage.users` in platform values |
 | [Langfuse](https://langfuse.dev.michaelalinks.com) | Entra OIDC; password login disabled | `langfuse.sso.users` in platform values; currently the portfolio owner |
 | [SonarQube](https://sonarqube.dev.michaelalinks.com) | Entra SAML | Existing enterprise-app assignments; portfolio owner has `portfolio-sonar-admins` |
 

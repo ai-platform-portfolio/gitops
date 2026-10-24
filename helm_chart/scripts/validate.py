@@ -278,6 +278,10 @@ def main():
                 r = next(r for r in roles if r['name'] == 'backstage')
                 assert not any(r[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
                 assert db[0]['spec']['owner'] == 'backstage'
+                identities = list(yaml.safe_load_all(by_name['service-identities']['spec']['source']['helm']['valuesObject']['manifests']))
+                identity = next(d for d in identities if d and d['kind'] == 'OIDCApplication' and d['metadata']['name'] == 'backstage-sso')
+                assert identity['spec']['redirectUri'] == 'https://backstage.example.test/api/auth/microsoft/handler/frame'
+                assert identity['spec']['requiredResourceAccess'][0]['resourceAccess'] == [{'id': 'e1fe6dd8-ba31-4d61-89e7-88639da4683d', 'type': 'Scope'}]
                 enabled_waves = {name: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave']) for name, app in by_name.items()}
                 assert enabled_waves['configuration'] < enabled_waves['postgres'] < enabled_waves['backstage-credentials'] < enabled_waves['backstage'] < enabled_waves['routes']
                 early = list(yaml.safe_load_all(by_name['configuration']['spec']['source']['helm']['valuesObject']['manifests']))
@@ -286,6 +290,10 @@ def main():
                     assert es['spec']['refreshPolicy'] == 'CreatedOnce'
                     assert es['spec']['target']['immutable'] is True
                     assert es['spec']['target']['creationPolicy'] == 'Orphan'
+                organization = next(d for d in early if d and d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'backstage-identity')
+                org_entities = list(yaml.safe_load_all(organization['data']['catalog-org.yaml']))
+                assert any('graph.microsoft.com/user-id' in d['metadata'].get('annotations', {}) for d in org_entities if d['kind'] == 'User')
+                assert not any(d and d['kind'] == 'ExternalSecret' and d['metadata']['name'] in {'backstage-auth', 'backstage-identity', 'backstage-integrations'} for d in early)
                 credentials = list(yaml.safe_load_all(by_name['backstage-credentials']['spec']['source']['helm']['valuesObject']['manifests']))
                 reader = next(d for d in credentials if d['kind'] == 'Role')
                 assert reader['metadata']['namespace'] == 'postgres'
@@ -297,6 +305,10 @@ def main():
                 container = pod['containers'][0]
                 assert '@sha256:' in container['image']
                 assert pod['automountServiceAccountToken'] is False
+                native_env = {e['name']: e for e in container['env']}
+                assert native_env['AUTH_MICROSOFT_CLIENT_SECRET']['valueFrom']['secretKeyRef'] == {'name': 'backstage-sso', 'key': 'client-secret'}
+                assert any(v.get('configMap', {}).get('name') == 'backstage-identity' for v in pod['volumes'])
+                assert 'backstage-reloader' in by_name
                 assert container['securityContext']['readOnlyRootFilesystem']
                 assert container['resources']['requests']['memory'] == '512Mi'
                 assert not any(d['kind'] in {'ClusterRole', 'ClusterRoleBinding'} and

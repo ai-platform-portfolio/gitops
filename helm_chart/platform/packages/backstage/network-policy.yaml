@@ -31,6 +31,15 @@ spec:
               cnpg.io/cluster: platform
       ports:
         - {protocol: TCP, port: 5432}
+    # Kubernetes NetworkPolicy cannot match FQDNs. Limit auth egress to Microsoft's
+    # published Entra ranges; this is an IP boundary, not hostname enforcement.
+    - to:
+{{- range (.Files.Get "packages/backstage/entra-prefixes.yaml" | fromYamlArray) }}
+        - ipBlock:
+            cidr: {{ . }}
+{{- end }}
+      ports:
+        - {protocol: TCP, port: 443}
 {{- with .Values.backstage.egress }}
 {{ toYaml . | indent 4 }}
 {{- end }}

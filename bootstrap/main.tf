@@ -1,5 +1,11 @@
 data "azurerm_client_config" "current" {}
 
+data "azurerm_container_registry" "existing" {
+  for_each            = var.container_registries
+  name                = each.value.name
+  resource_group_name = each.value.resource_group_name
+}
+
 data "azuread_service_principal" "microsoft_graph" {
   client_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
 }
@@ -104,6 +110,15 @@ module "aks" {
   }
 
   tags = var.azure.tags
+}
+
+# Image pulls use the node/kubelet identity, not application or control-plane tokens.
+resource "azurerm_role_assignment" "registry_pull" {
+  for_each             = data.azurerm_container_registry.existing
+  scope                = each.value.id
+  role_definition_name = "AcrPull"
+  principal_id         = module.aks.kubelet_identity[0].object_id
+  principal_type       = "ServicePrincipal"
 }
 
 module "identities" {

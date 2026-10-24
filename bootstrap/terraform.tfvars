@@ -1,5 +1,12 @@
 # Deployment configuration: environment metadata belongs here, credentials do not.
 # The API allowlist comes from Key Vault; authentication comes from the caller.
+container_registries = {
+  platform = {
+    name                = "localacrk8s"
+    resource_group_name = "kubernetes"
+  }
+}
+
 entra_applications = {
   argocd = {
     display_name                = "portfolio-argocd"
