@@ -89,7 +89,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'namespaces', 'federation', 'envoy-gateway', 'external-secrets',
+            'namespaces', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -348,6 +348,21 @@ def main():
                     '--kube-version', '1.34.1', '-f', str(values))
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
+                if name == 'atlas-operator':
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    pod = deployment['spec']['template']['spec']
+                    manager = pod['containers'][0]
+                    assert manager['image'] == 'arigaio/atlas-operator:0.8.4'
+                    assert manager['args'] == ['--namespace=atlas-system']
+                    assert pod['securityContext']['runAsNonRoot'] is True
+                    assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+                    assert manager['securityContext']['allowPrivilegeEscalation'] is False
+                    env = {e['name']: e.get('value') for e in manager['env']}
+                    assert env == {'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'false', 'WATCH_SECRETS': 'false'}
+                    assert not any('secrets' in rule.get('resources', [])
+                                   for d in docs if d['kind'] == 'ClusterRole' for rule in d['rules'])
+                    assert not any(d['kind'] in {'Secret', 'PersistentVolumeClaim', 'Service', 'Ingress', 'AtlasSchema', 'AtlasMigration'} for d in docs)
+                    assert {'AtlasSchema', 'AtlasMigration'} <= {d['spec']['names']['kind'] for d in docs if d['kind'] == 'CustomResourceDefinition'}
                 if name == 'azure-service-operator':
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')
                     pod = deployment['spec']['template']['spec']
