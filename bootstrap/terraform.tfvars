@@ -33,7 +33,12 @@ aks = {
   # file with -var-file when present; override it with TFVARS=/path/to/settings.tfvars.
   kubernetes_version = "REPLACE_WITH_SUPPORTED_VERSION"
 
-  admin_group_object_ids = ["REPLACE_WITH_ENTRA_SECURITY_GROUP_ID"]
+  admin_group = {
+    display_name = "aks-platform-admins"
+    description  = "Administrators of the management AKS cluster."
+    owners       = ["REPLACE_WITH_GROUP_OWNER_OBJECT_ID"]
+    members      = ["REPLACE_WITH_ADMIN_MEMBER_OBJECT_ID"]
+  }
 
   authorized_ip_ranges = ["REPLACE_WITH_YOUR_PUBLIC_IP/32"]
 

@@ -27,10 +27,17 @@ variable "aks" {
   description = "Management cluster settings and node pools keyed by pool name."
 
   type = object({
-    name                   = string
-    kubernetes_version     = string
-    admin_group_object_ids = list(string)
-    authorized_ip_ranges   = list(string)
+    name               = string
+    kubernetes_version = string
+
+    admin_group = object({
+      display_name = string
+      description  = string
+      owners       = set(string)
+      members      = set(string)
+    })
+
+    authorized_ip_ranges = list(string)
 
     system_node_pool = object({
       subnet_key      = string
@@ -46,6 +53,11 @@ variable "aks" {
       os_disk_size_gb = optional(number, 64)
     }))
   })
+
+  validation {
+    condition     = length(var.aks.admin_group.members) > 0
+    error_message = "Configure at least one member of the AKS administrator group."
+  }
 }
 
 variable "dns" {
