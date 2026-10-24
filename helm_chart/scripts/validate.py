@@ -89,7 +89,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'namespaces', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
+            'namespaces', 'reflector', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -348,6 +348,22 @@ def main():
                     '--kube-version', '1.34.1', '-f', str(values))
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
+                if name == 'reflector':
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    assert deployment['spec']['replicas'] == 1
+                    pod = deployment['spec']['template']['spec']
+                    container = pod['containers'][0]
+                    assert container['image'] == 'docker.io/emberstack/kubernetes-reflector:10.0.65'
+                    assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+                    security = container['securityContext']
+                    assert security['runAsNonRoot'] and security['readOnlyRootFilesystem']
+                    assert security['allowPrivilegeEscalation'] is False and security['capabilities']['drop'] == ['ALL']
+                    env = {e['name']: e.get('value') for e in container['env']}
+                    assert env['ES_Ignite__KubernetesClient__SkipTlsVerify'] == 'false'
+                    assert not any(d['kind'] in {'Secret', 'ConfigMap', 'Service', 'Ingress', 'PersistentVolumeClaim'} for d in docs)
+                    role = next(d for d in docs if d['kind'] == 'ClusterRole')
+                    assert role['rules'] == [{'apiGroups': [''], 'resources': ['configmaps', 'secrets'], 'verbs': ['*']},
+                                             {'apiGroups': [''], 'resources': ['namespaces'], 'verbs': ['watch', 'list']}]
                 if name == 'atlas-operator':
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')
                     pod = deployment['spec']['template']['spec']

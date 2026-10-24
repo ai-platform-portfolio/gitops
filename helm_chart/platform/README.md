@@ -53,7 +53,7 @@ files easier to find.
 | Wave | Applications | Dependency |
 | --- | --- | --- |
 | -10 | namespaces | Namespaces exist before resources and credentials are consumed |
-| 0 | envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
+| 0 | reflector, envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
 | 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
 | 10 | atlas-operator, cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
 | 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
@@ -109,3 +109,7 @@ server, Azure infrastructure or Backstage-specific bootstrap/lifecycle handoff.
 [Atlas](packages/atlas/README.md) installs the free/basic operator without cloud
 credentials or database migrations. Existing database ownership stays with CNPG
 and application migration systems.
+
+[Reflector](packages/reflector/README.md) provides annotation-driven Secret and
+ConfigMap replication. Installation alone enables no copies; future sources must
+explicitly restrict destination namespaces.
