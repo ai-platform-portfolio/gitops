@@ -37,12 +37,15 @@ Credentials and application data are not restored into the next deployment.
 ## Configuration
 
 Review the tracked `bootstrap/terraform.tfvars` deployment configuration and
-complete its API allowlist. Make always uses this file unless you explicitly pass
+verify its Key Vault API-allowlist secret reference. Make uses this file unless
+you explicitly pass
 `TFVARS=/path/to/settings.tfvars`; no local filename takes priority. Principal IDs,
-resource names, API CIDRs and email are configuration metadata. Credentials,
+resource names and email are configuration metadata. Credentials,
 private keys, backend configuration and Terraform state stay out of Git.
 
 - `azure`, `network`, `aks`, `dns`: management infrastructure and the existing DNS zone.
+  `aks.authorized_ip_ranges_secret` reads the existing Key Vault CIDR list as a
+  sensitive value; it stays out of normal logs but remains in encrypted state.
   `aks.admin_group` creates an Entra security group owned by the authenticated
   Terraform principal, which is also its bootstrap member. AKS consumes the group's
   module output. No owner/member IDs are required in tfvars; no Azure roles are
@@ -57,8 +60,8 @@ private keys, backend configuration and Terraform state stay out of Git.
   `dns_label` for its HTTPS hostname, combined directly with `dns.zone.name`.
   The label and ConfigMap filename are required inputs specified in tfvars.
 
-The initial configuration uses one Standard_D4s_v5 system node and one
-Standard_D4s_v5 application node. PostgreSQL and its pooler each use one instance;
+The initial configuration uses one Standard_D4as_v4 system node and one
+Standard_D4as_v4 application node. PostgreSQL and its pooler each use one instance;
 there is no synchronous standby requirement. This is a non-HA portfolio starting
 point; measure usage before scaling. Use a supported Kubernetes 1.34–1.36 release
 for the pinned CNPG operator.

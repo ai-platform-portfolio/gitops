@@ -15,6 +15,13 @@ data "azurerm_key_vault" "platform" {
   resource_group_name = var.platform.key_vault.resource_group_name
 }
 
+# The provider marks the secret value sensitive, redacting derived ranges in plans.
+# The value is still stored in the encrypted Terraform backend.
+data "azurerm_key_vault_secret" "aks_api_ranges" {
+  name         = var.aks.authorized_ip_ranges_secret
+  key_vault_id = data.azurerm_key_vault.platform.id
+}
+
 locals {
   argocd_configmap = yamldecode(file("${path.module}/${var.argocd.configmap_file}"))
   argocd_hostname  = "${var.argocd.dns_label}.${var.dns.zone.name}"
@@ -68,7 +75,7 @@ module "aks" {
   tenant_id              = sensitive(data.azurerm_client_config.current.tenant_id)
   kubernetes_version     = var.aks.kubernetes_version
   admin_group_object_ids = [module.aks_admin_group.object_id]
-  authorized_ip_ranges   = var.aks.authorized_ip_ranges
+  authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
   vnet_subnet_id         = module.network.subnet_ids[var.aks.system_node_pool.subnet_key]
 
   system_node_pool = {

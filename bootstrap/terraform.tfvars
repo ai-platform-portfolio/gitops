@@ -1,5 +1,5 @@
 # Deployment configuration: environment metadata belongs here, credentials do not.
-# Set the API allowlist before deployment; authentication comes from the caller.
+# The API allowlist comes from Key Vault; authentication comes from the caller.
 azure = {
   location            = "uksouth"
   resource_group_name = "rg-management"
@@ -29,8 +29,7 @@ network = {
 }
 
 aks = {
-  name = "aks-management"
-  # API access must include the operator/runner's public CIDR before plan/apply.
+  name               = "aks-management"
   kubernetes_version = "1.36.5"
 
   admin_group = {
@@ -38,11 +37,11 @@ aks = {
     description  = "Administrators of the management AKS cluster."
   }
 
-  authorized_ip_ranges = ["REPLACE_WITH_YOUR_PUBLIC_IP/32"]
+  authorized_ip_ranges_secret = "aks-api-authorized-ip-ranges"
 
   system_node_pool = {
     subnet_key = "snet-aks-system-management"
-    vm_size    = "Standard_D4s_v5"
+    vm_size    = "Standard_D4as_v4"
     node_count = 1
   }
 
@@ -50,7 +49,7 @@ aks = {
     platform = {
       subnet_key = "snet-aks-user-management"
       # Start small for the portfolio; increase capacity when measured usage requires it.
-      vm_size    = "Standard_D4s_v5"
+      vm_size    = "Standard_D4as_v4"
       node_count = 1
     }
   }
