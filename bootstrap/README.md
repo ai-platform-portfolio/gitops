@@ -39,7 +39,7 @@ of the Argo Helm release. No duplicate certificate manifest or wildcard certific
 is created; cert-manager generates the per-host certificate from the ListenerSet.
 
 State uses the external Azure Blob backend configured by ignored
-`backend.local.hcl`; keep backend details and private tfvars out of Git. Use
+`backend.local.hcl`; keep backend details, credentials and state out of Git. Use
 `make down` for ordered package cleanup before destroying infrastructure. See the
 [configuration and lifecycle guide](../helm_chart/README.md) for prerequisites,
 backend setup and validation.
@@ -48,9 +48,13 @@ backend setup and validation.
 
 `aks.admin_group` configures the Terraform library's `entra-group` module.
 Terraform creates this group before AKS and passes its `object_id` output directly
-to the cluster. Supply the display name, description, owners and members in tfvars;
-keep actual principal IDs in ignored local inputs. Owners and members are explicit,
-separate sets. Bootstrap does not assign Azure RBAC roles to this group.
+to the cluster. Set only its display name and description in `terraform.tfvars`.
+The authenticated principal from `data.azurerm_client_config.current.object_id`
+is both owner and bootstrap member. Membership authorizes Terraform's Kubernetes
+provider to install Argo; group ownership alone does not grant AKS access.
+No owner/member ID lists are configured in tfvars, and no Azure RBAC roles are
+assigned to this group. Applying through a different principal changes this
+bootstrap owner/member, so review access when changing deployment identities.
 
 The AzureAD provider uses the calling root's authenticated context; the caller
 needs Microsoft Graph authority to manage the group and membership. This is a
@@ -58,3 +62,15 @@ bootstrap dependency, managed by the same Terraform root and persistent backend.
 Teardown deletes the group along with the disposable cluster. Existing same-name
 groups are rejected; adopt an existing group only through deliberate import and
 membership review. No one-off CLI group creation is required.
+
+## Deployment inputs
+
+`terraform.tfvars` is the default deployment configuration. Environment metadata
+such as principal IDs, API CIDRs, resource names and email can be checked in.
+An existing `local.tfvars` file is not selected automatically; `TFVARS=...` is an
+explicit override. Backend settings stay in ignored `backend.local.hcl`, and
+credentials remain in the authenticated context, Key Vault or Kubernetes Secrets.
+
+The PostgreSQL backup destination uses a fresh `management-postgres-backups`
+container. The pre-existing `postgres-backups` container is not adopted or deleted
+by this deployment. Terraform state uses a separate persistent storage account.
