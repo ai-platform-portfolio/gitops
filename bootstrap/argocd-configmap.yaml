@@ -12,6 +12,14 @@ metadata:
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/part-of: argocd
 data:
+  # Keep local recovery login during SSO rollout. Disable only after verifying
+  # Entra login and group-based Argo permissions with an administrator account.
+  admin.enabled: "true"
+  users.anonymous.enabled: "false"
+
+  # Terraform supplies oidc.config from the Entra application and provider context;
+  # no client secret is created. Argo exchanges its projected Kubernetes token.
+
   # Propagate a child Application's health to the parent only after Argo has
   # synced its current source/values. Old Healthy status must not release the
   # next wave while changed configuration is still being reconciled.

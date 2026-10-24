@@ -98,6 +98,10 @@ argocd = {
   chart_version  = "10.10.5"
   values_file    = "argocd-values.yaml"
   configmap_file = "argocd-configmap.yaml"
+
+  sso = {
+    display_name = "portfolio-argocd"
+  }
 }
 
 platform = {

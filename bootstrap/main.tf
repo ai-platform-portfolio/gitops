@@ -130,8 +130,26 @@ module "argocd" {
     yamlencode(merge(
       { extraObjects = [merge(
         local.argocd_configmap,
-        { data = merge(local.argocd_configmap.data, { url = "https://${local.argocd_hostname}" }) }
+        { data = merge(local.argocd_configmap.data, {
+          url = "https://${local.argocd_hostname}"
+          "oidc.config" = yamlencode({
+            name            = "Microsoft Entra ID"
+            issuer          = sensitive("https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0")
+            clientID        = azuread_application.argocd.client_id
+            azure           = { useWorkloadIdentity = true }
+            requestedScopes = ["openid", "profile", "email"]
+            requestedIDTokenClaims = {
+              groups = { essential = true }
+            }
+          })
+        }) }
       )] },
+      { configs = { rbac = {
+        # Authentication alone grants no application permissions.
+        "policy.default" = ""
+        "policy.csv"     = "g, ${module.aks_admin_group.object_id}, role:admin"
+        scopes           = "[groups]"
+      } } },
       { for component in var.argocd.identity_components : component => {
         podLabels      = { "azure.workload.identity/use" = "true" }
         serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }
@@ -139,5 +157,5 @@ module "argocd" {
     ))
   ]
 
-  depends_on = [module.aks]
+  depends_on = [module.aks, azuread_service_principal.argocd, azuread_application_federated_identity_credential.argocd]
 }
