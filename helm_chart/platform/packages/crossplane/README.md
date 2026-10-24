@@ -37,7 +37,7 @@ Entra module. This breaks the initial authentication/consent dependency: an
 unprivileged controller cannot grant itself Graph permissions. No service callback,
 allowlist or service credential is configured in Terraform.
 
-`crossplane` in bootstrap tfvars explicitly requests and consents
+`entra_applications.crossplane` in bootstrap tfvars explicitly requests and consents
 `Application.ReadWrite.OwnedBy`, `Application.Read.All` and
 `AppRoleAssignment.ReadWrite.All`. The last permission is tenant-wide and powerful;
 application ownership restricts registration writes but does not scope that grant.

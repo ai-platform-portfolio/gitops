@@ -117,7 +117,7 @@ owns the Argo release and its canonical URL. No port forwarding is required.
 ## Argo CD sign-in
 
 Select **LOGIN VIA MICROSOFT ENTRA ID** on the Argo login page. Bootstrap creates
-an Entra application named by `argocd.sso.display_name`, with the public Argo
+an Entra application named by `entra_applications.argocd.display_name`, with the public Argo
 `/auth/callback` URL and the CLI loopback callback. Members of the bootstrap
 `aks.admin_group` receive Argo's built-in `role:admin`; other tenant users can
 complete authentication but receive no Argo permissions. Anonymous access is off.
@@ -129,7 +129,7 @@ service-account token and a dedicated Entra application federation. There is no
 client secret to rotate or store in Terraform state. The server keeps its existing
 managed-identity annotation for management-to-child Kubernetes authentication.
 Argo is part of the initial bootstrap, so Terraform
-calls the Terraform library's `entra-application` module for this app, its service
+uses the shared `entra_applications` module call, keyed by the tfvars map, for this app, its service
 principal and federation. OIDC settings live in the commented
 `bootstrap/argocd-configmap.yaml` template; RBAC lives in `argocd-values.yaml`.
 Terraform fills their deployment placeholders from module outputs and context.
