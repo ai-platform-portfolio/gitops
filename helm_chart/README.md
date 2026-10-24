@@ -90,13 +90,18 @@ with Azure CLI and select the intended subscription. CI uses the same session,
 established through federated identity or managed identity.
 
 ```sh
-make plan
-make up
+make plan       # Preview bootstrap infrastructure and Argo CD changes
+make bootstrap  # Initialize and apply bootstrap only
+make up         # Apply bootstrap, then seed and reconcile platform packages
 make down
 ```
 
-Terraform creates the containers, networking, AKS, identities and initial Argo
-release. The lifecycle prepares Kubernetes Secrets, seeds the local platform
+`make bootstrap` runs Terraform init and apply automatically, creating the
+containers, networking, AKS, identities and initial Argo release. It stops before
+seeding the platform chart. `make plan` is a separate preview; `make bootstrap`
+automatically approves its apply and does not consume a saved plan file.
+
+`make up` runs the same bootstrap before continuing with the platform lifecycle. The lifecycle prepares Kubernetes Secrets, seeds the local platform
 root, waits for PostgreSQL, copies its current CA for SonarQube and enables the
 remaining packages. Existing Secrets are reused during repeated `make up` runs
 so encryption keys and passwords stay stable within the cluster. Missing
