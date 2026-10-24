@@ -37,8 +37,6 @@ spec:
 {{ tpl (.Files.Get "packages/lgtm/service-account.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/lgtm/grafana-secret.yaml") . | indent 10 }}
-          ---
-{{ tpl (.Files.Get "packages/langfuse/sso.yaml") . | indent 10 }}
 {{ if eq .Values.cluster.role "management" }}
           ---
 {{ tpl (.Files.Get "packages/azure-service-operator/network-policy.yaml") . | indent 10 }}

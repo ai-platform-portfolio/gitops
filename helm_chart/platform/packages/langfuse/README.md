@@ -2,69 +2,61 @@
 
 [The Application](../../templates/langfuse.yaml) installs Langfuse at wave 40.
 `values.yaml` references the cluster-local credential Secrets prepared before
-Argo reconciliation, including the application encryption key and credentials
-for bundled PostgreSQL, Redis, ClickHouse and S3-compatible storage.
+Argo reconciliation, including encryption keys and credentials for bundled
+PostgreSQL, Redis, ClickHouse and S3-compatible storage. These bundled stores are
+separate from the standalone PostgreSQL/ClickHouse packages and are disposable.
+They are not protected by CNPG backups. Existing Secrets are reused in the running
+cluster to keep application credentials stable.
 
 `networking.yaml` contains the application-owned HTTPS ListenerSet, route and
-HTTP redirect. The `routes` Application applies them after backend readiness;
-cert-manager issues the per-host certificate. The public hostname is a runtime
-DNS-zone input.
-
-Bundled stores are distinct from standalone PostgreSQL/ClickHouse releases.
-Their data is disposable on teardown and is not protected by CNPG backups.
-Existing Secrets are reused within the running cluster to keep credentials stable.
+redirect. The routes Application applies these after backend readiness;
+cert-manager issues a per-host certificate.
 
 ## Native Microsoft sign-in
 
-`langfuse.sso` in the platform values owns the explicit Entra user allowlist,
-credential lifetime and account-linking choice. The chart disables local password
-login when enabled and uses its native Azure AD/Entra OIDC provider. The callback
-is `https://langfuse.<DNS_ZONE>/api/auth/callback/azure-ad`. A token email claim is
-required; each allowlisted Entra user must have a nonempty `mail` profile attribute.
-The lifecycle fails before changing the registration if a user cannot be resolved
-or lacks that attribute. Matching existing accounts are linked only for the
-explicitly assigned users of this single-tenant application. Organisation/project memberships remain
-Langfuse-owned and are preserved for linked accounts. Entra login does not grant
-Langfuse administrator or organisation-owner privileges automatically.
+On management, `langfuse.sso` in platform values enables the native Entra OIDC
+provider and disables username/password login. The callback is
+`https://langfuse.<DNS_ZONE>/api/auth/callback/azure-ad`. Workload clusters do not
+install the management identity controllers or inherit this identity; their
+Langfuse password login stays enabled until a child-specific SSO design is added.
 
-The configuration Application creates a non-secret settings ConfigMap and an ESO
-ExternalSecret. `make up` reads the current GitOps settings, then reconciles a
-marked `portfolio-<cluster>-langfuse` application and enterprise principal through
-Microsoft Graph. Only the configured users may sign in; direct user assignments
-do not require premium group-assignment licensing. Changing the allowlist requires
-both a GitOps merge and `make up` to reconcile the Graph assignments.
+`identity.yaml` requests a Crossplane `OIDCApplication`. Its composition owns the
+single-tenant registration, enterprise principal and credential. Direct assignments
+come from the `users` map: keys describe users and values are their Entra **object
+IDs**, not email addresses. Removing an entry removes that managed assignment.
+Direct user assignments do not require premium group-assignment licensing. The
+principal requires assignments, so other tenant users are not granted access by
+virtue of sharing the tenant. Out-of-band assignments must not be added: Crossplane
+manages the declared assignment resources, not an authoritative inventory of all
+assignments on the principal.
 
-This narrow lifecycle step covers an operator gap: ASO's ARM resources do not
-manage Graph application registrations. It uses the existing authenticated Azure
-CLI context, with no Terraform dependency, output handoff or service variables in
-bootstrap. The Terraform Entra module remains available for Terraform-owned
-foundations; this service registration has one owner, the GitOps lifecycle.
-An existing unmarked application with the same name is rejected, not adopted.
-The operator needs authority to create/manage applications, enterprise principals
-and user assignments, to look up those users, and to write the platform Key Vault.
-Azure subscription Contributor alone does not provide the Graph permissions.
+The provider requests an email ID-token claim, but that does not create a missing
+Entra profile email. Every assigned user needs a usable `mail` attribute. The
+current portfolio user's attribute was empty during research; updating that profile
+requires the user's explicit approval and remains a deployment prerequisite.
+The controller has no permission to edit user profiles.
 
-The client secret, app client ID and tenant context are one JSON secret named
-`<cluster>-langfuse-oidc` in the existing platform Key Vault. ESO extracts its three
-fields into the `langfuse-sso` Kubernetes Secret. No client secret is passed on a
-process command line, printed, committed, put into Argo values, or written into
-Terraform state. Temporary request/secret files are private and removed. The Entra
-registration and its Key Vault credential are retained across disposable cluster
-teardown; this does not retain or restore application data.
+The composition delivers `langfuse-sso` directly as a Kubernetes Secret with
+`client-id`, `client-secret` and `tenant-id`. No lifecycle Graph script, Key Vault
+copy, ESO bridge or extra identity setup command is used. Argo's wave/health gates
+install the controllers and reconcile the identity before Langfuse starts. Later
+assignment changes reconcile from GitOps without another `make up`.
 
-A valid credential is reused. `make up` renews within 14 days of expiry using the
-configured lifetime (30–365 days), waits for ESO delivery, and restarts an existing
-web deployment when a new credential is issued because environment variables do
-not hot-reload. Previous credentials remain valid during delivery/rollout and can
-be retired after verifying the replacement. A failed Key Vault write revokes only
-the newly generated credential. After an interrupted renewal, verify ESO delivery
-and restart the web deployment if it still holds the previous environment.
+The credential expires after `credentialValidityDays`. A scoped Reloader restarts
+the web Deployment when its SSO Secret changes; automatic time-based rotation is
+not configured. See the [controller package](../crossplane/README.md) for ownership,
+permissions, credential expiry and teardown behavior. The generated registration
+is disposable with this cluster; it is not a retained application credential.
 
-After deployment, `/api/auth/providers` must advertise Azure AD, sign-in must
-redirect to Microsoft, and the password form must be disabled. Verify the assigned
-user can access their existing organisation, and an unassigned Entra user is
-rejected. SDK/API-key authentication is unchanged; no interactive Envoy gate is
-added to ingestion routes.
+Account linking is enabled only for this single-tenant, assignment-required
+provider. Verify the email matches the existing Langfuse account. Entra sign-in
+does not grant organisation/project membership or administrator privileges;
+Langfuse retains those authorisation decisions.
 
-Sources: [Langfuse native authentication](https://langfuse.com/self-hosting/security/authentication-and-sso),
-[pinned Azure provider implementation](https://github.com/langfuse/langfuse/blob/v4.50.0/web/src/server/auth.ts).
+After deployment, verify `/api/auth/providers` advertises Azure AD, sign-in redirects
+to Microsoft, local password login is disabled, the assigned user reaches the
+intended organisation, and an unassigned user is rejected. SDK/API-key ingestion
+keeps its native authentication; no interactive Envoy login gate is added to it.
+
+Sources: [Langfuse authentication](https://langfuse.com/self-hosting/security/authentication-and-sso),
+[pinned implementation](https://github.com/langfuse/langfuse/blob/v4.50.0/web/src/server/auth.ts).

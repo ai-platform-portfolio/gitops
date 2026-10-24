@@ -1,5 +1,9 @@
 data "azurerm_client_config" "current" {}
 
+data "azuread_service_principal" "microsoft_graph" {
+  client_id = "00000003-0000-0000-c000-000000000000"
+}
+
 data "azurerm_dns_zone" "existing" {
   name                = var.dns.zone.name
   resource_group_name = var.dns.zone.resource_group_name
@@ -146,6 +150,35 @@ module "argocd_sso" {
       subject = "system:serviceaccount:argocd:argocd-server"
     }
   }
+}
+
+# Controller authentication is a foundation; service registrations remain in GitOps.
+module "crossplane_identity" {
+  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-application?ref=35bb1d0369774533ce229a569335aa06977dece5"
+  display_name = var.crossplane.display_name
+  owners       = [data.azurerm_client_config.current.object_id]
+
+  federated_credentials = {
+    azuread = {
+      issuer  = module.aks.oidc_issuer_url
+      subject = "system:serviceaccount:crossplane-system:provider-azuread"
+    }
+  }
+
+  required_resource_access = {
+    graph = {
+      resource_app_id = data.azuread_service_principal.microsoft_graph.client_id
+      permissions = { for name in var.crossplane.graph_permissions : name => {
+        id   = data.azuread_service_principal.microsoft_graph.app_role_ids[name]
+        type = "Role"
+      } }
+    }
+  }
+
+  application_permission_grants = { for name in var.crossplane.graph_permissions : name => {
+    resource_principal_id = data.azuread_service_principal.microsoft_graph.object_id
+    app_role_id           = data.azuread_service_principal.microsoft_graph.app_role_ids[name]
+  } }
 }
 
 module "argocd" {

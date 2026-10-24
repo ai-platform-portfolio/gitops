@@ -1,5 +1,9 @@
 langfuse:
-{{- if .Values.langfuse.sso.enabled }}
+{{- if and .Values.langfuse.sso.enabled (eq .Values.cluster.role "management") }}
+  web:
+    deployment:
+      annotations:
+        secret.reloader.stakater.com/reload: langfuse-sso
   auth:
     disableUsernamePassword: true
     providers:

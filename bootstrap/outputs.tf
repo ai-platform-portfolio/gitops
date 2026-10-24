@@ -56,6 +56,8 @@ output "platform_settings" {
       ARGOCD_HOSTNAME          = local.argocd_hostname
       AZURE_CLIENT_ID          = module.identities["platform"].client_id
       POSTGRES_AZURE_CLIENT_ID = module.identities["postgres"].client_id
+      CROSSPLANE_CLIENT_ID     = module.crossplane_identity.client_id
+      CROSSPLANE_PRINCIPAL_ID  = module.crossplane_identity.principal_id
       AZURE_DNS_RESOURCE_GROUP = var.dns.zone.resource_group_name
       AZURE_KEY_VAULT_URI      = data.azurerm_key_vault.platform.vault_uri
       AZURE_STORAGE_ACCOUNT    = data.azurerm_storage_account.platform.name

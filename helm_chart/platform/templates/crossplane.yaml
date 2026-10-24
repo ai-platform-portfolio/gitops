@@ -1,0 +1,30 @@
+{{- if eq .Values.cluster.role "management" }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+
+  source:
+    repoURL: https://charts.crossplane.io/stable
+    chart: crossplane
+    targetRevision: "2.4.3"
+    helm:
+      releaseName: crossplane
+      valuesObject:
+{{ tpl (.Files.Get "packages/crossplane/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

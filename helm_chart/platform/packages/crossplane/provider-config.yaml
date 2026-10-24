@@ -1,0 +1,11 @@
+apiVersion: azuread.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: platform
+spec:
+  credentials:
+    source: OIDCTokenFile
+  clientID: {{ required "runtime.CROSSPLANE_CLIENT_ID is required" .Values.runtime.CROSSPLANE_CLIENT_ID | quote }}
+  tenantID: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  # Own this projection rather than depending on an AKS webhook mount path.
+  oidcTokenFilePath: /var/run/secrets/crossplane/azure/token

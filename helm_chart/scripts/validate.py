@@ -33,7 +33,7 @@ def main():
                    SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
                    AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
     for key in ['AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_CLIENT_ID',
-                'POSTGRES_AZURE_CLIENT_ID']:
+                'POSTGRES_AZURE_CLIENT_ID', 'CROSSPLANE_CLIENT_ID', 'CROSSPLANE_PRINCIPAL_ID']:
         runtime[key] = '00000000-0000-0000-0000-000000000001'
     with tempfile.TemporaryDirectory(prefix='platform-render-') as directory:
         tmp = Path(directory)
@@ -95,11 +95,17 @@ def main():
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure',
+            'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
+        langfuse_app = next(a for a in applications if a['metadata']['name'] == 'langfuse')
+        reload_rule = next(r for r in langfuse_app['spec']['ignoreDifferences'] if r.get('name') == 'langfuse-web')
+        assert reload_rule == {'group': 'apps', 'kind': 'Deployment', 'name': 'langfuse-web', 'namespace': 'langfuse', 'jsonPointers': ['/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from']}
+        assert 'RespectIgnoreDifferences=true' in langfuse_app['spec']['syncPolicy']['syncOptions']
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
         for app in applications:
+            assert re.fullmatch(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?', app['spec']['destination']['namespace']), 'Destination namespace must be a DNS label'
             assert app['spec']['destination']['server'] == 'https://kubernetes.default.svc', 'Packages must reconcile locally'
             source = app['spec'].get('source') or app['spec']['sources'][0]
             if 'path' in source:
@@ -157,13 +163,32 @@ def main():
                     assert not any('secrets' in r['resources'] for r in reader['rules'])
                     assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
                     assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
-                if app['metadata']['name'] == 'configuration':
-                    settings = next(d for d in documents if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'langfuse-sso-settings')
-                    identity = json.loads(settings['data']['settings'])
-                    assert identity['redirectUri'] == 'https://langfuse.example.test/api/auth/callback/azure-ad'
-                    assert identity['vaultSecretName'] == 'management-langfuse-oidc'
-                    secret = next(d for d in documents if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'langfuse-sso')
-                    assert {d['remoteRef']['property'] for d in secret['spec']['data']} == {'AUTH_AZURE_AD_CLIENT_ID', 'AUTH_AZURE_AD_CLIENT_SECRET', 'AUTH_AZURE_AD_TENANT_ID'}
+                if app['metadata']['name'] == 'crossplane-packages':
+                    provider = next(d for d in documents if d['kind'] == 'Provider')
+                    assert provider['spec']['package'].endswith(':v2.5.0')
+                    config = next(d for d in documents if d['kind'] == 'DeploymentRuntimeConfig')
+                    assert config['spec']['serviceAccountTemplate']['metadata']['name'] == 'provider-azuread'
+                    projection = config['spec']['deploymentTemplate']['spec']['template']['spec']['volumes'][0]['projected']['sources'][0]['serviceAccountToken']
+                    assert projection['audience'] == 'api://AzureADTokenExchange'
+                if app['metadata']['name'] == 'crossplane-identity-api':
+                    config = next(d for d in documents if d['kind'] == 'ClusterProviderConfig')
+                    assert config['spec']['credentials'] == {'source': 'OIDCTokenFile'}
+                    assert config['spec']['oidcTokenFilePath'] == '/var/run/secrets/crossplane/azure/token'
+                    definition = next(d for d in documents if d['kind'] == 'CompositeResourceDefinition')
+                    assert definition['spec']['scope'] == 'Namespaced'
+                    composition = next(d for d in documents if d['kind'] == 'Composition')
+                    resources = composition['spec']['pipeline'][0]['input']['resources']
+                    assert {d['base']['kind'] for d in resources} == {'Application', 'Principal', 'Password'}
+                    principal = next(d for d in resources if d['name'] == 'principal')
+                    assert principal['base']['spec']['forProvider']['appRoleAssignmentRequired'] is True
+                    details = [v for d in resources for v in d.get('connectionDetails', [])]
+                    assert {d['name'] for d in details} == {'client-id', 'client-secret', 'tenant-id'}
+                    assert next(d for d in details if d['name'] == 'client-secret')['fromConnectionSecretKey'] == 'attribute.value'
+                if app['metadata']['name'] == 'service-identities':
+                    identity = next(d for d in documents if d['kind'] == 'OIDCApplication')
+                    assert identity['spec']['redirectUri'] == 'https://langfuse.example.test/api/auth/callback/azure-ad'
+                    assignments = [d for d in documents if d['kind'] == 'RoleAssignment']
+                    assert assignments and all(d['spec']['forProvider']['resourceObjectIdRef']['name'] == 'langfuse-sso' for d in assignments)
                 if app['metadata']['name'] == 'sonarqube-configure':
                     job = next(d for d in documents if d['kind'] == 'Job')
                     annotations = job['metadata'].get('annotations', {})
@@ -207,6 +232,8 @@ def main():
         assert waves['azure-service-operator'] < waves['atlantis-azure']
         assert 'federation' not in {a['metadata']['name'] for a in workload}, 'Workload must not manage the hub'
         assert 'azure-service-operator' not in {a['metadata']['name'] for a in workload}, 'ASO belongs on management only'
+        assert not {'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader'} & {a['metadata']['name'] for a in workload}, 'Management identity controllers must not leak into workload clusters'
+        assert waves['crossplane'] < waves['crossplane-packages'] < waves['crossplane-identity-api'] < waves['service-identities'] < waves['langfuse']
         workload_namespaces = next(a for a in workload if a['metadata']['name'] == 'namespaces')
         assert 'azureserviceoperator-system' not in workload_namespaces['spec']['source']['helm']['valuesObject']['manifests']
         assert not any(a['metadata']['name'].startswith('sonarqube') for a in workload), 'Sonar must wait for cluster credential preparation'
@@ -322,6 +349,7 @@ def main():
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
                 if name == 'langfuse':
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
+                    assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'langfuse-sso'
                     env = {e['name']: e for e in web['spec']['template']['spec']['containers'][0]['env']}
                     assert env['AUTH_DISABLE_USERNAME_PASSWORD']['value'] == 'true'
                     for env_name, key in [('AUTH_AZURE_AD_CLIENT_ID', 'client-id'), ('AUTH_AZURE_AD_CLIENT_SECRET', 'client-secret'), ('AUTH_AZURE_AD_TENANT_ID', 'tenant-id')]:

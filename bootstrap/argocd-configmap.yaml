@@ -112,3 +112,38 @@ data:
       end
     end
     return {status = "Progressing", message = "Waiting for the hostname certificate"}
+
+  # Operator health gates prevent Argo from applying CRs before their APIs exist.
+  resource.customizations.health.pkg.crossplane.io_Provider: &packageHealth |
+    local conditions = (obj.status or {}).conditions or {}
+    for _, c in ipairs(conditions) do
+      if c.type == "Healthy" and c.status == "True" then
+        return {status = "Healthy", message = "Package controller is healthy"}
+      end
+    end
+    return {status = "Progressing", message = "Waiting for package controller"}
+  resource.customizations.health.pkg.crossplane.io_Function: *packageHealth
+
+  resource.customizations.health.apiextensions.crossplane.io_CompositeResourceDefinition: |
+    for _, c in ipairs((obj.status or {}).conditions or {}) do
+      if c.type == "Established" and c.status == "True" then
+        return {status = "Healthy", message = "Composite API is established"}
+      end
+    end
+    return {status = "Progressing", message = "Waiting for composite API"}
+
+  # Ready alone can be stale after a failed reconciliation; require Synced too.
+  resource.customizations.health.identity.platform.ai-platform-portfolio_OIDCApplication: &identityHealth |
+    local ready, synced = false, false
+    for _, c in ipairs((obj.status or {}).conditions or {}) do
+      if c.type == "Ready" then ready = c.status == "True" end
+      if c.type == "Synced" then
+        synced = c.status == "True"
+        if c.status == "False" then
+          return {status = "Degraded", message = "Identity reconciliation failed; inspect controller conditions"}
+        end
+      end
+    end
+    if ready and synced then return {status = "Healthy", message = "Identity reconciled"} end
+    return {status = "Progressing", message = "Waiting for identity reconciliation"}
+  resource.customizations.health.app.azuread.m.upbound.io_RoleAssignment: *identityHealth

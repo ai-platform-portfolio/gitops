@@ -1,0 +1,10 @@
+# Core and provider packages remain separate Applications for health ordering.
+replicas: 1
+
+# Activate only the AzureAD resource types used by this package.
+provider:
+  defaultActivations:
+    - applications.applications.azuread.m.upbound.io
+    - passwords.applications.azuread.m.upbound.io
+    - principals.serviceprincipals.azuread.m.upbound.io
+    - roleassignments.app.azuread.m.upbound.io

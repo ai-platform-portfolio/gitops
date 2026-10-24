@@ -1,3 +1,11 @@
+variable "crossplane" {
+  description = "Federated AzureAD controller identity and explicitly consented Microsoft Graph application permissions."
+  type = object({
+    display_name      = string
+    graph_permissions = set(string)
+  })
+}
+
 variable "azure" {
   description = "Azure location, resource group and tags; account identity comes from the authenticated context."
 

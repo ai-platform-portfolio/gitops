@@ -1,5 +1,16 @@
 # Deployment configuration: environment metadata belongs here, credentials do not.
 # The API allowlist comes from Key Vault; authentication comes from the caller.
+crossplane = {
+  display_name = "portfolio-management-crossplane"
+
+  # Application ownership restricts writes; assignments require tenant-wide consent.
+  graph_permissions = [
+    "Application.ReadWrite.OwnedBy",
+    "Application.Read.All",
+    "AppRoleAssignment.ReadWrite.All",
+  ]
+}
+
 azure = {
   location            = "uksouth"
   resource_group_name = "rg-management"

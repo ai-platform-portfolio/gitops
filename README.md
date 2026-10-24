@@ -128,7 +128,7 @@ Argo authenticates its OIDC code exchange using the server's existing projected
 service-account token and a dedicated Entra application federation. There is no
 client secret to rotate or store in Terraform state. The server keeps its existing
 managed-identity annotation for management-to-child Kubernetes authentication.
-Entra applications use Microsoft Graph rather than ASO's ARM APIs. Bootstrap
+Argo is part of the initial bootstrap, so Terraform
 calls the Terraform library's `entra-application` module for this app, its service
 principal and federation. OIDC settings live in the commented
 `bootstrap/argocd-configmap.yaml` template; RBAC lives in `argocd-values.yaml`.
@@ -170,11 +170,20 @@ run `make up`; there is no separate identity setup command.
 | [Langfuse](https://langfuse.dev.michaelalinks.com) | Entra OIDC; password login disabled | `langfuse.sso.users` in platform values; currently the portfolio owner |
 | [SonarQube](https://sonarqube.dev.michaelalinks.com) | Entra SAML | Existing enterprise-app assignments; portfolio owner has `portfolio-sonar-admins` |
 
-Langfuse's Graph-only registration is reconciled from GitOps by the lifecycle;
-its client secret is written directly to the existing Key Vault and delivered by
-ESO. It does not enter Terraform state or Argo values. The allowlist is reconciled
-on `make up`, not continuously by an operator. Sonar's retained registration is
-reused; its normal configuration Job applies and verifies the SAML settings.
+Argo installs [Crossplane and its AzureAD provider](helm_chart/platform/packages/crossplane/README.md),
+then manages the Langfuse identity request and explicit user assignments.
+Crossplane creates the registration and credential and delivers its connection
+Secret directly to Langfuse. The custom Graph script and Key Vault credential
+bridge are removed. Terraform bootstraps only the federated controller identity
+and its explicit Graph consent; service settings remain in GitOps.
+
+Changing Langfuse assignments requires only a GitOps merge. Credential expiry is
+explicit (180 days); automatic time-based rotation is not configured. Secret
+changes trigger a namespace-scoped web restart. The assigned Entra user must have
+a nonempty profile email; requesting an optional claim does not populate it.
+Sonar's retained SAML registration is reused without a second owner; its normal
+configuration Job applies and verifies SAML settings. No deployment or browser
+login is implied by the PR or CI results.
 
 Entra sign-in does not replace application authorisation. Verify Langfuse
 organisation membership and Sonar group permissions after browser login. The

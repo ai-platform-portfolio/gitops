@@ -1,0 +1,50 @@
+# A deterministic service account makes the Terraform-owned federation stable.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: azuread
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-azuread
+
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              resources:
+                requests: { cpu: 100m, memory: 256Mi }
+                limits: { memory: 768Mi }
+              volumeMounts:
+                - name: azure-token
+                  mountPath: /var/run/secrets/crossplane/azure
+                  readOnly: true
+          volumes:
+            - name: azure-token
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      audience: api://AzureADTokenExchange
+                      expirationSeconds: 3600
+                      path: token
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: azuread
+spec:
+  package: xpkg.upbound.io/upbound/provider-azuread:v2.5.0
+  revisionHistoryLimit: 1
+  runtimeConfigRef:
+    name: azuread
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-patch-and-transform
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.11.1
+  revisionHistoryLimit: 1

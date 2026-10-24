@@ -1,0 +1,115 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: entra-oidc
+spec:
+  compositeTypeRef:
+    apiVersion: identity.platform.ai-platform-portfolio/v1alpha1
+    kind: OIDCApplication
+  mode: Pipeline
+  pipeline:
+    - step: identity
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        # The function composes this Secret in the XR's namespace, never Argo values.
+        writeConnectionSecretToRef:
+          patches:
+            - type: FromCompositeFieldPath
+              fromFieldPath: metadata.name
+              toFieldPath: name
+        resources:
+          - name: application
+            base:
+              apiVersion: applications.azuread.m.upbound.io/v1beta1
+              kind: Application
+              spec:
+                providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+                forProvider:
+                  signInAudience: AzureADMyOrg
+                  preventDuplicateNames: true
+                  optionalClaims:
+                    idToken:
+                      - name: email
+                        essential: true
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.displayName
+                toFieldPath: spec.forProvider.displayName
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.redirectUri
+                toFieldPath: spec.forProvider.web.redirectUris[0]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.ownerId
+                toFieldPath: spec.forProvider.owners[0]
+            connectionDetails:
+              - name: client-id
+                type: FromFieldPath
+                fromFieldPath: status.atProvider.clientId
+
+          - name: principal
+            base:
+              apiVersion: serviceprincipals.azuread.m.upbound.io/v1beta1
+              kind: Principal
+              spec:
+                providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+                forProvider:
+                  appRoleAssignmentRequired: true
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.clientIdRef.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.ownerId
+                toFieldPath: spec.forProvider.owners[0]
+
+          - name: password
+            base:
+              apiVersion: applications.azuread.m.upbound.io/v1beta1
+              kind: Password
+              spec:
+                providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+                forProvider:
+                  displayName: GitOps OIDC
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.applicationIdRef.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.writeConnectionSecretToRef.name
+                transforms:
+                  - type: string
+                    string:
+                      type: Format
+                      fmt: '%s-password'
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.credentialValidityDays
+                toFieldPath: spec.forProvider.endDateRelative
+                transforms:
+                  - type: math
+                    math: { type: Multiply, multiply: 24 }
+                  - type: string
+                    string: { type: Format, fmt: '%.0fh' }
+              # Public tenant context joins the aggregate credential Secret.
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.tenantId
+                toFieldPath: metadata.annotations[platform-tenant]
+            connectionDetails:
+              - name: client-secret
+                type: FromConnectionSecretKey
+                fromConnectionSecretKey: attribute.value
+              - name: tenant-id
+                type: FromFieldPath
+                fromFieldPath: metadata.annotations[platform-tenant]

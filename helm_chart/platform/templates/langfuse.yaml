@@ -29,4 +29,10 @@ spec:
       valuesObject:
 {{ tpl (.Files.Get "packages/langfuse/values.yaml") . | indent 8 }}
 
-{{ include "platform.syncPolicy" . | indent 2 }}
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- if and .Values.langfuse.sso.enabled (eq .Values.cluster.role "management") }}
+{{- /* Preserve only Reloader's restart marker; all other workload drift stays visible. */}}
+{{- $reload := dict "group" "apps" "kind" "Deployment" "name" "langfuse-web" "namespace" "langfuse" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
+{{- end }}
+{{ toYaml $policy | indent 2 }}

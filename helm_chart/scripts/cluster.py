@@ -13,11 +13,9 @@ import urllib.error
 import urllib.request
 
 if __package__:
-    from .sso import prepare as prepare_sso
     from .azure import current_account
     from .credentials import prepare as prepare_credentials, prepare_sonarqube
 else:
-    from sso import prepare as prepare_sso
     from azure import current_account
     from credentials import prepare as prepare_credentials, prepare_sonarqube
 
@@ -338,7 +336,6 @@ def main():
         prepare_credentials(cluster)
         sonar_ready = bool(existing and existing['spec']['source']['helm']['valuesObject'].get('sonarqubeReady'))
         cluster.seed(cluster.root(runtime, sonar_ready))
-        prepare_sso(cluster, wait_for)
         prepare_sonarqube(cluster, run, wait_for)
         cluster.seed(cluster.root(runtime, True))
         cluster.ready()

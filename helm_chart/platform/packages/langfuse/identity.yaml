@@ -1,0 +1,37 @@
+{{- if .Values.langfuse.sso.enabled }}
+{{- if empty .Values.langfuse.sso.users }}
+{{- fail "Configure at least one langfuse.sso.users object ID" }}
+{{- end }}
+apiVersion: identity.platform.ai-platform-portfolio/v1alpha1
+kind: OIDCApplication
+metadata:
+  name: langfuse-sso
+  namespace: langfuse
+spec:
+  displayName: portfolio-{{ .Values.cluster.name }}-langfuse
+  redirectUri: https://langfuse.{{ .Values.runtime.DNS_ZONE }}/api/auth/callback/azure-ad
+  tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  ownerId: {{ required "runtime.CROSSPLANE_PRINCIPAL_ID is required" .Values.runtime.CROSSPLANE_PRINCIPAL_ID | quote }}
+  credentialValidityDays: {{ .Values.langfuse.sso.credentialValidityDays }}
+{{- range $name, $objectId := .Values.langfuse.sso.users }}
+{{- if or (gt (len $name) 54) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name)) }}
+{{- fail "langfuse.sso.users keys must be DNS labels of at most 54 characters" }}
+{{- end }}
+{{- if not (regexMatch "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$" $objectId) }}
+{{- fail "langfuse.sso.users values must be Entra object IDs" }}
+{{- end }}
+---
+apiVersion: app.azuread.m.upbound.io/v1beta1
+kind: RoleAssignment
+metadata:
+  name: langfuse-{{ $name }}
+  namespace: langfuse
+spec:
+  providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+  forProvider:
+    appRoleId: '00000000-0000-0000-0000-000000000000'
+    principalObjectId: {{ $objectId | quote }}
+    resourceObjectIdRef:
+      name: langfuse-sso
+{{- end }}
+{{- end }}
