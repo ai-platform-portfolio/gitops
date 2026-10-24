@@ -1,3 +1,11 @@
+variable "container_registries" {
+  description = "Existing registries from which the AKS kubelet may pull images."
+  type = map(object({
+    name                = string
+    resource_group_name = string
+  }))
+}
+
 variable "entra_applications" {
   description = "Terraform-owned bootstrap applications, workload federation and explicit Microsoft Graph consent."
   type = map(object({

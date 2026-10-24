@@ -94,6 +94,48 @@
               }
             }
           }
+        },
+        "credentialValidityDays": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 365
+        },
+        "users": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+            "maxLength": 54
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "objectId",
+              "displayName",
+              "memberOf"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "objectId": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "memberOf": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "platform-team"
+                  ]
+                }
+              }
+            }
+          }
         }
       },
       "allOf": [

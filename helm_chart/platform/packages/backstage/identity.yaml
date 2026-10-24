@@ -1,0 +1,42 @@
+{{- if .Values.backstage.enabled }}
+{{- if empty .Values.backstage.users }}
+{{- fail "Configure at least one backstage.users object ID" }}
+{{- end }}
+apiVersion: identity.platform.ai-platform-portfolio/v1alpha1
+kind: OIDCApplication
+metadata:
+  name: backstage-sso
+  namespace: backstage
+spec:
+  displayName: portfolio-{{ .Values.cluster.name }}-backstage
+  redirectUri: https://backstage.{{ .Values.runtime.DNS_ZONE }}/api/auth/microsoft/handler/frame
+  tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  ownerId: {{ required "runtime.CROSSPLANE_PRINCIPAL_ID is required" .Values.runtime.CROSSPLANE_PRINCIPAL_ID | quote }}
+  credentialValidityDays: {{ .Values.backstage.credentialValidityDays }}
+  requiredResourceAccess:
+    - resourceAppId: '00000003-0000-0000-c000-000000000000' # Microsoft Graph
+      resourceAccess:
+        - id: e1fe6dd8-ba31-4d61-89e7-88639da4683d # Delegated User.Read
+          type: Scope
+{{- range $name, $user := .Values.backstage.users }}
+{{- if or (gt (len $name) 54) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name)) }}
+{{- fail "backstage.users keys must be DNS labels of at most 54 characters" }}
+{{- end }}
+{{- if not (regexMatch "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$" $user.objectId) }}
+{{- fail "backstage.users values must be Entra object IDs" }}
+{{- end }}
+---
+apiVersion: app.azuread.m.upbound.io/v1beta1
+kind: RoleAssignment
+metadata:
+  name: backstage-{{ $name }}
+  namespace: backstage
+spec:
+  providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+  forProvider:
+    appRoleId: '00000000-0000-0000-0000-000000000000'
+    principalObjectId: {{ $user.objectId | quote }}
+    resourceObjectIdRef:
+      name: backstage-sso
+{{- end }}
+{{- end }}

@@ -1,5 +1,11 @@
 data "azurerm_client_config" "current" {}
 
+data "azurerm_container_registry" "existing" {
+  for_each            = var.container_registries
+  name                = each.value.name
+  resource_group_name = each.value.resource_group_name
+}
+
 data "azuread_service_principal" "microsoft_graph" {
   client_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
 }
@@ -78,7 +84,7 @@ module "aks_admin_group" {
 }
 
 module "aks" {
-  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
+  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=d2c8a5391b4935fda9cbde79a828b905a8f500b6"
   name                   = var.aks.name
   location               = var.azure.location
   resource_group_name    = azurerm_resource_group.this.name
@@ -86,6 +92,7 @@ module "aks" {
   kubernetes_version     = var.aks.kubernetes_version
   admin_group_object_ids = [module.aks_admin_group.object_id]
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
+  container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
   vnet_subnet_id         = module.network.subnet_ids[var.aks.system_node_pool.subnet_key]
 
   system_node_pool = {

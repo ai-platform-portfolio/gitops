@@ -103,6 +103,10 @@ spec:
       valuesObject:
         manifests: |
 {{ tpl (.Files.Get "packages/langfuse/identity.yaml") . | indent 10 }}
+{{- if .Values.backstage.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/backstage/identity.yaml") . | indent 10 }}
+{{- end }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
 {{- end }}

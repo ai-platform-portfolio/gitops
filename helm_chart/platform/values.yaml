@@ -38,18 +38,25 @@ atlantis:
     # Example entries are documented in packages/atlantis/README.md.
     role_assignments: {}
 
-# Explicit opt-in after building the image and defining company-controlled
-# identity/repository endpoints. No Azure resources or external egress by default.
+# Portfolio portal: native Entra identity and an immutable image are required.
 backstage:
-  enabled: false
-  image: ''
+  enabled: true
+  image: localacrk8s.azurecr.io/portfolio/backstage@sha256:7b8d294b5f80a3c34450def644a664fa4e94cd971a00989b6b15607d0919f79d
   imagePullSecrets: []
+  credentialValidityDays: 180
+  users:
+    portfolio-owner:
+      objectId: 13d45074-e2b1-4c98-9c95-e246f2abb575
+      displayName: Michaela Links
+      memberOf: [platform-team]
   egress: []
 
 # Native Microsoft sign-in, owned by the management-cluster AzureAD provider.
 langfuse:
   sso:
     enabled: true
+    # Keep recovery login until the profile email and browser SSO are verified.
+    disableUsernamePassword: false
     # Entra object IDs, not email addresses; direct assignments need no group licence.
     users:
       portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575

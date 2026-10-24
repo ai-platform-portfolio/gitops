@@ -40,6 +40,22 @@ spec:
                 tenantId: { type: string, minLength: 1 }
                 ownerId: { type: string, minLength: 1 }
                 credentialValidityDays: { type: integer, minimum: 30, maximum: 365 }
+                requiredResourceAccess:
+                  type: array
+                  items:
+                    type: object
+                    required: [resourceAppId, resourceAccess]
+                    properties:
+                      resourceAppId: { type: string }
+                      resourceAccess:
+                        type: array
+                        items:
+                          type: object
+                          required: [id, type]
+                          properties:
+                            id: { type: string }
+                            type: { type: string, enum: [Scope, Role] }
+
 ---
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
@@ -78,6 +94,10 @@ spec:
                       - name: email
                         essential: true
             patches:
+              # Declares requested scopes; it does not grant API consent.
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.requiredResourceAccess
+                toFieldPath: spec.forProvider.requiredResourceAccess
               - type: FromCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: metadata.name

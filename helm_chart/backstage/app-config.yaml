@@ -36,21 +36,22 @@ backend:
         min: 0
         max: 5
 
-# The organisation config and deployment-specific auth settings are mounted from
-# existing Secrets. No guest login, remote catalog sources or AI endpoints.
+# GitOps supplies the catalog organisation and Crossplane supplies credentials.
+# No guest login, remote catalog sources or AI endpoints.
 auth:
   environment: production
   session:
     secret: ${AUTH_SESSION_SECRET}
   providers:
-    oidc:
+    microsoft:
       production:
-        metadataUrl: ${AUTH_OIDC_METADATA_URL}
-        clientId: ${AUTH_OIDC_CLIENT_ID}
-        clientSecret: ${AUTH_OIDC_CLIENT_SECRET}
+        clientId: ${AUTH_MICROSOFT_CLIENT_ID}
+        clientSecret: ${AUTH_MICROSOFT_CLIENT_SECRET}
+        tenantId: ${AUTH_MICROSOFT_TENANT_ID}
         signIn:
           resolvers:
-            - resolver: emailMatchingUserEntityProfileEmail
+            # Stable Entra object IDs; no email fallback or guest sign-in.
+            - resolver: userIdMatchingUserEntityAnnotation
 
 permission:
   enabled: true

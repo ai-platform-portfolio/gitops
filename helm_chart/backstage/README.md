@@ -30,7 +30,7 @@ docker build -t backstage:local -f packages/backend/Dockerfile .
 ```
 
 Build configuration needs `BACKSTAGE_BASE_URL`, `AUTH_SESSION_SECRET`,
-`AUTH_OIDC_METADATA_URL`, `AUTH_OIDC_CLIENT_ID`, `AUTH_OIDC_CLIENT_SECRET`,
+`AUTH_MICROSOFT_TENANT_ID`, `AUTH_MICROSOFT_CLIENT_ID`, `AUTH_MICROSOFT_CLIENT_SECRET`,
 `POSTGRES_PASSWORD` and `POSTGRES_CA`. Use synthetic values for public CI as shown
 in its workflow; private runtime configuration must never enter public builds.
 The backend injects the deployment's frontend-visible configuration at runtime.
@@ -50,24 +50,19 @@ warnings; compilation and tests check this generated upstream combination.
 
 ## Identity and permissions
 
-The generic company OIDC provider is configured through Secrets. Register callback
-`https://backstage.<domain>/api/auth/oidc/handler/frame`. Identity resolution uses
-exact email matching against operator-maintained catalog users; there is no
-allow-missing-user fallback. Use a trusted issuer and its verified company email
-claims. OIDC client setup belongs to the organisation's identity administration.
+The native Microsoft provider uses callback
+`https://backstage.<DNS_ZONE>/api/auth/microsoft/handler/frame`. Crossplane manages
+the single-tenant application, principal, credential and explicit assignments.
+The built-in `userIdMatchingUserEntityAnnotation` resolver matches the authenticated
+Graph profile ID to `graph.microsoft.com/user-id` on a catalog User. There is no
+email fallback, guest provider or sign-in-without-catalog bypass. This supports
+users whose Entra profile has no email attribute.
 
-The `catalog-org.yaml` Secret contains trusted User/Group membership. Readers may
-read catalog entities and template descriptions. Platform-team members may create
-tasks; all users, including operators, can only read/cancel their own tasks.
-Only `fetch:template` and `publish:github:pull-request` are permitted; the publishing
-condition requires the operator-configured target repository. Unknown permissions,
-catalog mutation/import and arbitrary template registration are denied. This is
-one shared internal visibility domain, not per-team confidentiality isolation.
-
-`permission.ts` is the authorisation implementation and its tests cover anonymous
-access, readers, operators, unknown permissions, task ownership and action limits.
-The underlying repository App must independently restrict accessible repositories
-and operations; portal permissions are not a substitute for upstream controls.
+`backstage.users` in GitOps values declares the assigned object IDs and catalog
+users together. `memberOf: [platform-team]` grants the existing operator policy;
+an empty list gives the existing reader policy. Entra authentication and Backstage
+authorisation remain separate. Runtime integration settings start empty; enabling
+Git publishing still requires separately reviewed integration credentials.
 
 ## Service request contract
 

@@ -1,4 +1,42 @@
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
+# Scoped credential/configuration reloads, installed before the portal.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage-reloader
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: backstage
+
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: "2.2.18"
+    helm:
+      releaseName: backstage-reloader
+      valuesObject:
+        reloader:
+          watchGlobally: false
+          ignoreJobs: true
+          ignoreCronJobs: true
+          reloadStrategy: annotations
+          deployment:
+            resources:
+              requests: { cpu: 10m, memory: 32Mi }
+              limits: { memory: 128Mi }
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+---
 # PostgreSQL is healthy before ESO reads its CA and role Secret. Keeping this
 # separate from early configuration avoids waiting for a CA before CNPG exists.
 apiVersion: argoproj.io/v1alpha1
@@ -63,5 +101,8 @@ spec:
         manifests: |
 {{ tpl (.Files.Get "packages/backstage/deployment.yaml") . | indent 10 }}
 
-{{ include "platform.syncPolicy" . | indent 2 }}
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- $reload := dict "group" "apps" "kind" "Deployment" "name" "backstage" "namespace" "backstage" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
+{{ toYaml $policy | indent 2 }}
 {{- end }}
