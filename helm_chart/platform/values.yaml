@@ -45,3 +45,14 @@ backstage:
   image: ''
   imagePullSecrets: []
   egress: []
+
+# Native Microsoft sign-in. App registration and its credential are retained
+# outside disposable cluster state; make up reconciles this explicit allowlist.
+langfuse:
+  sso:
+    enabled: true
+    users:
+      - michaelalinks@gmail.com
+    credentialValidityDays: 180
+    # Migration is limited to this tenant and these explicitly assigned users.
+    allowAccountLinking: true

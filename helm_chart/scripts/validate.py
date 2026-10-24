@@ -157,6 +157,22 @@ def main():
                     assert not any('secrets' in r['resources'] for r in reader['rules'])
                     assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
                     assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
+                if app['metadata']['name'] == 'configuration':
+                    settings = next(d for d in documents if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'langfuse-sso-settings')
+                    identity = json.loads(settings['data']['settings'])
+                    assert identity['redirectUri'] == 'https://langfuse.example.test/api/auth/callback/azure-ad'
+                    assert identity['vaultSecretName'] == 'management-langfuse-oidc'
+                    secret = next(d for d in documents if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'langfuse-sso')
+                    assert {d['remoteRef']['property'] for d in secret['spec']['data']} == {'AUTH_AZURE_AD_CLIENT_ID', 'AUTH_AZURE_AD_CLIENT_SECRET', 'AUTH_AZURE_AD_TENANT_ID'}
+                if app['metadata']['name'] == 'sonarqube-configure':
+                    job = next(d for d in documents if d['kind'] == 'Job')
+                    annotations = job['metadata'].get('annotations', {})
+                    assert 'argocd.argoproj.io/hook' not in annotations, 'A hook-only Application can appear synced without running its configuration'
+                    assert re.fullmatch(r'sonarqube-configure-[0-9a-f]{12}', job['metadata']['name'])
+                    script = job['spec']['template']['spec']['containers'][0]['command'][2]
+                    subprocess.run(['sh', '-n'], input=script, text=True, check=True)
+                    assert 'sonar.auth.saml.enabled true' in script and 'sonar.forceAuthentication true' in script
+                    assert 'api/settings/values?keys=sonar.auth.saml.enabled' in script
                 if app['metadata']['name'] == 'argocd-route':
                     listener = next(d for d in documents if d['kind'] == 'ListenerSet')
                     assert listener['spec']['listeners'][0]['hostname'] == 'argocd-management.example.test'
@@ -304,6 +320,13 @@ def main():
                     assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,atlantis'
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
+                if name == 'langfuse':
+                    web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
+                    env = {e['name']: e for e in web['spec']['template']['spec']['containers'][0]['env']}
+                    assert env['AUTH_DISABLE_USERNAME_PASSWORD']['value'] == 'true'
+                    for env_name, key in [('AUTH_AZURE_AD_CLIENT_ID', 'client-id'), ('AUTH_AZURE_AD_CLIENT_SECRET', 'client-secret'), ('AUTH_AZURE_AD_TENANT_ID', 'tenant-id')]:
+                        assert env[env_name]['valueFrom']['secretKeyRef'] == {'name': 'langfuse-sso', 'key': key}
+                    assert env['AUTH_AZURE_AD_ALLOW_ACCOUNT_LINKING']['value'] == 'true'
                 if name == 'cloudnative-pg':
                     schemas = {d['spec']['names']['kind']: next(v['schema']['openAPIV3Schema']
                         for v in d['spec']['versions'] if v['name'] == 'v1')

@@ -1,4 +1,17 @@
 langfuse:
+{{- if .Values.langfuse.sso.enabled }}
+  auth:
+    disableUsernamePassword: true
+    providers:
+      azureAd:
+        clientId:
+          secretKeyRef: { name: langfuse-sso, key: client-id }
+        clientSecret:
+          secretKeyRef: { name: langfuse-sso, key: client-secret }
+        tenantId:
+          secretKeyRef: { name: langfuse-sso, key: tenant-id }
+        allowAccountLinking: {{ .Values.langfuse.sso.allowAccountLinking | quote }}
+{{- end }}
   salt:
     secretKeyRef: { name: platform-langfuse-app, key: salt }
   encryptionKey:

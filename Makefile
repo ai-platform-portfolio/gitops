@@ -47,4 +47,4 @@ validate:
 	$(PYTHON) helm_chart/scripts/validate.py
 
 preflight:
-	@for tool in "$(TERRAFORM)" az kubectl kubelogin "$(PYTHON)"; do command -v "$$tool" >/dev/null || { printf 'Missing tool: %s\n' "$$tool" >&2; exit 1; }; done
+	@for tool in "$(TERRAFORM)" git az kubectl kubelogin "$(PYTHON)"; do command -v "$$tool" >/dev/null || { printf 'Missing tool: %s\n' "$$tool" >&2; exit 1; }; done

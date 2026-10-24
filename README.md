@@ -160,6 +160,31 @@ Sources: [Argo Entra SSO](https://argo-cd.readthedocs.io/en/stable/operator-manu
 [Argo RBAC](https://argo-cd.readthedocs.io/en/stable/operator-manual/rbac/),
 [Entra group claims](https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/how-to-connect-fed-group-claims).
 
+## Langfuse and SonarQube sign-in
+
+Both use native Microsoft Entra authentication. After merging service changes,
+run `make up`; there is no separate identity setup command.
+
+| Service | Native provider | Access configuration |
+| --- | --- | --- |
+| [Langfuse](https://langfuse.dev.michaelalinks.com) | Entra OIDC; password login disabled | `langfuse.sso.users` in platform values; currently the portfolio owner |
+| [SonarQube](https://sonarqube.dev.michaelalinks.com) | Entra SAML | Existing enterprise-app assignments; portfolio owner has `portfolio-sonar-admins` |
+
+Langfuse's Graph-only registration is reconciled from GitOps by the lifecycle;
+its client secret is written directly to the existing Key Vault and delivered by
+ESO. It does not enter Terraform state or Argo values. The allowlist is reconciled
+on `make up`, not continuously by an operator. Sonar's retained registration is
+reused; its normal configuration Job applies and verifies the SAML settings.
+
+Entra sign-in does not replace application authorisation. Verify Langfuse
+organisation membership and Sonar group permissions after browser login. The
+Sonar recovery admin remains available; SDK ingestion and scanner token access
+keep their native API authentication.
+
+See [Langfuse authentication and lifecycle](helm_chart/platform/packages/langfuse/README.md)
+and [SonarQube SAML](helm_chart/platform/packages/sonarqube/README.md) for access,
+credentials, permissions, rotation and verification details.
+
 ## Other commands
 
 | Command | Behavior |

@@ -41,4 +41,13 @@ setting sonar.auth.saml.user.name name
 setting sonar.auth.saml.user.email email
 setting sonar.auth.saml.group.name 'http://schemas.microsoft.com/ws/2008/06/identity/claims/role'
 setting sonar.auth.saml.enabled true
-setting sonar.forceAuthentication false
+setting sonar.forceAuthentication true
+# Prove the settings were applied; a successful Kubernetes apply alone is not SSO.
+curl -fsS -u "admin:$ADMIN_PASSWORD" \
+  "$url/api/settings/values?keys=sonar.auth.saml.enabled" | grep -Eq '"value"[[:space:]]*:[[:space:]]*"true"'
+headers=$(mktemp)
+trap 'rm -f "$headers"' EXIT
+curl -fsS -D "$headers" -o /dev/null -H 'X-Forwarded-Proto: https' \
+  "$url/sessions/init/saml?return_to=%2F"
+grep -qi '^location: https://login.microsoftonline.com/' "$headers"
+printf '%s\n' 'SonarQube native Entra SAML configured; login redirects to Microsoft.'
