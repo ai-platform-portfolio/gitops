@@ -89,8 +89,8 @@ applications are included. Packages configured as disabled remain disabled.
 
 There is no foundations profile or separate ingress deployment step. Configure
 packages in `helm_chart/platform/` before applying. SonarQube SSO and application
-prerequisites must be configured for the full deployment; optional packages such
-as Backstage have their own prerequisites.
+prerequisites must be configured for the full deployment. Backstage uses the
+existing registry and native Entra configuration; Atlantis remains optional.
 
 ## Argo CD HTTPS access
 
@@ -162,26 +162,29 @@ Sources: [Argo Entra SSO](https://argo-cd.readthedocs.io/en/stable/operator-manu
 
 ## Platform service sign-in
 
-Both use native Microsoft Entra authentication. After merging service changes,
+The services below use native Microsoft Entra authentication. After merging service changes,
 run `make up`; there is no separate identity setup command.
 
 | Service | Native provider | Access configuration |
 | --- | --- | --- |
 | [Backstage](https://backstage.dev.michaelalinks.com) | Native Entra; object-ID catalog matching | `backstage.users` in platform values |
-| [Langfuse](https://langfuse.dev.michaelalinks.com) | Entra OIDC; password login disabled | `langfuse.sso.users` in platform values; currently the portfolio owner |
+| [Langfuse](https://langfuse.dev.michaelalinks.com) | Entra OIDC; recovery password login retained | `langfuse.sso.users` in platform values; currently the portfolio owner |
 | [SonarQube](https://sonarqube.dev.michaelalinks.com) | Entra SAML | Existing enterprise-app assignments; portfolio owner has `portfolio-sonar-admins` |
 
 Argo installs [Crossplane and its AzureAD provider](helm_chart/platform/packages/crossplane/README.md),
-then manages the Langfuse identity request and explicit user assignments.
+then manages the Langfuse and Backstage identity requests and explicit user assignments.
 Crossplane creates the registration and credential and delivers its connection
-Secret directly to Langfuse. The custom Graph script and Key Vault credential
+Secrets directly to the applications. The custom Graph script and Key Vault credential
 bridge are removed. Terraform bootstraps only the federated controller identity
 and its explicit Graph consent; service settings remain in GitOps.
 
 Changing Langfuse assignments requires only a GitOps merge. Credential expiry is
 explicit (180 days); automatic time-based rotation is not configured. Secret
-changes trigger a namespace-scoped web restart. The assigned Entra user must have
+changes trigger a namespace-scoped web restart. The assigned Langfuse Entra user must have
 a nonempty profile email; requesting an optional claim does not populate it.
+Password recovery remains enabled until that prerequisite and browser login are
+verified; then set `langfuse.sso.disableUsernamePassword: true`. Backstage uses
+Entra object-ID matching and does not require this email change.
 Sonar's retained SAML registration is reused without a second owner; its normal
 configuration Job applies and verifies SAML settings. No deployment or browser
 login is implied by the PR or CI results.
@@ -220,7 +223,7 @@ commands serially.
 - [Federation](helm_chart/federation/README.md): onboarding independent workload
   roots through the management ApplicationSet.
 - [Backstage application](helm_chart/backstage/README.md) and
-  [deployment package](helm_chart/platform/packages/backstage/README.md): optional
+  [deployment package](helm_chart/platform/packages/backstage/README.md): enabled
   developer portal using the shared PostgreSQL cluster.
 
 Validation covers lifecycle tests, rendered Kubernetes resources and pinned

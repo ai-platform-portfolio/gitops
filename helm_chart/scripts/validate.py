@@ -96,6 +96,7 @@ def main():
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure',
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
+            'backstage', 'backstage-credentials', 'backstage-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         langfuse_app = next(a for a in applications if a['metadata']['name'] == 'langfuse')
@@ -187,7 +188,7 @@ def main():
                 if app['metadata']['name'] == 'service-identities':
                     identity = next(d for d in documents if d['kind'] == 'OIDCApplication')
                     assert identity['spec']['redirectUri'] == 'https://langfuse.example.test/api/auth/callback/azure-ad'
-                    assignments = [d for d in documents if d['kind'] == 'RoleAssignment']
+                    assignments = [d for d in documents if d['kind'] == 'RoleAssignment' and d['metadata']['namespace'] == 'langfuse']
                     assert assignments and all(d['spec']['forProvider']['resourceObjectIdRef']['name'] == 'langfuse-sso' for d in assignments)
                 if app['metadata']['name'] == 'sonarqube-configure':
                     job = next(d for d in documents if d['kind'] == 'Job')
@@ -212,7 +213,9 @@ def main():
                     assert all(listener['protocol'] == 'HTTP' for listener in gateway['spec']['listeners'])
                 if app['metadata']['name'] == 'routes':
                     listeners = [d for d in documents if d['kind'] == 'ListenerSet']
-                    assert len(listeners) == 4
+                    assert len(listeners) == 5
+                    portal_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'backstage')
+                    assert portal_route['spec']['rules'][0]['backendRefs'] == [{'name': 'backstage', 'port': 7007}]
                     route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'atlantis')
                     assert route['spec']['rules'][0]['backendRefs'] == [{'name': 'atlantis', 'port': 80}]
                     assert not any(d['kind'] == 'Certificate' for d in documents), 'cert-manager owns ListenerSet certificates'
@@ -363,7 +366,7 @@ def main():
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
                     assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'langfuse-sso'
                     env = {e['name']: e for e in web['spec']['template']['spec']['containers'][0]['env']}
-                    assert env['AUTH_DISABLE_USERNAME_PASSWORD']['value'] == 'true'
+                    assert env.get('AUTH_DISABLE_USERNAME_PASSWORD', {}).get('value', 'false') == 'false', 'Keep recovery login until interactive Entra verification'
                     for env_name, key in [('AUTH_AZURE_AD_CLIENT_ID', 'client-id'), ('AUTH_AZURE_AD_CLIENT_SECRET', 'client-secret'), ('AUTH_AZURE_AD_TENANT_ID', 'tenant-id')]:
                         assert env[env_name]['valueFrom']['secretKeyRef'] == {'name': 'langfuse-sso', 'key': key}
                     assert env['AUTH_AZURE_AD_ALLOW_ACCOUNT_LINKING']['value'] == 'true'

@@ -15,7 +15,8 @@ cert-manager issues a per-host certificate.
 ## Native Microsoft sign-in
 
 On management, `langfuse.sso` in platform values enables the native Entra OIDC
-provider and disables username/password login. The callback is
+provider. `disableUsernamePassword` remains false for recovery until the profile
+email prerequisite and interactive Entra login are verified; set it true afterwards. The callback is
 `https://langfuse.<DNS_ZONE>/api/auth/callback/azure-ad`. Workload clusters do not
 install the management identity controllers or inherit this identity; their
 Langfuse password login stays enabled until a child-specific SSO design is added.
@@ -54,7 +55,7 @@ does not grant organisation/project membership or administrator privileges;
 Langfuse retains those authorisation decisions.
 
 After deployment, verify `/api/auth/providers` advertises Azure AD, sign-in redirects
-to Microsoft, local password login is disabled, the assigned user reaches the
+to Microsoft, the intended local password recovery setting is respected, the assigned user reaches the
 intended organisation, and an unassigned user is rejected. SDK/API-key ingestion
 keeps its native authentication; no interactive Envoy login gate is added to it.
 

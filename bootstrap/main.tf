@@ -84,7 +84,7 @@ module "aks_admin_group" {
 }
 
 module "aks" {
-  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
+  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=d2c8a5391b4935fda9cbde79a828b905a8f500b6"
   name                   = var.aks.name
   location               = var.azure.location
   resource_group_name    = azurerm_resource_group.this.name
@@ -92,6 +92,7 @@ module "aks" {
   kubernetes_version     = var.aks.kubernetes_version
   admin_group_object_ids = [module.aks_admin_group.object_id]
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
+  container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
   vnet_subnet_id         = module.network.subnet_ids[var.aks.system_node_pool.subnet_key]
 
   system_node_pool = {
@@ -110,15 +111,6 @@ module "aks" {
   }
 
   tags = var.azure.tags
-}
-
-# Image pulls use the node/kubelet identity, not application or control-plane tokens.
-resource "azurerm_role_assignment" "registry_pull" {
-  for_each             = data.azurerm_container_registry.existing
-  scope                = each.value.id
-  role_definition_name = "AcrPull"
-  principal_id         = module.aks.kubelet_identity[0].object_id
-  principal_type       = "ServicePrincipal"
 }
 
 module "identities" {
