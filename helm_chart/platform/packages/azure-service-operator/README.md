@@ -136,3 +136,8 @@ Sources: [release](https://github.com/Azure/azure-service-operator/releases/tag/
 [credential scope](https://azure.github.io/azure-service-operator/guide/authentication/credential-scope/),
 [credential format](https://azure.github.io/azure-service-operator/guide/authentication/credential-format/),
 [security boundary](https://azure.github.io/azure-service-operator/guide/security/confused-deputy/).
+
+The Application ignores only the exact two namespace exclusions AKS adds to its
+webhooks (`control-plane=true` and `kubernetes.azure.com/managedby=aks`). The pinned
+chart has no selector setting. Additional or changed selector expressions still
+produce drift; webhook rules and failure policy remain compared normally.
