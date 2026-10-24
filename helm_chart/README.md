@@ -37,11 +37,14 @@ Credentials and application data are not restored into the next deployment.
 ## Configuration
 
 Copy `bootstrap/terraform.tfvars` to ignored `bootstrap/local.tfvars`. Complete
-the AKS version, Entra admin group, public API CIDRs and service references.
+the AKS version, Entra admin-group owners/members, public API CIDRs and service
+references.
 Make selects the local file when present; `TFVARS=/path/to/settings.tfvars`
 overrides it. Keep private values and Terraform state out of Git.
 
 - `azure`, `network`, `aks`, `dns`: management infrastructure and the existing DNS zone.
+  `aks.admin_group` creates a bootstrap-owned Entra security group with explicit
+  owners/members; AKS consumes its module output. No Azure roles are assigned.
 - `identities`: one module loop over identities, federated service accounts and
   roles. Blob permissions use the existing storage account's ID as scope.
 - `platform.key_vault`: the existing vault used by External Secrets for application secrets.

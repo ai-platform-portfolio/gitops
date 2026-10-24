@@ -18,11 +18,18 @@ select the intended subscription.
 Prepare these ignored local configuration files:
 
 1. Copy `bootstrap/terraform.tfvars` to `bootstrap/local.tfvars` and complete the
-   deployment inputs, including AKS version, Entra admin group, API access CIDRs,
+   deployment inputs, including AKS version, admin-group owners/members, API CIDRs,
    existing DNS zone, Key Vault and platform storage account references.
 2. Create `bootstrap/backend.local.hcl` for the existing Azure Blob Terraform
    state backend. Use the example in the
    [configuration guide](helm_chart/README.md#remote-terraform-state).
+
+Terraform creates the Entra security group described by `aks.admin_group` and
+passes its object ID directly to AKS. Set explicit owner and member object IDs in
+local tfvars; group ownership alone does not grant cluster access. The bootstrap
+caller needs Microsoft Graph permissions to manage that group. No Azure role
+assignments are granted to it. The group and its managed memberships are removed
+with this disposable cluster on `make down`.
 
 Make automatically selects `bootstrap/local.tfvars` when present. Override paths
 with `TFVARS=/path/to/settings.tfvars`, `BACKEND_CONFIG=/path/to/backend.hcl` or

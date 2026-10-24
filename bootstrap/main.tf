@@ -49,6 +49,15 @@ module "network" {
   tags                = var.azure.tags
 }
 
+# Bootstrap owns this cluster-admin group; it needs no Azure RBAC assignments.
+module "aks_admin_group" {
+  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-group?ref=3e883abf9680cf033fae533a1883d64341bde7ef"
+  display_name = var.aks.admin_group.display_name
+  description  = var.aks.admin_group.description
+  owners       = var.aks.admin_group.owners
+  members      = var.aks.admin_group.members
+}
+
 module "aks" {
   source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
   name                   = var.aks.name
@@ -56,7 +65,7 @@ module "aks" {
   resource_group_name    = azurerm_resource_group.this.name
   tenant_id              = sensitive(data.azurerm_client_config.current.tenant_id)
   kubernetes_version     = var.aks.kubernetes_version
-  admin_group_object_ids = var.aks.admin_group_object_ids
+  admin_group_object_ids = [module.aks_admin_group.object_id]
   authorized_ip_ranges   = var.aks.authorized_ip_ranges
   vnet_subnet_id         = module.network.subnet_ids[var.aks.system_node_pool.subnet_key]
 

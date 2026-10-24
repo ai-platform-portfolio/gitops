@@ -1,6 +1,7 @@
 # Management cluster bootstrap
 
-One Terraform root builds networking, AKS, map-driven managed identities,
+One Terraform root builds networking, AKS, its Entra administrator group,
+map-driven managed identities,
 disposable data containers and the initial ArgoCD Helm release. Subsequent
 clusters have independent roots. Inputs belong in tfvars; declarations stay in
 `variables.tf`, resource lookups and scope aliases in `main.tf`, authentication
@@ -42,3 +43,18 @@ State uses the external Azure Blob backend configured by ignored
 `make down` for ordered package cleanup before destroying infrastructure. See the
 [configuration and lifecycle guide](../helm_chart/README.md) for prerequisites,
 backend setup and validation.
+
+## AKS administrator group
+
+`aks.admin_group` configures the Terraform library's `entra-group` module.
+Terraform creates this group before AKS and passes its `object_id` output directly
+to the cluster. Supply the display name, description, owners and members in tfvars;
+keep actual principal IDs in ignored local inputs. Owners and members are explicit,
+separate sets. Bootstrap does not assign Azure RBAC roles to this group.
+
+The AzureAD provider uses the calling root's authenticated context; the caller
+needs Microsoft Graph authority to manage the group and membership. This is a
+bootstrap dependency, managed by the same Terraform root and persistent backend.
+Teardown deletes the group along with the disposable cluster. Existing same-name
+groups are rejected; adopt an existing group only through deliberate import and
+membership review. No one-off CLI group creation is required.
