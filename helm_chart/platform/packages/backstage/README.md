@@ -33,8 +33,9 @@ Related stages share the existing Backstage template. The application has no
 Kubernetes API token or cluster RBAC. A separate named-secret reader allows ESO
 to deliver only the CNPG role password and CA. Generated role/session credentials
 use immutable, orphaned CreatedOnce targets; do not delete them beside existing
-data. The database uses its existing restricted role and verified TLS. Its schema
-migrations bypass transaction pooling, with bounded per-plugin connection pools.
+data. The database uses its existing restricted role and verified TLS. Database auto-creation checks are disabled while plugin schema creation remains
+enabled, so the app never needs access to the `postgres` maintenance database.
+Its schema migrations bypass transaction pooling, with bounded per-plugin connection pools.
 
 ## Native Entra authentication
 
