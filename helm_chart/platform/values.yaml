@@ -41,7 +41,7 @@ atlantis:
 # Portfolio portal: native Entra identity and an immutable image are required.
 backstage:
   enabled: true
-  image: localacrk8s.azurecr.io/portfolio/backstage@sha256:7b8d294b5f80a3c34450def644a664fa4e94cd971a00989b6b15607d0919f79d
+  image: localacrk8s.azurecr.io/portfolio/backstage@sha256:727c30621cf71b903e635aff785952933c913dac4a7ff862f5a1b1fec495b03f
   imagePullSecrets: []
   credentialValidityDays: 180
   users:
