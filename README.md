@@ -18,8 +18,8 @@ select the intended subscription.
 Review the deployment configuration and configure the state backend:
 
 1. Review `bootstrap/terraform.tfvars`, including the AKS version, admin-group
-   name, API CIDRs and existing Azure resource references. This tracked
-   file is the deployment configuration; complete the API allowlist before use.
+   name, Key Vault allowlist secret name and existing Azure resource references.
+   This tracked file is the deployment configuration.
 2. Create `bootstrap/backend.local.hcl` for the existing Azure Blob Terraform
    state backend. Use the example in the
    [configuration guide](helm_chart/README.md#remote-terraform-state).
@@ -30,8 +30,7 @@ the group and is its bootstrap member through
 `data.azurerm_client_config.current.object_id`. This membership authorizes the
 initial Argo Helm installation; ownership alone does not grant cluster access.
 No owner/member IDs are configured in tfvars. The caller needs Microsoft Graph
-permissions to manage the group. No Azure role
-assignments are granted to it. The group and its managed memberships are removed
+permissions to manage the group. No Azure role assignments are granted to it. The group and its managed memberships are removed
 with this disposable cluster on `make down`.
 
 Make uses `bootstrap/terraform.tfvars`. To select another environment explicitly,
@@ -39,13 +38,22 @@ set `TFVARS=/path/to/settings.tfvars`; files named `local.tfvars` have no specia
 priority. Override the backend or root with `BACKEND_CONFIG=/path/to/backend.hcl`
 or `BOOTSTRAP_DIR=/path/to/bootstrap`.
 
-Principal IDs, API CIDRs, resource names and the ACME email are environment
-metadata, so they can live in the tracked deployment configuration. Credentials,
+Principal IDs, resource names and the ACME email are environment metadata, so
+they can live in the tracked deployment configuration. Credentials,
 private keys, Terraform state and backend configuration stay out of Git.
 
 The initial portfolio configuration uses one Standard_D4s_v5 system node and one
-Standard_D4s_v5 application node. See the configuration guide for prerequisites
-and limits before applying.
+Standard_D4s_v5 application node. The region needs at least 8 vCPUs of Dsv5
+family quota for these two nodes; a successful Terraform plan does not check or
+reserve that quota. See the configuration guide for prerequisites and limits.
+
+The AKS API is public and restricted by the CIDRs in the existing Key Vault secret
+named by `aks.authorized_ip_ranges_secret`. The secret contains a JSON array of
+CIDRs, currently covering the operator's public IPv4 plus five addresses on each
+side. Terraform reads it directly; the values stay out of Git and are redacted
+from normal plan/apply output. They are stored in the encrypted remote state and
+any saved plan, so restrict access to both and do not publish plan JSON or enable
+Terraform/provider debug logging when using the real secret.
 
 ## Plan and deploy the platform
 

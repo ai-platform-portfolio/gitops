@@ -66,7 +66,7 @@ membership review. No one-off CLI group creation is required.
 ## Deployment inputs
 
 `terraform.tfvars` is the default deployment configuration. Environment metadata
-such as principal IDs, API CIDRs, resource names and email can be checked in.
+such as principal IDs, resource names and email can be checked in.
 An existing `local.tfvars` file is not selected automatically; `TFVARS=...` is an
 explicit override. Backend settings stay in ignored `backend.local.hcl`, and
 credentials remain in the authenticated context, Key Vault or Kubernetes Secrets.
@@ -74,3 +74,17 @@ credentials remain in the authenticated context, Key Vault or Kubernetes Secrets
 The PostgreSQL backup destination uses a fresh `management-postgres-backups`
 container. The pre-existing `postgres-backups` container is not adopted or deleted
 by this deployment. Terraform state uses a separate persistent storage account.
+
+## Public API allowlist
+
+`aks.authorized_ip_ranges_secret` names an existing secret in `platform.key_vault`.
+Its value is a JSON array of IPv4 CIDRs. The bootstrap reads it through the
+AzureRM secret data source and passes the decoded sensitive value to AKS.
+The deployment identity needs permission to read that Key Vault secret.
+
+The value is redacted from normal Terraform output, but persists in state and
+saved plans. Keep state in the encrypted Azure backend, restrict its access, and
+do not publish raw plan JSON or enable Terraform/provider debug logs for real
+plans/applies. The CI validation workflow uses no Azure credentials and does not
+read this secret. Updating it changes the allowlist at the next plan/apply; the
+existing Key Vault and secret are not deleted with the cluster.

@@ -35,7 +35,7 @@ variable "aks" {
       description  = string
     })
 
-    authorized_ip_ranges = list(string)
+    authorized_ip_ranges_secret = string
 
     system_node_pool = object({
       subnet_key      = string

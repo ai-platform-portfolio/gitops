@@ -37,12 +37,15 @@ Credentials and application data are not restored into the next deployment.
 ## Configuration
 
 Review the tracked `bootstrap/terraform.tfvars` deployment configuration and
-complete its API allowlist. Make always uses this file unless you explicitly pass
+verify its Key Vault API-allowlist secret reference. Make uses this file unless
+you explicitly pass
 `TFVARS=/path/to/settings.tfvars`; no local filename takes priority. Principal IDs,
-resource names, API CIDRs and email are configuration metadata. Credentials,
+resource names and email are configuration metadata. Credentials,
 private keys, backend configuration and Terraform state stay out of Git.
 
 - `azure`, `network`, `aks`, `dns`: management infrastructure and the existing DNS zone.
+  `aks.authorized_ip_ranges_secret` reads the existing Key Vault CIDR list as a
+  sensitive value; it stays out of normal logs but remains in encrypted state.
   `aks.admin_group` creates an Entra security group owned by the authenticated
   Terraform principal, which is also its bootstrap member. AKS consumes the group's
   module output. No owner/member IDs are required in tfvars; no Azure roles are
