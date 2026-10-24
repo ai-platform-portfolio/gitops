@@ -28,7 +28,7 @@ def main():
     assert 'data.azurerm_client_config' not in outputs and 'var.account' not in outputs and 'oidc_issuer_url' not in outputs, 'Account identifiers must not be Terraform outputs'
     runtime = {name: 'example' for path in (HELM_CHART / 'platform/packages').rglob('*') if path.is_file()
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
-    runtime.update(DNS_ZONE='example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
+    runtime.update(DNS_ZONE='example.test', ARGOCD_HOSTNAME='argocd-management.example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
                    SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
                    AKS_OIDC_ISSUER_URL='https://issuer.example.test/')

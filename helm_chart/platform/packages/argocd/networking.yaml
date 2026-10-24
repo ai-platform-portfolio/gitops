@@ -13,7 +13,7 @@ spec:
     namespace: envoy-gateway-system
   listeners:
   - name: https
-    hostname: {{ include "platform.argocdHostname" . }}
+    hostname: {{ required "runtime.ARGOCD_HOSTNAME is required" .Values.runtime.ARGOCD_HOSTNAME }}
     protocol: HTTPS
     port: 443
     tls:
@@ -31,7 +31,7 @@ metadata:
   namespace: argocd
 spec:
   hostnames:
-  - {{ include "platform.argocdHostname" . }}
+  - {{ required "runtime.ARGOCD_HOSTNAME is required" .Values.runtime.ARGOCD_HOSTNAME }}
   parentRefs:
   - name: public
     namespace: argocd
@@ -50,7 +50,7 @@ metadata:
   namespace: argocd
 spec:
   hostnames:
-  - {{ include "platform.argocdHostname" . }}
+  - {{ required "runtime.ARGOCD_HOSTNAME is required" .Values.runtime.ARGOCD_HOSTNAME }}
   parentRefs:
   - name: public
     namespace: envoy-gateway-system

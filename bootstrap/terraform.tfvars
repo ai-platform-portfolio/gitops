@@ -167,9 +167,7 @@ identities = {
   }
 
   argocd = {
-    # Use a fresh label; existing Azure DNS records are not adopted or overwritten.
-    dns_label = "argocd-management"
-    name      = "id-management-argocd"
+    name = "id-management-argocd"
 
     federated_credentials = {
       argocd-application-controller = {

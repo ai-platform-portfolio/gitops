@@ -22,8 +22,8 @@ chart. This includes Envoy Gateway, cert-manager, ExternalDNS, databases,
 observability, federation and enabled applications. Argo is exposed through its
 own issuer-annotated ListenerSet and HTTPRoutes.
 
-The URL defaults to `https://argocd-management.<platform-domain>`; set the prefix
-with `argocd.dns_label` in ignored local tfvars. Terraform supplies the same URL to
+The URL is `https://<argocd.dns_label>.<dns.zone.name>`, built directly from the
+required tfvars label and zone. Terraform supplies the same URL to
 Argo's ConfigMap and the GitOps route. The lifecycle checks DNS ownership before
 seeding and waits for a current certificate, current Gateway DNS and verified
 HTTPS. Existing unowned exact A/AAAA/CNAME records cause an error instead of being

@@ -87,10 +87,10 @@ variable "argocd" {
   description = "ArgoCD Helm chart and initial values file."
 
   type = object({
-    dns_label           = optional(string, "argocd-management")
+    dns_label           = string
     chart_version       = string
     values_file         = string
-    configmap_file      = optional(string, "argocd-configmap.yaml")
+    configmap_file      = string
     identity_components = optional(set(string), ["controller", "server"])
   })
 
@@ -105,7 +105,6 @@ variable "platform" {
 
   type = object({
     cluster_name   = string
-    domain_name    = optional(string)
     cluster_role   = optional(string, "management")
     git_repository = optional(string, "https://github.com/ai-platform-portfolio/gitops.git")
     git_revision   = optional(string, "main")

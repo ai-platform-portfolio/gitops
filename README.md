@@ -65,8 +65,10 @@ as Backstage have their own prerequisites.
 
 ## Argo CD HTTPS access
 
-The default URL is `https://argocd-management.<your-platform-domain>`. Override the
-prefix with `argocd.dns_label` in ignored tfvars. The lifecycle prints the URL after
+The URL is `https://<argocd.dns_label>.<dns.zone.name>`, using the two explicit
+values in tfvars. The example produces
+`https://argocd-management.dev.michaelalinks.com`. Set the same required keys in
+your ignored local tfvars. The lifecycle prints the URL after
 the certificate is ready, DNS resolves to the current Gateway and an HTTPS health
 check succeeds with normal certificate verification. The configured ACME email
 must be real, and the existing bootstrap identity needs its DNS-zone role and
@@ -74,7 +76,7 @@ cert-manager/ExternalDNS federations.
 
 An existing exact A, AAAA or CNAME record blocks seeding unless its ExternalDNS TXT
 ownership matches this cluster and Argo route. Existing records are not adopted.
-An explicit new hostname takes precedence over a wildcard record. The default
+An explicit new hostname takes precedence over a wildcard record. The example
 prefix avoids the existing `argocd` entry; recheck your zone before choosing a
 custom label.
 

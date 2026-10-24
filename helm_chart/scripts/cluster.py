@@ -326,7 +326,6 @@ def main():
         runtime = {**cluster.settings['runtime'],
                    'AZURE_TENANT_ID': cluster.account['tenant_id'],
                    'AZURE_SUBSCRIPTION_ID': cluster.account['subscription_id']}
-        runtime.setdefault('ARGOCD_HOSTNAME', 'argocd-management.' + runtime['DNS_ZONE'])
         cluster.check_dns(runtime)
         existing = cluster.object('applications.argoproj.io', 'platform', 'argocd')
         runtime.update(cluster.sso())

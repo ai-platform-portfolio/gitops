@@ -49,7 +49,8 @@ overrides it. Keep private values and Terraform state out of Git.
   observability containers. Use fresh names; existing containers are not automatically
   adopted. Teardown deletes the managed containers and their contents.
 - `argocd`: chart pin, deployment values, actual commented Argo ConfigMap and
-  `dns_label` (default `argocd-management`) for its bootstrap HTTPS hostname.
+  `dns_label` for its HTTPS hostname, combined directly with `dns.zone.name`.
+  The label and ConfigMap filename are required inputs specified in tfvars.
 
 The initial configuration uses one Standard_D4s_v5 system node and one
 Standard_D4s_v5 application node. PostgreSQL and its pooler each use one instance;

@@ -17,7 +17,7 @@ data "azurerm_key_vault" "platform" {
 
 locals {
   argocd_configmap = yamldecode(file("${path.module}/${var.argocd.configmap_file}"))
-  argocd_hostname  = "${var.argocd.dns_label}.${coalesce(var.platform.domain_name, var.dns.zone.name)}"
+  argocd_hostname  = "${var.argocd.dns_label}.${var.dns.zone.name}"
 
   role_scopes = {
     dns_zone        = data.azurerm_dns_zone.existing.id

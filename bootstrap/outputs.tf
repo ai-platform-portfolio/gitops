@@ -59,7 +59,7 @@ output "platform_settings" {
       AZURE_DNS_RESOURCE_GROUP = var.dns.zone.resource_group_name
       AZURE_KEY_VAULT_URI      = data.azurerm_key_vault.platform.vault_uri
       AZURE_STORAGE_ACCOUNT    = data.azurerm_storage_account.platform.name
-      DNS_ZONE                 = coalesce(var.platform.domain_name, data.azurerm_dns_zone.existing.name)
+      DNS_ZONE                 = var.dns.zone.name
       AZURE_DNS_ZONE           = data.azurerm_dns_zone.existing.name
       ACME_EMAIL               = var.platform.acme_email
       CLUSTER_NAME             = var.platform.cluster_name
