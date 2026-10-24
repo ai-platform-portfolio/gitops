@@ -31,6 +31,7 @@
     "@backstage/plugin-org": "^0.8.0",
     "@backstage/plugin-scaffolder": "^1.40.0",
     "@backstage/plugin-search": "^1.7.9",
+    "@backstage/plugin-signals": "^0.0.36",
     "@backstage/plugin-techdocs": "^1.19.0",
     "@backstage/plugin-user-settings": "^0.9.8",
     "@backstage/ui": "^0.19.0",
