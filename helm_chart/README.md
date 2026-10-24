@@ -48,7 +48,9 @@ overrides it. Keep private values and Terraform state out of Git.
 - `platform.storage`: one existing account with Terraform-managed PostgreSQL and
   observability containers. Use fresh names; existing containers are not automatically
   adopted. Teardown deletes the managed containers and their contents.
-- `argocd`: chart pin, deployment values and the actual commented Argo ConfigMap.
+- `argocd`: chart pin, deployment values, actual commented Argo ConfigMap and
+  `dns_label` for its HTTPS hostname, combined directly with `dns.zone.name`.
+  The label and ConfigMap filename are required inputs specified in tfvars.
 
 The initial configuration uses one Standard_D4s_v5 system node and one
 Standard_D4s_v5 application node. PostgreSQL and its pooler each use one instance;
@@ -91,20 +93,21 @@ established through federated identity or managed identity.
 
 ```sh
 make plan       # Preview bootstrap infrastructure and Argo CD changes
-make bootstrap  # Initialize and apply bootstrap only
-make up         # Apply bootstrap, then seed and reconcile platform packages
+make up         # Apply AKS/Argo and reconcile the full platform
 make down
 ```
 
-`make bootstrap` runs Terraform init and apply automatically, creating the
-containers, networking, AKS, identities and initial Argo release. It stops before
-seeding the platform chart. `make plan` is a separate preview; `make bootstrap`
-automatically approves its apply and does not consume a saved plan file.
+`make up` runs Terraform init and apply automatically, creating the
+containers, networking, AKS, identities and initial Argo release. It then seeds
+the full platform root, including Envoy Gateway, cert-manager, ExternalDNS,
+databases, observability, federation and enabled application packages.
+`make plan` is a separate preview; `make up` automatically approves its
+apply and does not consume a saved plan file.
 
-`make up` runs the same bootstrap before continuing with the platform lifecycle. The lifecycle prepares Kubernetes Secrets, seeds the local platform
-root, waits for PostgreSQL, copies its current CA for SonarQube and enables the
-remaining packages. Existing Secrets are reused during repeated `make up` runs
-so encryption keys and passwords stay stable within the cluster. Missing
+The lifecycle prepares
+Kubernetes Secrets, waits for PostgreSQL, copies its current CA for SonarQube and
+enables the remaining packages. Existing Secrets are reused during repeated
+`make up` runs so encryption keys and passwords stay stable within the cluster. Missing
 credentials beside existing volumes cause an error rather than rotating keys.
 
 Teardown disables automated sync and terminates active root operations before
@@ -155,8 +158,9 @@ credentials and current CA without executing SQL provisioning commands.
 The shared Gateway accepts application-owned HTTPS ListenerSets. Their issuer
 annotations let cert-manager generate individual hostname certificates.
 Cert-manager starts after Envoy installs Gateway API CRDs. ExternalDNS enables
-ListenerSet discovery with matching RBAC. Routes follow backend health; initial
-bootstrap omits Sonar routes until its credentials/CA are ready.
+ListenerSet discovery with matching RBAC. Argo routes attach at wave 25. Application routes follow
+backend health at wave 80; the full lifecycle omits Sonar routes until its
+credentials/CA are ready.
 
 Barman and the daily PostgreSQL backup schedule demonstrate backups while the
 cluster exists. Archives live in a disposable Terraform-managed container and

@@ -28,7 +28,7 @@ def main():
     assert 'data.azurerm_client_config' not in outputs and 'var.account' not in outputs and 'oidc_issuer_url' not in outputs, 'Account identifiers must not be Terraform outputs'
     runtime = {name: 'example' for path in (HELM_CHART / 'platform/packages').rglob('*') if path.is_file()
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
-    runtime.update(DNS_ZONE='example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
+    runtime.update(DNS_ZONE='example.test', ARGOCD_HOSTNAME='argocd-management.example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
                    SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
                    AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
@@ -54,6 +54,8 @@ def main():
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True}))
         disabled = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'atlantis' not in {app['metadata']['name'] for app in disabled}, 'Atlantis must be opt-in'
+        assert bootstrap_values['configs']['params']['server.insecure'] is True
+        assert bootstrap_values['server']['service']['type'] == 'ClusterIP'
         for label, overrides in {
             'app-id': {'github_app_id': ''},
             'team': {'github_team': ''},
@@ -88,7 +90,7 @@ def main():
         expected = {
             'namespaces', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
-            'external-dns', 'gateway', 'plugin-barman-cloud', 'postgres', 'clickhouse',
+            'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure',
@@ -154,6 +156,14 @@ def main():
                     assert not any('secrets' in r['resources'] for r in reader['rules'])
                     assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
                     assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
+                if app['metadata']['name'] == 'argocd-route':
+                    listener = next(d for d in documents if d['kind'] == 'ListenerSet')
+                    assert listener['spec']['listeners'][0]['hostname'] == 'argocd-management.example.test'
+                    assert listener['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
+                    assert not any(d['kind'] == 'Certificate' for d in documents)
+                    route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'argocd')
+                    assert route['spec']['rules'][0]['backendRefs'] == [{'name': 'argocd-server', 'port': 80}]
+                    assert route['spec']['parentRefs'][0]['kind'] == 'ListenerSet'
                 if app['metadata']['name'] == 'gateway':
                     gateway = next(d for d in documents if d['kind'] == 'Gateway')
                     assert gateway['spec']['allowedListeners']['namespaces']['from'] == 'Selector'

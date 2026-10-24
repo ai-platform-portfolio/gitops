@@ -25,6 +25,8 @@ spec:
     helm:
       valuesObject:
         manifests: |
+{{ tpl (.Files.Get "packages/argocd/namespace.yaml") . | indent 10 }}
+          ---
 {{ tpl (.Files.Get "packages/langfuse/namespace.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/clickhouse/namespace.yaml") . | indent 10 }}

@@ -1,0 +1,63 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: public
+  namespace: argocd
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-azuredns
+spec:
+  parentRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: public
+    namespace: envoy-gateway-system
+  listeners:
+  - name: https
+    hostname: {{ required "runtime.ARGOCD_HOSTNAME is required" .Values.runtime.ARGOCD_HOSTNAME }}
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: argocd-tls
+    allowedRoutes:
+      namespaces:
+        from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  hostnames:
+  - {{ required "runtime.ARGOCD_HOSTNAME is required" .Values.runtime.ARGOCD_HOSTNAME }}
+  parentRefs:
+  - name: public
+    namespace: argocd
+    sectionName: https
+    kind: ListenerSet
+    group: gateway.networking.k8s.io
+  rules:
+  - backendRefs:
+    - name: argocd-server
+      port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  namespace: argocd
+spec:
+  hostnames:
+  - {{ required "runtime.ARGOCD_HOSTNAME is required" .Values.runtime.ARGOCD_HOSTNAME }}
+  parentRefs:
+  - name: public
+    namespace: envoy-gateway-system
+    sectionName: http
+  rules:
+  - filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301

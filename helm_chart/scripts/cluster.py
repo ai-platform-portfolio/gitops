@@ -4,10 +4,13 @@ import argparse
 import base64
 import json
 import os
+import socket
 from pathlib import Path
 import subprocess
 import tempfile
 import time
+import urllib.error
+import urllib.request
 
 if __package__:
     from .azure import current_account
@@ -168,12 +171,71 @@ class Cluster:
             if not root or not root.get('status', {}).get('resources'):
                 return False
             expected = {r['name'] for r in root['status']['resources'] if r['kind'] == 'Application'}
-            if not {'sonarqube', 'sonarqube-configure'} <= expected:
+            if not {'sonarqube', 'sonarqube-configure', 'argocd-route'} <= expected:
                 return False
             found = {a['metadata']['name']: a for a in apps}
             return bool(expected) and expected <= found.keys() and all(
                 current(a) for a in [root, *(found[n] for n in expected)])
         wait_for(reconciled, 'Waiting for every platform Application to be Synced and Healthy')
+
+    def check_dns(self, runtime):
+        """Refuse to adopt an existing exact record owned by another deployment."""
+        hostname = runtime['ARGOCD_HOSTNAME']
+        zone = runtime['AZURE_DNS_ZONE']
+        if not hostname.endswith('.' + zone):
+            raise ValueError('Argo CD hostname must be below the configured Azure DNS zone')
+        label = hostname[:-len(zone) - 1]
+        result = subprocess.run(['az', 'network', 'dns', 'record-set', 'list',
+            '--subscription', self.account['subscription_id'], '--resource-group', runtime['AZURE_DNS_RESOURCE_GROUP'],
+            '--zone-name', zone, '--only-show-errors', '-o', 'json'], text=True, capture_output=True)
+        if result.returncode:
+            raise RuntimeError('Cannot check Argo CD DNS ownership; no root was seeded')
+        records = json.loads(result.stdout)
+        existing = [r for r in records if r['name'] == label
+                    and r['type'].rsplit('/', 1)[-1].upper() in {'A', 'AAAA', 'CNAME'}]
+        owner = 'external-dns/owner=' + self.settings['cluster']['name']
+        resources = {'external-dns/resource=httproute/argocd/argocd',
+                     'external-dns/resource=httproute/argocd/https-redirect'}
+        ownership_records = [r for r in records if r['name'] in {
+            'external-dns-' + label, 'external-dns-a-' + label,
+            'external-dns-aaaa-' + label, 'external-dns-cname-' + label}]
+        ownership = [set(''.join(txt.get('value', [])).strip('"').split(','))
+                     for record in ownership_records
+                     for txt in record.get('TXTRecords', record.get('txtRecords', []))]
+        owned = bool(ownership) and all(owner in fields and resources & fields for fields in ownership)
+        if (existing or ownership_records) and not owned:
+            raise RuntimeError(f'DNS clash at {hostname}; choose a fresh argocd.dns_label. Existing records were not changed')
+
+    def ingress_ready(self, runtime):
+        hostname = runtime['ARGOCD_HOSTNAME']
+
+        def available():
+            # A repeated deployment may find its root still installing controllers.
+            apis = run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
+            if not {'certificates.cert-manager.io', 'gateways.gateway.networking.k8s.io'} <= set(apis):
+                return False
+            certificate = self.object('certificates.cert-manager.io', 'argocd-tls', 'argocd')
+            if not certificate or not any(c.get('type') == 'Ready' and c.get('status') == 'True'
+                    and c.get('observedGeneration') == certificate['metadata']['generation']
+                    for c in certificate.get('status', {}).get('conditions', [])):
+                return False
+            gateway = self.object('gateways.gateway.networking.k8s.io', 'public', 'envoy-gateway-system')
+            addresses = {a['value'] for a in (gateway or {}).get('status', {}).get('addresses', [])
+                         if a.get('type', 'IPAddress') == 'IPAddress'}
+            if not addresses:
+                return False
+            try:
+                resolved = {a[4][0] for a in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)}
+                if not resolved or not resolved <= addresses:
+                    return False
+                # Default TLS verification checks both the hostname and CA chain.
+                with urllib.request.urlopen('https://' + hostname + '/healthz', timeout=10) as response:
+                    return response.status == 200
+            except (OSError, urllib.error.URLError):
+                return False
+
+        wait_for(available, 'Waiting for Argo CD certificate, DNS and verified HTTPS')
+        print('Argo CD: https://' + hostname, flush=True)
 
     def cleanup(self):
         # Detach hub onboarding before suspending the local root. Workload packages
@@ -245,7 +307,7 @@ class Cluster:
         for app in sorted(managed, key=lambda a: int(a['metadata'].get('annotations', {}).get('argocd.argoproj.io/sync-wave', 0)), reverse=True):
             name = app['metadata']['name']
             self.delete('applications.argoproj.io', [name], 'argocd')
-            if name == 'routes':
+            if name == 'argocd-route':
                 deadline = time.monotonic() + 70
                 wait_for(lambda: time.monotonic() >= deadline, 'Allowing ExternalDNS a record cleanup interval', timeout=100)
         self.delete('applications.argoproj.io', ['platform'], 'argocd')
@@ -261,22 +323,23 @@ def main():
         if args.action == 'down':
             cluster.cleanup()
             return
-        runtime = {**cluster.settings['runtime'], **cluster.sso(),
+        runtime = {**cluster.settings['runtime'],
                    'AZURE_TENANT_ID': cluster.account['tenant_id'],
-                   'AZURE_SUBSCRIPTION_ID': cluster.account['subscription_id'],
-                   **{'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()}}
-        # Generic cluster context for GitOps-owned federated identities. Package
-        # enablement and deployment choices are never read from Terraform outputs.
+                   'AZURE_SUBSCRIPTION_ID': cluster.account['subscription_id']}
+        cluster.check_dns(runtime)
+        existing = cluster.object('applications.argoproj.io', 'platform', 'argocd')
+        runtime.update(cluster.sso())
+        runtime.update({'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()})
+        # Generic context for GitOps-owned service federation.
         if cluster.settings['cluster']['role'] == 'management':
             runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
         prepare_credentials(cluster)
-        existing = next((app for app in cluster.objects('applications.argoproj.io', 'argocd')
-                         if app['metadata']['name'] == 'platform'), None)
         sonar_ready = bool(existing and existing['spec']['source']['helm']['valuesObject'].get('sonarqubeReady'))
         cluster.seed(cluster.root(runtime, sonar_ready))
         prepare_sonarqube(cluster, run, wait_for)
         cluster.seed(cluster.root(runtime, True))
         cluster.ready()
+        cluster.ingress_ready(runtime)
         print('Platform reconciled; portfolio data is disposable on teardown.', flush=True)
 
 

@@ -9,6 +9,18 @@ Barman at wave 20 and PostgreSQL resources at wave 30. The resource definitions
 and chart values live together in `packages/postgres/`. These remain independent
 Applications so operator health can gate creation of its custom resources.
 
+## Installation
+
+`make up` applies Terraform and seeds this complete
+chart as one local root Application. All standard packages are installed; optional
+Atlantis and Backstage packages follow their existing enablement settings. There
+is no foundations-only profile.
+
+`packages/argocd/` owns the Argo ListenerSet, certificate annotation and HTTPRoutes.
+It adds the gateway label to the existing Argo namespace, with deletion/pruning
+disabled for that namespace. The Helm release and canonical URL remain
+Terraform-owned. See the top-level README for hostname selection and DNS checks.
+
 ## Reading the configuration
 
 | Location | What to look for |
@@ -45,6 +57,7 @@ files easier to find.
 | 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
 | 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
 | 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
+| 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
 | 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials | Backend services are ready |
 | 60 | sonarqube, optional backstage | PostgreSQL roles, databases and consumer credentials are ready |

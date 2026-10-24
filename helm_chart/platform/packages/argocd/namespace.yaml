@@ -1,0 +1,10 @@
+# Argo's namespace is created by Terraform's Helm release. Only add the gateway
+# label here; never delete the controller namespace during GitOps cleanup.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    gitops.platform/gateway: public
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
