@@ -1,7 +1,7 @@
 data "azurerm_client_config" "current" {}
 
 data "azuread_service_principal" "microsoft_graph" {
-  client_id = "00000003-0000-0000-c000-000000000000"
+  client_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
 }
 
 data "azurerm_dns_zone" "existing" {
