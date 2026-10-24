@@ -8,12 +8,9 @@ rbac:
   clusterWideSecretAccess: false
 watchSecrets: false
 
-# The chart otherwise renders only fsGroup and omits podSecurityContext.
-persistence:
-  enabled: false
-  fsGroup: null
-
-podSecurityContext:
+# Set security on the container: the chart defaults fsGroup and skips pod settings.
+# Argo valuesObject omits null values, so a null fsGroup override is unreliable.
+containerSecurityContext:
   runAsNonRoot: true
   seccompProfile:
     type: RuntimeDefault

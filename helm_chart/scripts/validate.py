@@ -354,8 +354,8 @@ def main():
                     manager = pod['containers'][0]
                     assert manager['image'] == 'arigaio/atlas-operator:0.8.4'
                     assert manager['args'] == ['--namespace=atlas-system']
-                    assert pod['securityContext']['runAsNonRoot'] is True
-                    assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+                    assert manager['securityContext']['runAsNonRoot'] is True
+                    assert manager['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
                     assert manager['securityContext']['allowPrivilegeEscalation'] is False
                     env = {e['name']: e.get('value') for e in manager['env']}
                     assert env == {'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'false', 'WATCH_SECRETS': 'false'}
