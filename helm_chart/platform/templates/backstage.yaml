@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
 # PostgreSQL is healthy before ESO reads its CA and role Secret. Keeping this
 # separate from early configuration avoids waiting for a CA before CNPG exists.
@@ -64,4 +65,6 @@ spec:
 {{ tpl (.Files.Get "packages/backstage/deployment.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
+
 {{- end }}

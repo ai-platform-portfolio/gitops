@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 # Controllers are available; install operators and shared configuration.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -109,3 +110,5 @@ spec:
 {{- end }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+
+{{- end }}

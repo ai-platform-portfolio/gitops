@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 {{- if .Values.sonarqubeReady }}
 # The PostgreSQL role, Database and JDBC Secret are ready.
 apiVersion: argoproj.io/v1alpha1
@@ -61,4 +62,6 @@ spec:
 {{ tpl (.Files.Get "packages/sonarqube/configure-job.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
+
 {{- end }}

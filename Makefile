@@ -21,7 +21,7 @@ endef
 
 help:
 	@printf '%s\n' \
-	  'make bootstrap  Provision infrastructure and Argo CD only' \
+	  'make bootstrap  Provision AKS, Argo CD and its HTTPS foundations' \
 	  'make up    Provision infrastructure, install packages and wait for health' \
 	  'make down  Remove packages and destroy the disposable platform infrastructure' \
 	  'make plan  Preview bootstrap changes' \
@@ -38,8 +38,11 @@ plan: init
 
 bootstrap: preflight init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
+	$(PYTHON) helm_chart/scripts/cluster.py bootstrap --infra-dir "$(BOOTSTRAP_DIR)"
 
-up: bootstrap
+# Do not run the foundations target first: an existing full root must never be downgraded.
+up: preflight init
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 
 down: preflight init

@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 {{- if eq .Values.cluster.role "management" }}
 # cert-manager must be healthy before ASO requests its internal webhook certificates.
 apiVersion: argoproj.io/v1alpha1
@@ -28,4 +29,6 @@ spec:
 {{ tpl (.Files.Get "packages/azure-service-operator/values.yaml") . | indent 8 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
+
 {{- end }}

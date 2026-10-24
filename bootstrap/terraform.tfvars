@@ -61,6 +61,8 @@ dns = {
 }
 
 argocd = {
+  # Use a fresh label; existing Azure DNS records are not adopted or overwritten.
+  dns_label      = "argocd-management"
   chart_version  = "10.10.5"
   values_file    = "argocd-values.yaml"
   configmap_file = "argocd-configmap.yaml"
@@ -165,7 +167,9 @@ identities = {
   }
 
   argocd = {
-    name = "id-management-argocd"
+    # Use a fresh label; existing Azure DNS records are not adopted or overwritten.
+    dns_label = "argocd-management"
+    name      = "id-management-argocd"
 
     federated_credentials = {
       argocd-application-controller = {

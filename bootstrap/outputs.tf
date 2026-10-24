@@ -13,9 +13,9 @@ output "namespace" {
   value       = module.argocd.namespace
 }
 
-output "port_forward_command" {
-  description = "Run against the management context to access ArgoCD at https://localhost:8080."
-  value       = "kubectl -n ${module.argocd.namespace} port-forward svc/argocd-server 8080:443"
+output "argocd_url" {
+  description = "Argo CD HTTPS endpoint, available after the GitOps foundations reconcile."
+  value       = "https://${local.argocd_hostname}"
 }
 
 output "aks_connection" {
@@ -53,6 +53,7 @@ output "platform_settings" {
     }
 
     runtime = {
+      ARGOCD_HOSTNAME          = local.argocd_hostname
       AZURE_CLIENT_ID          = module.identities["platform"].client_id
       POSTGRES_AZURE_CLIENT_ID = module.identities["postgres"].client_id
       AZURE_DNS_RESOURCE_GROUP = var.dns.zone.resource_group_name

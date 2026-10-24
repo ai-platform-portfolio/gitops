@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 {{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
 # ASO and its namespace credential are ready before Azure resources; the
 # runner init container waits for current-generation Azure Ready conditions.
@@ -29,4 +30,6 @@ spec:
 {{ tpl (.Files.Get "packages/atlantis/azure-resources.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
+
 {{- end }}

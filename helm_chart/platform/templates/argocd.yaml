@@ -1,0 +1,29 @@
+# Expose Argo before enabling application packages.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-route
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "25"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/argocd/networking.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}

@@ -28,11 +28,12 @@ spec:
         manifests: |
 {{ tpl (.Files.Get "packages/external-dns/azure-config.yaml") . | indent 10 }}
           ---
+{{ tpl (.Files.Get "packages/cert-manager/issuer.yaml") . | indent 10 }}
+{{ if eq .Values.profile "full" }}
+          ---
 {{ tpl (.Files.Get "packages/sonarqube/network-policy.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/external-secrets/secret-store.yaml") . | indent 10 }}
-          ---
-{{ tpl (.Files.Get "packages/cert-manager/issuer.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/lgtm/service-account.yaml") . | indent 10 }}
           ---
@@ -58,5 +59,7 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/backstage/network-policy.yaml") . | indent 10 }}
 {{- end }}
+
+{{ end }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}

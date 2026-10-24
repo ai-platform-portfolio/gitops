@@ -9,6 +9,25 @@ Barman at wave 20 and PostgreSQL resources at wave 30. The resource definitions
 and chart values live together in `packages/postgres/`. These remain independent
 Applications so operator health can gate creation of its custom resources.
 
+## Bootstrap and full profiles
+
+`make bootstrap` seeds this chart with `profile: foundations`. It renders exactly
+seven Applications: namespaces (-10), envoy-gateway (0), cert-manager (5),
+configuration (10), gateway and external-dns (20), and argocd-route (25).
+Configuration contains only the Azure DNS settings and ACME DNS-01 issuer.
+No application credentials, databases, observability or federation are installed.
+
+`make up` sets `profile: full` on the same root and adds the remaining packages.
+The default stays `full` for existing roots and workload onboarding. A subsequent
+`make bootstrap` preserves a full root rather than pruning it back to foundations.
+Changing a live full root manually to foundations would prune its application
+packages; use the lifecycle commands for normal operation.
+
+`packages/argocd/` owns the Argo ListenerSet, certificate annotation and HTTPRoutes.
+It adds the gateway label to the existing Argo namespace, with deletion/pruning
+disabled for that namespace. The Helm release and canonical URL remain
+Terraform-owned. See the top-level README for hostname selection and DNS checks.
+
 ## Reading the configuration
 
 | Location | What to look for |
@@ -23,7 +42,7 @@ Applications so operator health can gate creation of its custom resources.
 
 Chart pins, destinations and waves are edited in the Application YAML rather than
 a separate package catalog. `values.yaml` holds only the cluster/Git/runtime
-handoff, the SonarQube preparation flag and optional Atlantis/Backstage GitOps settings.
+handoff, the profile, the SonarQube preparation flag and optional Atlantis/Backstage GitOps settings.
 
 The small `../charts/resources` chart passes manifest YAML through to Argo.
 It lets the root template runtime settings once and supply the resulting resources
@@ -45,6 +64,7 @@ files easier to find.
 | 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
 | 10 | cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
 | 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
+| 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
 | 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials | Backend services are ready |
 | 60 | sonarqube, optional backstage | PostgreSQL roles, databases and consumer credentials are ready |

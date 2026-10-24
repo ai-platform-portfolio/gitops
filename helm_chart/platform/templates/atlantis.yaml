@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 {{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
 {{- include "platform.validateAtlantis" . }}
 # ESO credentials are healthy before starting the management Terraform runner.
@@ -29,4 +30,6 @@ spec:
 {{ tpl (.Files.Get "packages/atlantis/values.yaml") . | indent 8 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}
+
 {{- end }}

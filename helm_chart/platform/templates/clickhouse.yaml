@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 # Install foundational controllers and management onboarding.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -58,3 +59,5 @@ spec:
 {{ tpl (.Files.Get "packages/clickhouse/values.yaml") . | indent 8 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+
+{{- end }}

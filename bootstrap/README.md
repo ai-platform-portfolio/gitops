@@ -16,21 +16,30 @@ platform storage account are looked up; this root owns their new data containers
 Those containers and their contents are deleted on teardown. There is no
 cross-teardown restore or retained-credential store.
 
-Use `make plan` from the repository root to preview bootstrap changes, then
-`make bootstrap` to initialize and apply infrastructure and the Argo CD Helm
-release. This does not seed the platform chart or install its packages.
-Use `make up` later when you want the full platform deployment. Once platform packages are installed, use its
-package cleanup before destroying infrastructure. State uses the external Azure
-Blob backend configured by ignored `backend.local.hcl`; keep backend details and
-private tfvars out of Git. See the
+Run `make plan` from the repository root to preview Terraform changes, then
+`make bootstrap` to initialize/apply infrastructure and install the small GitOps
+foundations profile. This installs Envoy Gateway, cert-manager and ExternalDNS,
+then exposes Argo through its own issuer-annotated ListenerSet and HTTPRoutes.
+It does not deploy databases, observability, federation or application packages.
+Use `make up` later to enable the full platform through the same root Application.
+
+The URL defaults to `https://argocd-management.<platform-domain>`; set the prefix
+with `argocd.dns_label` in ignored local tfvars. Terraform supplies the same URL to
+Argo's ConfigMap and the GitOps route. The lifecycle checks DNS ownership before
+seeding and waits for a current certificate, current Gateway DNS and verified
+HTTPS. Existing unowned exact A/AAAA/CNAME records cause an error instead of being
+adopted. No port forwarding is required. Read the initial admin password locally
+from `argocd-initial-admin-secret`; never commit it or print it in shared logs.
+For Argo CLI access through the HTTPRoute, use `--grpc-web`.
+
+Envoy terminates TLS and forwards HTTP to Argo's ClusterIP service. Argo's namespace
+receives only the shared gateway label from GitOps, with `Prune=false,Delete=false`
+so package cleanup cannot delete its own controller. Terraform retains ownership
+of the Argo Helm release. No duplicate certificate manifest or wildcard certificate
+is created; cert-manager generates the per-host certificate from the ListenerSet.
+
+State uses the external Azure Blob backend configured by ignored
+`backend.local.hcl`; keep backend details and private tfvars out of Git. Use
+`make down` for ordered package cleanup before destroying infrastructure. See the
 [configuration and lifecycle guide](../helm_chart/README.md) for prerequisites,
-backend setup, `make up` and `make down`.
-
-After obtaining cluster credentials, access Argo with:
-
-```sh
-kubectl -n argocd port-forward svc/argocd-server 8080:443
-```
-
-Read the initial password locally from `argocd-initial-admin-secret`; do not
-commit it or print it in logs.
+backend setup and validation.

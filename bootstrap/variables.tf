@@ -87,11 +87,17 @@ variable "argocd" {
   description = "ArgoCD Helm chart and initial values file."
 
   type = object({
+    dns_label           = optional(string, "argocd-management")
     chart_version       = string
     values_file         = string
     configmap_file      = optional(string, "argocd-configmap.yaml")
     identity_components = optional(set(string), ["controller", "server"])
   })
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.argocd.dns_label))
+    error_message = "Argo CD dns_label must be a single lowercase DNS label (1-63 characters)."
+  }
 }
 
 variable "platform" {

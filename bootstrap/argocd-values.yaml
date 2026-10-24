@@ -11,5 +11,9 @@ applicationSet:
 controller:
   replicas: 1
 configs:
+  params:
+    # Envoy terminates public HTTPS; Argo stays on its ClusterIP service.
+    server.insecure: true
+
   cm:
     create: false

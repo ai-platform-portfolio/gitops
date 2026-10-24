@@ -16,6 +16,9 @@ data "azurerm_key_vault" "platform" {
 }
 
 locals {
+  argocd_configmap = yamldecode(file("${path.module}/${var.argocd.configmap_file}"))
+  argocd_hostname  = "${var.argocd.dns_label}.${coalesce(var.platform.domain_name, var.dns.zone.name)}"
+
   role_scopes = {
     dns_zone        = data.azurerm_dns_zone.existing.id
     key_vault       = data.azurerm_key_vault.platform.id
@@ -107,7 +110,10 @@ module "argocd" {
   values = [
     file("${path.module}/${var.argocd.values_file}"),
     yamlencode(merge(
-      { extraObjects = [yamldecode(file("${path.module}/${var.argocd.configmap_file}"))] },
+      { extraObjects = [merge(
+        local.argocd_configmap,
+        { data = merge(local.argocd_configmap.data, { url = "https://${local.argocd_hostname}" }) }
+      )] },
       { for component in var.argocd.identity_components : component => {
         podLabels      = { "azure.workload.identity/use" = "true" }
         serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }

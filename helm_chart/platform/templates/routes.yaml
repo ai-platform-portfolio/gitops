@@ -1,3 +1,4 @@
+{{- if eq .Values.profile "full" }}
 # Networking lives with each exposed application; attach it after backend health.
 # Attach routes only after application backends are healthy.
 apiVersion: argoproj.io/v1alpha1
@@ -43,3 +44,5 @@ spec:
 {{- end }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+
+{{- end }}

@@ -46,3 +46,8 @@ syncPolicy:
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/* Older roots can reconcile the new route before their next Terraform refresh. */}}
+{{- define "platform.argocdHostname" -}}
+{{- default (printf "argocd-management.%s" .Values.runtime.DNS_ZONE) .Values.runtime.ARGOCD_HOSTNAME -}}
+{{- end }}
