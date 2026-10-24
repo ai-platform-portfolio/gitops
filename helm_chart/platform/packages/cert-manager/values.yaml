@@ -12,3 +12,20 @@ serviceAccount:
   annotations:
     azure.workload.identity/client-id: {{ required "runtime.AZURE_CLIENT_ID is required" .Values.runtime.AZURE_CLIENT_ID }}
   name: cert-manager
+
+# Match AKS admission policy so its injected exclusions do not cause Argo drift.
+webhook:
+  validatingWebhookConfiguration:
+    namespaceSelector:
+      matchExpressions:
+        - key: cert-manager.io/disable-validation
+          operator: NotIn
+          values: ["true"]
+
+        - key: control-plane
+          operator: NotIn
+          values: ["true"]
+
+        - key: kubernetes.azure.com/managedby
+          operator: NotIn
+          values: [aks]

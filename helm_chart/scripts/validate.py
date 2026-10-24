@@ -340,6 +340,14 @@ def main():
                     assert any(d['kind'] == 'CustomResourceDefinition'
                                and d['metadata']['name'] == 'objectstores.barmancloud.cnpg.io' for d in docs), 'Barman must expose backup configuration API'
                 if name == 'cert-manager':
+                    webhook = next(d for d in docs if d['kind'] == 'ValidatingWebhookConfiguration')
+                    exclusions = {e['key']: (e['operator'], e['values'])
+                                  for e in webhook['webhooks'][0]['namespaceSelector']['matchExpressions']}
+                    assert exclusions == {
+                        'cert-manager.io/disable-validation': ('NotIn', ['true']),
+                        'control-plane': ('NotIn', ['true']),
+                        'kubernetes.azure.com/managedby': ('NotIn', ['aks']),
+                    }, 'Preserve cert-manager and AKS namespace exclusions to avoid perpetual webhook drift'
                     config = next(d for d in docs if d['kind'] == 'ConfigMap' and 'config.yaml' in d.get('data', {}))
                     settings = yaml.safe_load(config['data']['config.yaml'])
                     assert settings['gatewayAPI'] == {'enabled': True, 'enableListenerSet': True}
