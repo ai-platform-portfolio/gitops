@@ -30,8 +30,7 @@ Run commands from the repository root. To trace PostgreSQL, read
 independently ordered Applications. Other packages follow the same path.
 
 `make up` provisions the management AKS cluster, installs ArgoCD and reconciles
-the platform packages. `make bootstrap` is the equivalent complete-deployment
-command. This is a disposable portfolio deployment: `make down`
+the platform packages. This is a disposable portfolio deployment: `make down`
 removes packages, infrastructure and Terraform-managed data containers.
 Credentials and application data are not restored into the next deployment.
 
@@ -93,23 +92,21 @@ established through federated identity or managed identity.
 
 ```sh
 make plan       # Preview bootstrap infrastructure and Argo CD changes
-make bootstrap  # Apply AKS/Argo and reconcile the full platform
-make up         # Alias for make bootstrap
+make up         # Apply AKS/Argo and reconcile the full platform
 make down
 ```
 
-`make bootstrap` runs Terraform init and apply automatically, creating the
+`make up` runs Terraform init and apply automatically, creating the
 containers, networking, AKS, identities and initial Argo release. It then seeds
 the full platform root, including Envoy Gateway, cert-manager, ExternalDNS,
 databases, observability, federation and enabled application packages.
-`make plan` is a separate preview; `make bootstrap` automatically approves its
+`make plan` is a separate preview; `make up` automatically approves its
 apply and does not consume a saved plan file.
 
-`make up` is an alias for this same complete deployment. The lifecycle prepares
+The lifecycle prepares
 Kubernetes Secrets, waits for PostgreSQL, copies its current CA for SonarQube and
 enables the remaining packages. Existing Secrets are reused during repeated
-`make up` runs
-so encryption keys and passwords stay stable within the cluster. Missing
+`make up` runs so encryption keys and passwords stay stable within the cluster. Missing
 credentials beside existing volumes cause an error rather than rotating keys.
 
 Teardown disables automated sync and terminates active root operations before

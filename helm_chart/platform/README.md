@@ -11,7 +11,7 @@ Applications so operator health can gate creation of its custom resources.
 
 ## Installation
 
-`make bootstrap` (or its alias `make up`) applies Terraform and seeds this complete
+`make up` applies Terraform and seeds this complete
 chart as one local root Application. All standard packages are installed; optional
 Atlantis and Backstage packages follow their existing enablement settings. There
 is no foundations-only profile.

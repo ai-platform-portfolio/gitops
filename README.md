@@ -41,28 +41,22 @@ Preview the Terraform infrastructure and initial Argo CD installation
 make plan
 ```
 
-Apply bootstrap when you are ready:
-
-```sh
-make bootstrap
-```
-
-Both commands initialize Terraform automatically and use the authenticated Azure
-CLI account context. There is no separate `terraform init` or environment-variable
-setup to run. `make bootstrap` automatically approves Terraform apply; it computes
-its plan at apply time rather than consuming a saved plan from `make plan`.
-
-`make bootstrap` creates networking, AKS, managed identities, disposable application
-data containers and the Argo CD Helm release. It then seeds the full platform
-chart into Argo CD, prepares application credentials and waits for reconciliation.
-Envoy Gateway, cert-manager, ExternalDNS, databases, observability and the enabled
-applications are included. Packages configured as disabled remain disabled.
-
-`make up` is an alias for the same complete deployment:
+Deploy the full platform when you are ready:
 
 ```sh
 make up
 ```
+
+Both commands initialize Terraform automatically and use the authenticated Azure
+CLI account context. There is no separate `terraform init` or environment-variable
+setup to run. `make up` automatically approves Terraform apply; it computes
+its plan at apply time rather than consuming a saved plan from `make plan`.
+
+`make up` creates networking, AKS, managed identities, disposable application
+data containers and the Argo CD Helm release. It then seeds the full platform
+chart into Argo CD, prepares application credentials and waits for reconciliation.
+Envoy Gateway, cert-manager, ExternalDNS, databases, observability and the enabled
+applications are included. Packages configured as disabled remain disabled.
 
 There is no foundations profile or separate ingress deployment step. Configure
 packages in `helm_chart/platform/` before applying. SonarQube SSO and application

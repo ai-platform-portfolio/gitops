@@ -7,7 +7,7 @@ LOCAL_TFVARS := $(shell if test -f "$(BOOTSTRAP_DIR)/local.tfvars"; then printf 
 TFVARS ?= $(BOOTSTRAP_DIR)/$(if $(LOCAL_TFVARS),local,terraform).tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
-.PHONY: help init plan bootstrap up down validate preflight
+.PHONY: help init plan up down validate preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -21,7 +21,6 @@ endef
 
 help:
 	@printf '%s\n' \
-	  'make bootstrap  Provision AKS, Argo CD and the full platform' \
 	  'make up    Provision infrastructure, install packages and wait for health' \
 	  'make down  Remove packages and destroy the disposable platform infrastructure' \
 	  'make plan  Preview bootstrap changes' \
@@ -36,12 +35,9 @@ init:
 plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")
 
-bootstrap: preflight init
+up: preflight init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
-
-# Alias for the same complete deployment.
-up: bootstrap
 
 down: preflight init
 	$(PYTHON) helm_chart/scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)"
