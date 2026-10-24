@@ -129,13 +129,16 @@ module "identities" {
 
 # Microsoft Graph application registration for the Terraform-owned Argo install.
 module "argocd_sso" {
-  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-application?ref=04eae2f7d5289372f40814b2d3d5c39ba47aa0d8"
+  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-application?ref=35bb1d0369774533ce229a569335aa06977dece5"
   display_name = var.argocd.sso.display_name
   owners       = [data.azurerm_client_config.current.object_id]
 
   group_membership_claims     = ["SecurityGroup"]
-  web_redirect_uris           = ["https://${local.argocd_hostname}/auth/callback"]
   public_client_redirect_uris = ["http://localhost:8085/auth/callback"]
+
+  web = {
+    redirect_uris = ["https://${local.argocd_hostname}/auth/callback"]
+  }
 
   federated_credentials = {
     argocd-server = {
