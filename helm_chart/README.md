@@ -36,11 +36,11 @@ Credentials and application data are not restored into the next deployment.
 
 ## Configuration
 
-Copy `bootstrap/terraform.tfvars` to ignored `bootstrap/local.tfvars`. Complete
-the AKS version, Entra admin-group owners/members, public API CIDRs and service
-references.
-Make selects the local file when present; `TFVARS=/path/to/settings.tfvars`
-overrides it. Keep private values and Terraform state out of Git.
+Review the tracked `bootstrap/terraform.tfvars` deployment configuration and
+complete its API allowlist. Make always uses this file unless you explicitly pass
+`TFVARS=/path/to/settings.tfvars`; no local filename takes priority. Principal IDs,
+resource names, API CIDRs and email are configuration metadata. Credentials,
+private keys, backend configuration and Terraform state stay out of Git.
 
 - `azure`, `network`, `aks`, `dns`: management infrastructure and the existing DNS zone.
   `aks.admin_group` creates a bootstrap-owned Entra security group with explicit

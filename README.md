@@ -15,25 +15,30 @@ Run the commands below from this repository's root directory. Install Terraform
 >=1.5, Azure CLI, kubectl, kubelogin and Python 3. Authenticate with Azure CLI and
 select the intended subscription.
 
-Prepare these ignored local configuration files:
+Review the deployment configuration and configure the state backend:
 
-1. Copy `bootstrap/terraform.tfvars` to `bootstrap/local.tfvars` and complete the
-   deployment inputs, including AKS version, admin-group owners/members, API CIDRs,
-   existing DNS zone, Key Vault and platform storage account references.
+1. Review `bootstrap/terraform.tfvars`, including the AKS version, admin-group
+   owners/members, API CIDRs and existing Azure resource references. This tracked
+   file is the deployment configuration; complete the API allowlist before use.
 2. Create `bootstrap/backend.local.hcl` for the existing Azure Blob Terraform
    state backend. Use the example in the
    [configuration guide](helm_chart/README.md#remote-terraform-state).
 
 Terraform creates the Entra security group described by `aks.admin_group` and
 passes its object ID directly to AKS. Set explicit owner and member object IDs in
-local tfvars; group ownership alone does not grant cluster access. The bootstrap
+`bootstrap/terraform.tfvars`; group ownership alone does not grant cluster access. The bootstrap
 caller needs Microsoft Graph permissions to manage that group. No Azure role
 assignments are granted to it. The group and its managed memberships are removed
 with this disposable cluster on `make down`.
 
-Make automatically selects `bootstrap/local.tfvars` when present. Override paths
-with `TFVARS=/path/to/settings.tfvars`, `BACKEND_CONFIG=/path/to/backend.hcl` or
-`BOOTSTRAP_DIR=/path/to/bootstrap`. Keep private values and state out of Git.
+Make uses `bootstrap/terraform.tfvars`. To select another environment explicitly,
+set `TFVARS=/path/to/settings.tfvars`; files named `local.tfvars` have no special
+priority. Override the backend or root with `BACKEND_CONFIG=/path/to/backend.hcl`
+or `BOOTSTRAP_DIR=/path/to/bootstrap`.
+
+Principal IDs, API CIDRs, resource names and the ACME email are environment
+metadata, so they can live in the tracked deployment configuration. Credentials,
+private keys, Terraform state and backend configuration stay out of Git.
 
 The initial portfolio configuration uses one Standard_D4s_v5 system node and one
 Standard_D4s_v5 application node. See the configuration guide for prerequisites
@@ -73,9 +78,8 @@ as Backstage have their own prerequisites.
 ## Argo CD HTTPS access
 
 The URL is `https://<argocd.dns_label>.<dns.zone.name>`, using the two explicit
-values in tfvars. The example produces
-`https://argocd-management.dev.michaelalinks.com`. Set the same required keys in
-your ignored local tfvars. The lifecycle prints the URL after
+values in `bootstrap/terraform.tfvars`. The configured URL is
+`https://argocd-management.dev.michaelalinks.com`. The lifecycle prints the URL after
 the certificate is ready, DNS resolves to the current Gateway and an HTTPS health
 check succeeds with normal certificate verification. The configured ACME email
 must be real, and the existing bootstrap identity needs its DNS-zone role and

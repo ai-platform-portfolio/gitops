@@ -87,10 +87,10 @@ Applications for Loki, Grafana, Tempo and Mimir. Other packages keep their own
 values files. ClickHouse operator/database and CNPG operator/Barman/database keep
 separate Applications and waves even when their templates share a file.
 
-Runtime values come from Terraform outputs and authenticated account context,
-not checked-in deployment identifiers. Private deployment inputs remain in
-ignored tfvars. Credentials are Kubernetes Secrets reused within the running
-cluster. Application data and backup containers are disposable on teardown.
+Runtime values come from Terraform outputs and authenticated account context.
+Deployment metadata lives in the tracked `bootstrap/terraform.tfvars`; tenant and
+subscription context stays outside it. Credentials are Kubernetes Secrets reused
+within the running cluster. Application data and backup containers are disposable on teardown.
 
 [Azure Service Operator](packages/azure-service-operator/README.md) describes its
 namespace credentials, Azure ownership boundary and consumer lifecycle.

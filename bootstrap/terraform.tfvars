@@ -1,4 +1,5 @@
-# Complete the REPLACE values before use. Account identity comes from the Azure CLI session.
+# Deployment configuration: environment metadata belongs here, credentials do not.
+# Set the API allowlist before deployment; authentication comes from the caller.
 azure = {
   location            = "uksouth"
   resource_group_name = "rg-management"
@@ -29,15 +30,14 @@ network = {
 
 aks = {
   name = "aks-management"
-  # Set actual values in ignored bootstrap/local.tfvars. The Makefile passes that
-  # file with -var-file when present; override it with TFVARS=/path/to/settings.tfvars.
-  kubernetes_version = "REPLACE_WITH_SUPPORTED_VERSION"
+  # API access must include the operator/runner's public CIDR before plan/apply.
+  kubernetes_version = "1.36.5"
 
   admin_group = {
     display_name = "aks-platform-admins"
     description  = "Administrators of the management AKS cluster."
-    owners       = ["REPLACE_WITH_GROUP_OWNER_OBJECT_ID"]
-    members      = ["REPLACE_WITH_ADMIN_MEMBER_OBJECT_ID"]
+    owners       = ["13d45074-e2b1-4c98-9c95-e246f2abb575"]
+    members      = ["13d45074-e2b1-4c98-9c95-e246f2abb575"]
   }
 
   authorized_ip_ranges = ["REPLACE_WITH_YOUR_PUBLIC_IP/32"]
@@ -76,21 +76,21 @@ argocd = {
 platform = {
   cluster_name               = "management"
   cluster_role               = "management"
-  sonarqube_sso_display_name = "REPLACE_WITH_ENTRA_SAML_APP_NAME"
-  acme_email                 = "REPLACE_WITH_ACME_EMAIL"
+  sonarqube_sso_display_name = "portfolio-sonarqube"
+  acme_email                 = "michaelalinks@gmail.com"
 
   key_vault = {
-    name                = "REPLACE_WITH_KEY_VAULT_NAME"
+    name                = "localdevenv"
     resource_group_name = "kubernetes"
   }
 
   storage = {
-    account_name        = "REPLACE_WITH_PLATFORM_STORAGE_ACCOUNT"
+    account_name        = "mlinkslgtmdevpg"
     resource_group_name = "kubernetes"
 
     containers = {
       postgres = {
-        name = "postgres-backups"
+        name = "management-postgres-backups"
       }
       loki_chunks = {
         name = "management-loki-chunks"

@@ -3,8 +3,7 @@
 
 BOOTSTRAP_DIR ?= $(CURDIR)/bootstrap
 TERRAFORM ?= terraform
-LOCAL_TFVARS := $(shell if test -f "$(BOOTSTRAP_DIR)/local.tfvars"; then printf yes; fi)
-TFVARS ?= $(BOOTSTRAP_DIR)/$(if $(LOCAL_TFVARS),local,terraform).tfvars
+TFVARS ?= $(BOOTSTRAP_DIR)/terraform.tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
 .PHONY: help init plan up down validate preflight
