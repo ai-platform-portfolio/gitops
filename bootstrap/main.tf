@@ -54,8 +54,10 @@ module "aks_admin_group" {
   source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-group?ref=3e883abf9680cf033fae533a1883d64341bde7ef"
   display_name = var.aks.admin_group.display_name
   description  = var.aks.admin_group.description
-  owners       = [data.azurerm_client_config.current.object_id]
-  members      = var.aks.admin_group.members
+
+  # Ownership manages the group; membership authorizes the initial Argo install.
+  owners  = [data.azurerm_client_config.current.object_id]
+  members = [data.azurerm_client_config.current.object_id]
 }
 
 module "aks" {

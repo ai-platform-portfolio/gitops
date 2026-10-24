@@ -36,7 +36,6 @@ aks = {
   admin_group = {
     display_name = "aks-platform-admins"
     description  = "Administrators of the management AKS cluster."
-    members      = ["13d45074-e2b1-4c98-9c95-e246f2abb575"]
   }
 
   authorized_ip_ranges = ["REPLACE_WITH_YOUR_PUBLIC_IP/32"]

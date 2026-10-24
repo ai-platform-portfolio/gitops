@@ -33,7 +33,6 @@ variable "aks" {
     admin_group = object({
       display_name = string
       description  = string
-      members      = set(string)
     })
 
     authorized_ip_ranges = list(string)
@@ -52,11 +51,6 @@ variable "aks" {
       os_disk_size_gb = optional(number, 64)
     }))
   })
-
-  validation {
-    condition     = length(var.aks.admin_group.members) > 0
-    error_message = "Configure at least one member of the AKS administrator group."
-  }
 }
 
 variable "dns" {
