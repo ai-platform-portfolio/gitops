@@ -203,6 +203,7 @@ def main():
         assert waves['routes'] > waves['sonarqube'], 'Activate routes after backend health'
         assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
         assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
+        assert waves['cert-manager'] < waves['clickhouse-operator'] < waves['clickhouse'], 'ClickHouse webhook certificates require cert-manager before the operator and database'
 
 
         # Exercise the opt-in package separately so default package ownership

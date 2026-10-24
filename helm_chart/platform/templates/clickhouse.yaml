@@ -1,4 +1,4 @@
-# Install foundational controllers and management onboarding.
+# The operator webhook certificate requires cert-manager and its CRDs.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -7,7 +7,7 @@ metadata:
   labels:
     platform.ai-platform-portfolio/managed: "true"
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 
