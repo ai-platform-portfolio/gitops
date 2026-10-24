@@ -94,3 +94,10 @@ NSGs for the public gateway load balancer. Azure evaluates subnet and NIC NSGs;
 AKS's managed NIC rules cannot override a subnet deny. The load balancer uses
 backend ports 80/443, so the NodePort range is not opened. The private-endpoint
 subnet has no public ingress rule. Kubernetes API restrictions remain separate.
+
+Argo uses server-side diff: it asks the Kubernetes API to dry-run the desired
+resource before comparing it with the live object. This accounts for CRD defaults,
+including Gateway API route matches and backend/certificate references, without
+copying those defaults into every manifest. This setting controls comparison;
+normal synchronization still uses server-side apply. The chart rolls the
+application controller when command parameters change.

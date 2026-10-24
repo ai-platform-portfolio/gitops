@@ -55,6 +55,7 @@ def main():
         disabled = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'atlantis' not in {app['metadata']['name'] for app in disabled}, 'Atlantis must be opt-in'
         assert bootstrap_values['configs']['params']['server.insecure'] is True
+        assert bootstrap_values['configs']['params']['controller.diff.server.side'] is True, 'API-defaulted CRDs require server-side diff'
         assert bootstrap_values['server']['service']['type'] == 'ClusterIP'
         for label, overrides in {
             'app-id': {'github_app_id': ''},
