@@ -41,7 +41,7 @@ aks = {
 
   system_node_pool = {
     subnet_key = "snet-aks-system-management"
-    vm_size    = "Standard_D4s_v5"
+    vm_size    = "Standard_D4as_v4"
     node_count = 1
   }
 
@@ -49,7 +49,7 @@ aks = {
     platform = {
       subnet_key = "snet-aks-user-management"
       # Start small for the portfolio; increase capacity when measured usage requires it.
-      vm_size    = "Standard_D4s_v5"
+      vm_size    = "Standard_D4as_v4"
       node_count = 1
     }
   }

@@ -42,10 +42,12 @@ Principal IDs, resource names and the ACME email are environment metadata, so
 they can live in the tracked deployment configuration. Credentials,
 private keys, Terraform state and backend configuration stay out of Git.
 
-The initial portfolio configuration uses one Standard_D4s_v5 system node and one
-Standard_D4s_v5 application node. The region needs at least 8 vCPUs of Dsv5
-family quota for these two nodes; a successful Terraform plan does not check or
-reserve that quota. See the configuration guide for prerequisites and limits.
+The initial portfolio configuration uses one Standard_D4as_v4 system node and one
+Standard_D4as_v4 application node (4 vCPUs / 16 GiB each). This uses 8 of the
+18 already available Dasv4-family vCPUs in UK South. Both the regional total and
+VM-family quota must cover the deployment and upgrade surge nodes. Quota and SKU
+eligibility were checked; physical capacity is allocated only at deployment.
+See the configuration guide for prerequisites and limits.
 
 The AKS API is public and restricted by the CIDRs in the existing Key Vault secret
 named by `aks.authorized_ip_ranges_secret`. The secret contains a JSON array of

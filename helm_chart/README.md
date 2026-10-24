@@ -60,8 +60,8 @@ private keys, backend configuration and Terraform state stay out of Git.
   `dns_label` for its HTTPS hostname, combined directly with `dns.zone.name`.
   The label and ConfigMap filename are required inputs specified in tfvars.
 
-The initial configuration uses one Standard_D4s_v5 system node and one
-Standard_D4s_v5 application node. PostgreSQL and its pooler each use one instance;
+The initial configuration uses one Standard_D4as_v4 system node and one
+Standard_D4as_v4 application node. PostgreSQL and its pooler each use one instance;
 there is no synchronous standby requirement. This is a non-HA portfolio starting
 point; measure usage before scaling. Use a supported Kubernetes 1.34–1.36 release
 for the pinned CNPG operator.
