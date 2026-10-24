@@ -20,3 +20,8 @@ Object storage containers are Terraform-managed and disposable. Grafana and
 working data use PVCs. This is a small portfolio configuration, not a validated
 production capacity profile. Kubernetes collection lives in `../k8s-monitoring/`;
 application OTLP collection lives in `../opentelemetry/`.
+
+AKS adds its control-plane namespace exclusions to the rollout-operator webhooks.
+The shared Application diff rule normalizes only that exact expression array;
+the existing `lgtm` namespace label selector and webhook failure policies remain
+under GitOps comparison.
