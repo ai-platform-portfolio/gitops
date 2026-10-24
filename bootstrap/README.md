@@ -19,8 +19,8 @@ cross-teardown restore or retained-credential store.
 Use `make plan` from the repository root to preview bootstrap changes, then
 `make bootstrap` to initialize and apply infrastructure and the Argo CD Helm
 release. This does not seed the platform chart or install its packages.
-Use `make up` later when you want the full platform deployment. Once platform packages are installed, use its
-package cleanup before destroying infrastructure. State uses the external Azure
+Use `make up` later when you want the full platform deployment. Once platform
+packages are installed, use its package cleanup before destroying infrastructure. State uses the external Azure
 Blob backend configured by ignored `backend.local.hcl`; keep backend details and
 private tfvars out of Git. See the
 [configuration and lifecycle guide](../helm_chart/README.md) for prerequisites,
