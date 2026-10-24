@@ -139,5 +139,5 @@ Sources: [release](https://github.com/Azure/azure-service-operator/releases/tag/
 
 The Application ignores only the exact two namespace exclusions AKS adds to its
 webhooks (`control-plane=true` and `kubernetes.azure.com/managedby=aks`). The pinned
-chart has no selector setting. Additional or changed selector expressions still
+chart has no selector setting. Namespace labels remain compared. Additional or changed selector expressions still
 produce drift; webhook rules and failure policy remain compared normally.
