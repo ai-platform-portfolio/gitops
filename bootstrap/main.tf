@@ -47,7 +47,7 @@ resource "azurerm_storage_container" "platform" {
 }
 
 module "network" {
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=94b337bc3eaaf50d4b0936a965970e78906b9e46"
   name                = var.network.name
   resource_group_name = azurerm_resource_group.this.name
   location            = var.azure.location

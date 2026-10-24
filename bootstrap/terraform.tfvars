@@ -18,9 +18,39 @@ network = {
   subnets = {
     snet-aks-system-management = {
       address_prefixes = ["10.1.0.0/24"]
+
+      # AKS also filters traffic through its managed NIC NSG.
+      security_rules = {
+        public-web = {
+          description                = "Allow public HTTP/S load balancer traffic"
+          priority                   = 100
+          direction                  = "Inbound"
+          access                     = "Allow"
+          protocol                   = "Tcp"
+          source_port_range          = "*"
+          destination_port_ranges    = ["80", "443"]
+          source_address_prefix      = "Internet"
+          destination_address_prefix = "*"
+        }
+      }
     }
     snet-aks-user-management = {
       address_prefixes = ["10.1.1.0/24"]
+
+      # AKS also filters traffic through its managed NIC NSG.
+      security_rules = {
+        public-web = {
+          description                = "Allow public HTTP/S load balancer traffic"
+          priority                   = 100
+          direction                  = "Inbound"
+          access                     = "Allow"
+          protocol                   = "Tcp"
+          source_port_range          = "*"
+          destination_port_ranges    = ["80", "443"]
+          source_address_prefix      = "Internet"
+          destination_address_prefix = "*"
+        }
+      }
     }
     snet-pe-management = {
       address_prefixes = ["10.1.2.0/27"]
