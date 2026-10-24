@@ -20,3 +20,11 @@ configs:
 
   cm:
     create: false
+
+  rbac:
+    # Terraform fills the group ID from the group module output.
+    # Authentication alone grants no application permissions.
+    policy.default: ""
+    policy.csv: |
+      g, ${admin_group_id}, role:admin
+    scopes: '[groups]'

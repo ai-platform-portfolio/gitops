@@ -128,8 +128,11 @@ Argo authenticates its OIDC code exchange using the server's existing projected
 service-account token and a dedicated Entra application federation. There is no
 client secret to rotate or store in Terraform state. The server keeps its existing
 managed-identity annotation for management-to-child Kubernetes authentication.
-Entra applications use Microsoft Graph rather than ASO's ARM APIs, so this app,
-its service principal and federation belong to the Terraform-owned Argo bootstrap.
+Entra applications use Microsoft Graph rather than ASO's ARM APIs. Bootstrap
+calls the Terraform library's `entra-application` module for this app, its service
+principal and federation. OIDC settings live in the commented
+`bootstrap/argocd-configmap.yaml` template; RBAC lives in `argocd-values.yaml`.
+Terraform fills their deployment placeholders from module outputs and context.
 The tenant is resolved from authenticated provider context and is not published
 as an output or tracked deployment value.
 

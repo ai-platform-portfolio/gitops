@@ -5,7 +5,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  # Terraform adds the canonical HTTPS URL using the bootstrap DNS label/domain.
+  # Terraform fills the URL and OIDC placeholders below from bootstrap outputs.
   name: argocd-cm
   namespace: argocd
   labels:
@@ -17,8 +17,22 @@ data:
   admin.enabled: "true"
   users.anonymous.enabled: "false"
 
-  # Terraform supplies oidc.config from the Entra application and provider context;
-  # no client secret is created. Argo exchanges its projected Kubernetes token.
+  # The template inputs come from authenticated context and the Entra module.
+  # jsonencode keeps injected strings valid YAML. No client secret is created.
+  url: ${jsonencode(argocd_url)}
+  oidc.config: |
+    name: Microsoft Entra ID
+    issuer: ${jsonencode(sso_issuer)}
+    clientID: ${jsonencode(sso_client_id)}
+    azure:
+      useWorkloadIdentity: true
+    requestedScopes:
+      - openid
+      - profile
+      - email
+    requestedIDTokenClaims:
+      groups:
+        essential: true
 
   # Propagate a child Application's health to the parent only after Argo has
   # synced its current source/values. Old Healthy status must not release the

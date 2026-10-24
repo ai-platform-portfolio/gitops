@@ -7,9 +7,13 @@ clusters have independent roots. Inputs belong in tfvars; declarations stay in
 `variables.tf`, resource lookups and scope aliases in `main.tf`, authentication
 in `provider.tf`.
 
-`argocd-values.yaml` holds deployment settings. `argocd-configmap.yaml` is the
-actual commented Argo resource installed by the same Helm release. The module
-adds the managed identity's client ID to the configured Argo service accounts.
+`argocd-values.yaml` holds deployment settings and group RBAC.
+`argocd-configmap.yaml` is the actual commented Argo resource, including OIDC,
+installed by the same Helm release. Terraform renders both templates, supplying
+only the admin group, canonical URL and Entra context. The `entra-application`
+library module creates the SSO application, service principal and federation.
+The Argo module adds the existing managed identity's client ID to the configured
+service accounts; SSO does not replace that identity. See [sign-in and validation](../README.md#argo-cd-sign-in).
 
 Azure CLI supplies authenticated account context. Tenant/subscription identifiers
 are used internally without Terraform outputs. Existing DNS, Key Vault and the

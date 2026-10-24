@@ -23,8 +23,14 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
 }
 
 locals {
-  argocd_configmap = yamldecode(file("${path.module}/${var.argocd.configmap_file}"))
-  argocd_hostname  = "${var.argocd.dns_label}.${var.dns.zone.name}"
+  argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
+
+  # The ConfigMap remains readable YAML; Terraform fills only deployment context.
+  argocd_configmap = yamldecode(templatefile("${path.module}/${var.argocd.configmap_file}", {
+    argocd_url    = "https://${local.argocd_hostname}"
+    sso_issuer    = sensitive("https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0")
+    sso_client_id = module.argocd_sso.client_id
+  }))
 
   role_scopes = {
     dns_zone        = data.azurerm_dns_zone.existing.id
@@ -121,35 +127,32 @@ module "identities" {
   tags = var.azure.tags
 }
 
+# Microsoft Graph application registration for the Terraform-owned Argo install.
+module "argocd_sso" {
+  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-application?ref=04eae2f7d5289372f40814b2d3d5c39ba47aa0d8"
+  display_name = var.argocd.sso.display_name
+  owners       = [data.azurerm_client_config.current.object_id]
+
+  group_membership_claims     = ["SecurityGroup"]
+  web_redirect_uris           = ["https://${local.argocd_hostname}/auth/callback"]
+  public_client_redirect_uris = ["http://localhost:8085/auth/callback"]
+
+  federated_credentials = {
+    argocd-server = {
+      issuer  = module.aks.oidc_issuer_url
+      subject = "system:serviceaccount:argocd:argocd-server"
+    }
+  }
+}
+
 module "argocd" {
   source        = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/argocd-bootstrap?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
   chart_version = var.argocd.chart_version
 
   values = [
-    file("${path.module}/${var.argocd.values_file}"),
+    templatefile("${path.module}/${var.argocd.values_file}", { admin_group_id = module.aks_admin_group.object_id }),
     yamlencode(merge(
-      { extraObjects = [merge(
-        local.argocd_configmap,
-        { data = merge(local.argocd_configmap.data, {
-          url = "https://${local.argocd_hostname}"
-          "oidc.config" = yamlencode({
-            name            = "Microsoft Entra ID"
-            issuer          = sensitive("https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0")
-            clientID        = azuread_application.argocd.client_id
-            azure           = { useWorkloadIdentity = true }
-            requestedScopes = ["openid", "profile", "email"]
-            requestedIDTokenClaims = {
-              groups = { essential = true }
-            }
-          })
-        }) }
-      )] },
-      { configs = { rbac = {
-        # Authentication alone grants no application permissions.
-        "policy.default" = ""
-        "policy.csv"     = "g, ${module.aks_admin_group.object_id}, role:admin"
-        scopes           = "[groups]"
-      } } },
+      { extraObjects = [local.argocd_configmap] },
       { for component in var.argocd.identity_components : component => {
         podLabels      = { "azure.workload.identity/use" = "true" }
         serviceAccount = { annotations = { "azure.workload.identity/client-id" = module.identities["argocd"].client_id } }
@@ -157,5 +160,5 @@ module "argocd" {
     ))
   ]
 
-  depends_on = [module.aks, azuread_service_principal.argocd, azuread_application_federated_identity_credential.argocd]
+  depends_on = [module.aks, module.argocd_sso]
 }
