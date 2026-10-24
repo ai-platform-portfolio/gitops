@@ -100,7 +100,7 @@ variable "identities" {
 }
 
 variable "argocd" {
-  description = "ArgoCD Helm chart and initial values file."
+  description = "Argo CD chart, initial configuration and Entra SSO application."
 
   type = object({
     dns_label           = string
@@ -108,7 +108,16 @@ variable "argocd" {
     values_file         = string
     configmap_file      = string
     identity_components = optional(set(string), ["controller", "server"])
+
+    sso = object({
+      display_name = string
+    })
   })
+
+  validation {
+    condition     = contains(var.argocd.identity_components, "server")
+    error_message = "Argo SSO requires workload identity on the server component."
+  }
 
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.argocd.dns_label))

@@ -5,13 +5,35 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  # Terraform adds the canonical HTTPS URL using the bootstrap DNS label/domain.
+  # Terraform fills the URL and OIDC placeholders below from bootstrap outputs.
   name: argocd-cm
   namespace: argocd
   labels:
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/part-of: argocd
 data:
+  # Keep local recovery login during SSO rollout. Disable only after verifying
+  # Entra login and group-based Argo permissions with an administrator account.
+  admin.enabled: "true"
+  users.anonymous.enabled: "false"
+
+  # The template inputs come from authenticated context and the Entra module.
+  # jsonencode keeps injected strings valid YAML. No client secret is created.
+  url: ${jsonencode(argocd_url)}
+  oidc.config: |
+    name: Microsoft Entra ID
+    issuer: ${jsonencode(sso_issuer)}
+    clientID: ${jsonencode(sso_client_id)}
+    azure:
+      useWorkloadIdentity: true
+    requestedScopes:
+      - openid
+      - profile
+      - email
+    requestedIDTokenClaims:
+      groups:
+        essential: true
+
   # Propagate a child Application's health to the parent only after Argo has
   # synced its current source/values. Old Healthy status must not release the
   # next wave while changed configuration is still being reconciled.
