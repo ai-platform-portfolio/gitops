@@ -1,3 +1,46 @@
+apiVersion: azuread.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: platform
+spec:
+  credentials:
+    source: OIDCTokenFile
+  clientID: {{ required "runtime.CROSSPLANE_CLIENT_ID is required" .Values.runtime.CROSSPLANE_CLIENT_ID | quote }}
+  tenantID: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  # Own this projection rather than depending on an AKS webhook mount path.
+  oidcTokenFilePath: /var/run/secrets/crossplane/azure/token
+---
+# A namespaced API combines a registration, principal and connection Secret.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: oidcapplications.identity.platform.ai-platform-portfolio
+spec:
+  scope: Namespaced
+  group: identity.platform.ai-platform-portfolio
+  names:
+    kind: OIDCApplication
+    plural: oidcapplications
+  defaultCompositionRef:
+    name: entra-oidc
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [displayName, redirectUri, tenantId, ownerId, credentialValidityDays]
+              properties:
+                displayName: { type: string, minLength: 1 }
+                redirectUri: { type: string, pattern: '^https://' }
+                tenantId: { type: string, minLength: 1 }
+                ownerId: { type: string, minLength: 1 }
+                credentialValidityDays: { type: integer, minimum: 30, maximum: 365 }
+---
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:

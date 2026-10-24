@@ -2,7 +2,10 @@
 
 Argo installs Crossplane 2.4.3, AzureAD provider 2.5.0 and the standard
 patch-and-transform function 0.11.1. Only the management cluster installs them.
-There is no Azure ARM provider or SQL provider in this change. ASO keeps ownership
+The three Argo stages share `templates/crossplane.yaml`; separate Applications
+preserve dependency health gates without separate template files. Langfuse
+dependencies share its existing template. There is no Azure ARM provider or SQL
+provider in this change. ASO keeps ownership
 of Azure service dependencies; CloudNativePG keeps ownership of PostgreSQL.
 
 ## Argo and Crossplane ownership
@@ -52,7 +55,8 @@ created, and there is no directory-user write permission.
 
 ## OIDC API and credentials
 
-`definition.yaml` and `composition.yaml` define a small namespaced
+`identity-api.yaml` groups the provider configuration, API definition and
+composition. Together they define a small namespaced
 `OIDCApplication` API. It creates a single-tenant application, a principal requiring
 assignments, a generated password and an aggregated connection Secret in the same
 namespace. The standard function combines the public application client ID and
