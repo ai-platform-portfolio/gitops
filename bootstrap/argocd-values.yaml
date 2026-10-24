@@ -15,5 +15,8 @@ configs:
     # Envoy terminates public HTTPS; Argo stays on its ClusterIP service.
     server.insecure: true
 
+    # Ask the API server to predict defaults when comparing desired/live state.
+    controller.diff.server.side: true
+
   cm:
     create: false

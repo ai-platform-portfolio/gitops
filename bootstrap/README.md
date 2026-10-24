@@ -88,3 +88,10 @@ do not publish raw plan JSON or enable Terraform/provider debug logs for real
 plans/applies. The CI validation workflow uses no Azure credentials and does not
 read this secret. Updating it changes the allowlist at the next plan/apply; the
 existing Key Vault and secret are not deleted with the cluster.
+
+Argo uses server-side diff: it asks the Kubernetes API to dry-run the desired
+resource before comparing it with the live object. This accounts for CRD defaults,
+including Gateway API route matches and backend/certificate references, without
+copying those defaults into every manifest. This setting controls comparison;
+normal synchronization still uses server-side apply. The chart rolls the
+application controller when command parameters change.
