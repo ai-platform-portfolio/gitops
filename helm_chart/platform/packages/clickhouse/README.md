@@ -11,3 +11,7 @@ shared `namespaces` stage.
 
 This standalone release is separate from Langfuse's bundled ClickHouse. Its
 cluster-local data is disposable and is not covered by the CNPG backup schedule.
+
+The shared Application policy normalizes AKS's exact webhook namespace exclusions,
+which are absent from the operator chart. Other selector and webhook changes
+remain visible to Argo.

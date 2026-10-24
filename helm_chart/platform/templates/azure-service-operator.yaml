@@ -18,24 +18,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: azureserviceoperator-system
 
-  # AKS owns these exact exclusions; additional selector changes remain visible.
-  ignoreDifferences:
-    - group: admissionregistration.k8s.io
-      kind: MutatingWebhookConfiguration
-      jqPathExpressions:
-        - >-
-          .webhooks[]?.namespaceSelector | select(. == {"matchExpressions": [
-          {"key": "control-plane", "operator": "NotIn", "values": ["true"]},
-          {"key": "kubernetes.azure.com/managedby", "operator": "NotIn", "values": ["aks"]}]})
-
-    - group: admissionregistration.k8s.io
-      kind: ValidatingWebhookConfiguration
-      jqPathExpressions:
-        - >-
-          .webhooks[]?.namespaceSelector | select(. == {"matchExpressions": [
-          {"key": "control-plane", "operator": "NotIn", "values": ["true"]},
-          {"key": "kubernetes.azure.com/managedby", "operator": "NotIn", "values": ["aks"]}]})
-
   source:
     repoURL: https://raw.githubusercontent.com/Azure/azure-service-operator/main/v2/charts
     chart: azure-service-operator
