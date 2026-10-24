@@ -1,11 +1,12 @@
+{{- $script := tpl (.Files.Get "packages/sonarqube/configure.sh") . -}}
+{{- $definition := .Files.Get "packages/sonarqube/configure-job.yaml" -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sonarqube-configure
+  # A normal Job triggers auto-sync. Hash both the template and rendered script
+  # so any configuration change creates a new Job instead of patching an immutable one.
+  name: sonarqube-configure-{{ printf "%s\n%s" $definition $script | sha256sum | trunc 12 }}
   namespace: sonarqube
-  annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 600
@@ -19,7 +20,7 @@ spec:
         - sh
         - -ec
         - |
-{{ tpl (.Files.Get "packages/sonarqube/configure.sh") . | indent 10 }}
+{{ $script | indent 10 }}
         env:
         - name: ADMIN_PASSWORD
           valueFrom:

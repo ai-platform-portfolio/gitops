@@ -7,7 +7,7 @@ git:
   revision: main
 
 # Filled by scripts/cluster.py from Terraform outputs and authenticated context.
-# Private deployment inputs remain in ignored bootstrap/local.tfvars.
+# Tenant/account context is supplied at runtime, not checked into values.
 runtime: {}
 
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
@@ -45,3 +45,13 @@ backstage:
   image: ''
   imagePullSecrets: []
   egress: []
+
+# Native Microsoft sign-in, owned by the management-cluster AzureAD provider.
+langfuse:
+  sso:
+    enabled: true
+    # Entra object IDs, not email addresses; direct assignments need no group licence.
+    users:
+      portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575
+    credentialValidityDays: 180
+    allowAccountLinking: true

@@ -1,3 +1,27 @@
+variable "entra_applications" {
+  description = "Terraform-owned bootstrap applications, workload federation and explicit Microsoft Graph consent."
+  type = map(object({
+    display_name                = string
+    group_membership_claims     = optional(set(string), [])
+    public_client_redirect_uris = optional(set(string), [])
+    graph_permissions           = optional(set(string), [])
+
+    web = optional(object({
+      redirect_uris = set(string)
+    }))
+
+    federated_credentials = map(object({
+      namespace       = string
+      service_account = string
+    }))
+  }))
+
+  validation {
+    condition     = alltrue([for key in ["argocd", "crossplane"] : contains(keys(var.entra_applications), key)])
+    error_message = "Define the argocd and crossplane bootstrap applications."
+  }
+}
+
 variable "azure" {
   description = "Azure location, resource group and tags; account identity comes from the authenticated context."
 
@@ -100,7 +124,7 @@ variable "identities" {
 }
 
 variable "argocd" {
-  description = "Argo CD chart, initial configuration and Entra SSO application."
+  description = "Argo CD chart and initial configuration."
 
   type = object({
     dns_label           = string
@@ -108,10 +132,6 @@ variable "argocd" {
     values_file         = string
     configmap_file      = string
     identity_components = optional(set(string), ["controller", "server"])
-
-    sso = object({
-      display_name = string
-    })
   })
 
   validation {

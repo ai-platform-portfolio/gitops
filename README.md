@@ -117,7 +117,7 @@ owns the Argo release and its canonical URL. No port forwarding is required.
 ## Argo CD sign-in
 
 Select **LOGIN VIA MICROSOFT ENTRA ID** on the Argo login page. Bootstrap creates
-an Entra application named by `argocd.sso.display_name`, with the public Argo
+an Entra application named by `entra_applications.argocd.display_name`, with the public Argo
 `/auth/callback` URL and the CLI loopback callback. Members of the bootstrap
 `aks.admin_group` receive Argo's built-in `role:admin`; other tenant users can
 complete authentication but receive no Argo permissions. Anonymous access is off.
@@ -128,8 +128,8 @@ Argo authenticates its OIDC code exchange using the server's existing projected
 service-account token and a dedicated Entra application federation. There is no
 client secret to rotate or store in Terraform state. The server keeps its existing
 managed-identity annotation for management-to-child Kubernetes authentication.
-Entra applications use Microsoft Graph rather than ASO's ARM APIs. Bootstrap
-calls the Terraform library's `entra-application` module for this app, its service
+Argo is part of the initial bootstrap, so Terraform
+uses the shared `entra_applications` module call, keyed by the tfvars map, for this app, its service
 principal and federation. OIDC settings live in the commented
 `bootstrap/argocd-configmap.yaml` template; RBAC lives in `argocd-values.yaml`.
 Terraform fills their deployment placeholders from module outputs and context.
@@ -159,6 +159,40 @@ the current password. Disabling local admin later requires a reviewed change to
 Sources: [Argo Entra SSO](https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/microsoft/),
 [Argo RBAC](https://argo-cd.readthedocs.io/en/stable/operator-manual/rbac/),
 [Entra group claims](https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/how-to-connect-fed-group-claims).
+
+## Langfuse and SonarQube sign-in
+
+Both use native Microsoft Entra authentication. After merging service changes,
+run `make up`; there is no separate identity setup command.
+
+| Service | Native provider | Access configuration |
+| --- | --- | --- |
+| [Langfuse](https://langfuse.dev.michaelalinks.com) | Entra OIDC; password login disabled | `langfuse.sso.users` in platform values; currently the portfolio owner |
+| [SonarQube](https://sonarqube.dev.michaelalinks.com) | Entra SAML | Existing enterprise-app assignments; portfolio owner has `portfolio-sonar-admins` |
+
+Argo installs [Crossplane and its AzureAD provider](helm_chart/platform/packages/crossplane/README.md),
+then manages the Langfuse identity request and explicit user assignments.
+Crossplane creates the registration and credential and delivers its connection
+Secret directly to Langfuse. The custom Graph script and Key Vault credential
+bridge are removed. Terraform bootstraps only the federated controller identity
+and its explicit Graph consent; service settings remain in GitOps.
+
+Changing Langfuse assignments requires only a GitOps merge. Credential expiry is
+explicit (180 days); automatic time-based rotation is not configured. Secret
+changes trigger a namespace-scoped web restart. The assigned Entra user must have
+a nonempty profile email; requesting an optional claim does not populate it.
+Sonar's retained SAML registration is reused without a second owner; its normal
+configuration Job applies and verifies SAML settings. No deployment or browser
+login is implied by the PR or CI results.
+
+Entra sign-in does not replace application authorisation. Verify Langfuse
+organisation membership and Sonar group permissions after browser login. The
+Sonar recovery admin remains available; SDK ingestion and scanner token access
+keep their native API authentication.
+
+See [Langfuse authentication and lifecycle](helm_chart/platform/packages/langfuse/README.md)
+and [SonarQube SAML](helm_chart/platform/packages/sonarqube/README.md) for access,
+credentials, permissions, rotation and verification details.
 
 ## Other commands
 

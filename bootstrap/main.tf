@@ -1,5 +1,9 @@
 data "azurerm_client_config" "current" {}
 
+data "azuread_service_principal" "microsoft_graph" {
+  client_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
+}
+
 data "azurerm_dns_zone" "existing" {
   name                = var.dns.zone.name
   resource_group_name = var.dns.zone.resource_group_name
@@ -29,7 +33,7 @@ locals {
   argocd_configmap = yamldecode(templatefile("${path.module}/${var.argocd.configmap_file}", {
     argocd_url    = "https://${local.argocd_hostname}"
     sso_issuer    = sensitive("https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0")
-    sso_client_id = module.argocd_sso.client_id
+    sso_client_id = module.entra_applications["argocd"].client_id
   }))
 
   role_scopes = {
@@ -127,25 +131,47 @@ module "identities" {
   tags = var.azure.tags
 }
 
-# Microsoft Graph application registration for the Terraform-owned Argo install.
-module "argocd_sso" {
+# Bootstrap applications share one library call; their choices live in tfvars.
+module "entra_applications" {
+  for_each     = var.entra_applications
   source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-application?ref=35bb1d0369774533ce229a569335aa06977dece5"
-  display_name = var.argocd.sso.display_name
+  display_name = each.value.display_name
   owners       = [data.azurerm_client_config.current.object_id]
 
-  group_membership_claims     = ["SecurityGroup"]
-  public_client_redirect_uris = ["http://localhost:8085/auth/callback"]
+  group_membership_claims     = each.value.group_membership_claims
+  public_client_redirect_uris = each.value.public_client_redirect_uris
+  web                         = each.value.web
 
-  web = {
-    redirect_uris = ["https://${local.argocd_hostname}/auth/callback"]
-  }
+  federated_credentials = { for name, credential in each.value.federated_credentials : name => {
+    issuer  = module.aks.oidc_issuer_url
+    subject = "system:serviceaccount:${credential.namespace}:${credential.service_account}"
+  } }
 
-  federated_credentials = {
-    argocd-server = {
-      issuer  = module.aks.oidc_issuer_url
-      subject = "system:serviceaccount:argocd:argocd-server"
+  required_resource_access = length(each.value.graph_permissions) == 0 ? {} : {
+    graph = {
+      resource_app_id = data.azuread_service_principal.microsoft_graph.client_id
+      permissions = { for name in each.value.graph_permissions : name => {
+        id   = data.azuread_service_principal.microsoft_graph.app_role_ids[name]
+        type = "Role"
+      } }
     }
   }
+
+  application_permission_grants = { for name in each.value.graph_permissions : name => {
+    resource_principal_id = data.azuread_service_principal.microsoft_graph.object_id
+    app_role_id           = data.azuread_service_principal.microsoft_graph.app_role_ids[name]
+  } }
+}
+
+# Preserve existing registrations when switching to keyed module instances.
+moved {
+  from = module.argocd_sso
+  to   = module.entra_applications["argocd"]
+}
+
+moved {
+  from = module.crossplane_identity
+  to   = module.entra_applications["crossplane"]
 }
 
 module "argocd" {
@@ -163,5 +189,5 @@ module "argocd" {
     ))
   ]
 
-  depends_on = [module.aks, module.argocd_sso]
+  depends_on = [module.aks, module.entra_applications]
 }

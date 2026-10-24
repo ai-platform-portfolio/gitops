@@ -1,5 +1,43 @@
 # Deployment configuration: environment metadata belongs here, credentials do not.
 # The API allowlist comes from Key Vault; authentication comes from the caller.
+entra_applications = {
+  argocd = {
+    display_name                = "portfolio-argocd"
+    group_membership_claims     = ["SecurityGroup"]
+    public_client_redirect_uris = ["http://localhost:8085/auth/callback"]
+
+    web = {
+      # Keep this callback aligned with argocd.dns_label and dns.zone.name below.
+      redirect_uris = ["https://argocd-management.dev.michaelalinks.com/auth/callback"]
+    }
+
+    federated_credentials = {
+      argocd-server = {
+        namespace       = "argocd"
+        service_account = "argocd-server"
+      }
+    }
+  }
+
+  crossplane = {
+    display_name = "portfolio-management-crossplane"
+
+    federated_credentials = {
+      azuread = {
+        namespace       = "crossplane-system"
+        service_account = "provider-azuread"
+      }
+    }
+
+    # Application ownership restricts writes; assignments require tenant-wide consent.
+    graph_permissions = [
+      "Application.ReadWrite.OwnedBy",
+      "Application.Read.All",
+      "AppRoleAssignment.ReadWrite.All",
+    ]
+  }
+}
+
 azure = {
   location            = "uksouth"
   resource_group_name = "rg-management"
@@ -98,10 +136,6 @@ argocd = {
   chart_version  = "10.10.5"
   values_file    = "argocd-values.yaml"
   configmap_file = "argocd-configmap.yaml"
-
-  sso = {
-    display_name = "portfolio-argocd"
-  }
 }
 
 platform = {
