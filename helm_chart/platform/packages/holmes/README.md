@@ -12,7 +12,7 @@ remain unapplied and the AKS cluster is torn down.
 ## Enablement requirements
 
 The bootstrap proposal selects a UK South `gpt-4.1-mini` deployment named
-`holmes` with regional `Standard` processing, a private endpoint and local API
+`chat` with regional `Standard` processing, a private endpoint and local API
 keys disabled. The account name, resource group, endpoint and API version are
 preconfigured in platform values, but must be verified against the actual
 deployed account before enablement. A global deployment is not an equivalent
@@ -26,7 +26,7 @@ and complete these remaining GitOps platform values:
 
 | Value | Requirement |
 | --- | --- |
-| `model` | Preconfigured as `azure/holmes`; verify the deployed name. |
+| `model` | Preconfigured as `azure/chat`; verify the deployed name. |
 | `modelEndpoint` | Preconfigured HTTPS Foundry endpoint; verify private DNS resolution. |
 | `modelApiVersion` | Preconfigured from current Holmes documentation; confirm with a live model request. |
 | `modelCidrs` | Private endpoint address range. |

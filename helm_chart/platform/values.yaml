@@ -16,7 +16,7 @@ sonarqubeReady: false
 # Enable after an approved Azure Foundry deployment and private route are available.
 holmes:
   enabled: false
-  model: azure/holmes
+  model: azure/chat
   modelEndpoint: https://foundry-management-portfolio.cognitiveservices.azure.com/
   modelApiVersion: "2025-04-01-preview"
   modelCidrs: []
