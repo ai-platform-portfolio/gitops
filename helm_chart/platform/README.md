@@ -113,3 +113,10 @@ and application migration systems.
 [Reflector](packages/reflector/README.md) provides annotation-driven Secret and
 ConfigMap replication. Installation alone enables no copies; future sources must
 explicitly restrict destination namespaces.
+
+[DevLake](packages/devlake/README.md) adds free management-only DORA analytics,
+sharing CNPG and Grafana. Crossplane owns Entra; the stable release uses an Envoy
+SSO overlay with retained backend Basic authentication. Credentials at wave 40
+move management Grafana to wave 45; configuration and policy/collection run at
+70/75, before routes and the final policy/certificate readiness Job. No production
+service is inferred from management syncs. Configure service projects in GitOps.

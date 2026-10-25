@@ -198,6 +198,16 @@ See [Langfuse authentication and lifecycle](helm_chart/platform/packages/langfus
 and [SonarQube SAML](helm_chart/platform/packages/sonarqube/README.md) for access,
 credentials, permissions, rotation and verification details.
 
+## Delivery analytics
+
+[Free self-hosted DevLake](helm_chart/platform/packages/devlake/README.md) reuses
+PostgreSQL and Grafana and installs with `make up`. The pinned latest non-beta
+release is v1.0.2. Crossplane supplies Entra resources; Envoy provides an SSO
+overlay while the backend retains Basic authentication. The final route-stage
+Job checks OIDC policy acceptance and certificate readiness. No MySQL, extra
+Grafana, Azure resource or PVC is added. Production projects and source/incident
+data are explicit inputs; bootstrap/management syncs are not production releases.
+
 ## Other commands
 
 | Command | Behavior |
