@@ -14,9 +14,8 @@ runtime: {}
 sonarqubeReady: false
 
 clusterOnboarding:
-  enabled: false
-  # Promote the immutable worker image after its branch build succeeds.
-  image: ""
+  enabled: true
+  image: localacrk8s.azurecr.io/portfolio/cluster-onboarding@sha256:b4a489417000a27b3bcbaac234de04831e1055ae562096eaa7f466784e46a4d3
   vaultResourceGroup: kubernetes
 
 # Empty egress lists deny these destinations until each cluster's addresses are verified.
@@ -34,14 +33,14 @@ holmes:
     foundryResourceGroupName: rg-management
     foundryResourceName: foundry-management-portfolio
 
-# Package choices live in GitOps, not Terraform/tfvars.
-# Enable through a reviewed values change after supplying Key Vault credentials.
+# Package choices live in GitOps, not Terraform/tfvars. Atlantis requires the
+# dedicated App installation and Key Vault credentials before this PR merges.
 atlantis:
-  enabled: false
+  enabled: true
 
-  github_app_id: ""
-  github_app_slug: ""
-  github_team: ""
+  github_app_id: "5471830"
+  github_app_slug: ai-platform-clusters
+  github_team: platform
   repositories:
     - github.com/ai-platform-portfolio/cluster-deployments
 
@@ -52,6 +51,12 @@ atlantis:
     # Map approved existing state/deployment targets to built-in Azure role names.
     # Example entries are documented in packages/atlantis/README.md.
     role_assignments:
+      state:
+        scope: storage_account
+        resource_group_name: claudeaiportfolio
+        storage_account_name: localtfsa
+        role_definition_name: Storage Blob Data Contributor
+
       deployment:
         scope: subscription
         role_definition_name: Contributor
@@ -66,14 +71,13 @@ atlantis:
         key_vault_name: localdevenv
         role_definition_name: Key Vault Secrets User
 
-      # Add the persistent state account's Blob Data Contributor role before enabling.
 
 # Portfolio portal: native Entra identity and an immutable image are required.
 backstage:
   enabled: true
   clusterRequests:
-    enabled: false
-  image: localacrk8s.azurecr.io/portfolio/backstage@sha256:727c30621cf71b903e635aff785952933c913dac4a7ff862f5a1b1fec495b03f
+    enabled: true
+  image: localacrk8s.azurecr.io/portfolio/backstage@sha256:a844cdab82c4cc995a43d532bc110475cef17a9ee2010b361f0b73a915e66602
   imagePullSecrets: []
   credentialValidityDays: 180
   users:
@@ -81,7 +85,36 @@ backstage:
       objectId: 13d45074-e2b1-4c98-9c95-e246f2abb575
       displayName: Michaela Links
       memberOf: [platform-team]
-  egress: []
+  egress:
+    # GitHub /meta API IPv4 ranges, retrieved 2026-10-25. Refresh on change.
+    - to:
+        - ipBlock: {cidr: 192.30.252.0/22}
+        - ipBlock: {cidr: 185.199.108.0/22}
+        - ipBlock: {cidr: 140.82.112.0/20}
+        - ipBlock: {cidr: 143.55.64.0/20}
+        - ipBlock: {cidr: 20.201.28.148/32}
+        - ipBlock: {cidr: 20.205.243.168/32}
+        - ipBlock: {cidr: 20.87.245.6/32}
+        - ipBlock: {cidr: 4.237.22.34/32}
+        - ipBlock: {cidr: 4.228.31.149/32}
+        - ipBlock: {cidr: 20.207.73.85/32}
+        - ipBlock: {cidr: 20.27.177.116/32}
+        - ipBlock: {cidr: 20.200.245.245/32}
+        - ipBlock: {cidr: 20.175.192.149/32}
+        - ipBlock: {cidr: 20.233.83.146/32}
+        - ipBlock: {cidr: 20.29.134.17/32}
+        - ipBlock: {cidr: 20.199.39.228/32}
+        - ipBlock: {cidr: 20.217.135.0/32}
+        - ipBlock: {cidr: 4.225.11.201/32}
+        - ipBlock: {cidr: 20.250.119.72/32}
+        - ipBlock: {cidr: 4.208.26.200/32}
+        - ipBlock: {cidr: 20.26.156.210/32}
+        - ipBlock: {cidr: 172.182.252.137/32}
+        - ipBlock: {cidr: 4.249.131.166/32}
+        - ipBlock: {cidr: 48.202.248.39/32}
+        - ipBlock: {cidr: 48.204.201.2/32}
+      ports:
+        - {protocol: TCP, port: 443}
 
 # Native Microsoft sign-in, owned by each cluster's AzureAD provider.
 langfuse:
