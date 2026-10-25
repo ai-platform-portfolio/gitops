@@ -34,7 +34,7 @@ jobs:
 
       - run: python -m pip install -r helm_chart/cluster-onboarding/requirements.txt
 
-      - run: PYTHONPATH=helm_chart/cluster-onboarding python -m unittest -v test_onboard
+      - run: PYTHONPATH=helm_chart/cluster-onboarding:helm_chart/scripts python -m unittest -v test_onboard
 
       - run: docker build --tag cluster-onboarding:ci --file helm_chart/cluster-onboarding/Dockerfile helm_chart
 
