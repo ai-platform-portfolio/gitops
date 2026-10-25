@@ -5,26 +5,45 @@
     "holmes": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "model", "modelEndpoint", "modelApiVersion", "modelKeyVaultSecret", "modelCidrs", "apiCidrs"],
+      "required": ["enabled", "model", "modelEndpoint", "modelApiVersion", "modelCidrs", "apiCidrs", "entraCidrs", "azure"],
       "properties": {
         "enabled": {"type": "boolean"},
         "model": {"type": "string"},
         "modelEndpoint": {"type": "string"},
         "modelApiVersion": {"type": "string"},
-        "modelKeyVaultSecret": {"type": "string"},
         "modelCidrs": {"$ref": "#/definitions/cidrList"},
-        "apiCidrs": {"$ref": "#/definitions/cidrList"}
+        "apiCidrs": {"$ref": "#/definitions/cidrList"},
+        "entraCidrs": {"$ref": "#/definitions/cidrList"},
+        "azure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["location", "identityResourceGroupName", "foundryResourceGroupName", "foundryResourceName", "asoClientIdSecret"],
+          "properties": {
+            "location": {"type": "string"},
+            "identityResourceGroupName": {"type": "string"},
+            "foundryResourceGroupName": {"type": "string"},
+            "foundryResourceName": {"type": "string"},
+            "asoClientIdSecret": {"type": "string"}
+          }
+        }
       },
       "allOf": [
         {
           "if": {"properties": {"enabled": {"const": true}}},
           "then": {
             "properties": {
-              "model": {"minLength": 1},
+              "model": {"pattern": "^azure/[^\\s]+$"},
               "modelEndpoint": {"pattern": "^https://[^\\s]+$"},
-              "modelKeyVaultSecret": {"minLength": 1},
+              "modelApiVersion": {"minLength": 1},
               "modelCidrs": {"minItems": 1},
-              "apiCidrs": {"minItems": 1}
+              "apiCidrs": {"minItems": 1},
+              "entraCidrs": {"minItems": 1},
+              "azure": {
+                "properties": {
+                  "foundryResourceGroupName": {"minLength": 1},
+                  "foundryResourceName": {"minLength": 1}
+                }
+              }
             }
           }
         }

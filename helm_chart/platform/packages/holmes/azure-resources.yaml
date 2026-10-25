@@ -1,0 +1,67 @@
+{{- $azure := .Values.holmes.azure -}}
+{{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s" $subscription $azure.foundryResourceGroupName $azure.foundryResourceName -}}
+{{- $hash := sha256sum (printf "holmes/%s/%s" .Values.cluster.name $scope) | trunc 32 -}}
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: holmes
+  namespace: holmes
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  azureName: {{ $azure.identityResourceGroupName | quote }}
+  location: {{ $azure.location | quote }}
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: holmes
+  namespace: holmes
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  azureName: id-{{ .Values.cluster.name }}-holmes
+  location: {{ $azure.location | quote }}
+  owner:
+    name: holmes
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: holmes-identity
+        key: clientId
+      principalId:
+        name: holmes-identity
+        key: principalId
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: holmes
+  namespace: holmes
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  owner:
+    name: holmes
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:holmes:holmes
+---
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: holmes-foundry-user
+  namespace: holmes
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner:
+    armId: {{ $scope | quote }}
+  principalIdFromConfig:
+    name: holmes-identity
+    key: principalId
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    wellKnownName: Cognitive Services OpenAI User

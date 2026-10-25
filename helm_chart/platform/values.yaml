@@ -13,15 +13,22 @@ runtime: {}
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
-# Enable after an approved model endpoint and API credential are available.
+# Enable after an approved Azure Foundry deployment and private route are available.
 holmes:
   enabled: false
   model: ""
   modelEndpoint: ""
   modelApiVersion: ""
-  modelKeyVaultSecret: ""
   modelCidrs: []
   apiCidrs: []
+  entraCidrs: []
+
+  azure:
+    location: uksouth
+    identityResourceGroupName: rg-management-holmes
+    foundryResourceGroupName: ""
+    foundryResourceName: ""
+    asoClientIdSecret: aso-provisioner-client-id
 
 # Management-only package choices live in GitOps, not Terraform/tfvars.
 # Enable through a reviewed values change after supplying Key Vault credentials.

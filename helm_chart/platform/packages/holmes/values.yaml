@@ -14,18 +14,39 @@ modelList:
   approved:
     model: {{ .Values.holmes.model | quote }}
     api_base: {{ .Values.holmes.modelEndpoint | quote }}
-{{- if .Values.holmes.modelApiVersion }}
     api_version: {{ .Values.holmes.modelApiVersion | quote }}
-{{- end }}
-    api_key: envRef:HOLMES_MODEL_API_KEY
 
 extraEnvVarsSecrets:
-  - holmes-model
   - holmes-api-token
 
 additionalEnvVars:
   - name: MODEL
     value: approved
+  - name: AZURE_AD_TOKEN_AUTH
+    value: "true"
+  - name: AZURE_CLIENT_ID
+    valueFrom:
+      configMapKeyRef:
+        name: holmes-identity
+        key: clientId
+  - name: AZURE_TENANT_ID
+    value: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  - name: AZURE_FEDERATED_TOKEN_FILE
+    value: /var/run/secrets/azure/tokens/azure-identity-token
+
+additionalVolumes:
+  - name: azure-identity-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: api://AzureADTokenExchange
+            expirationSeconds: 3600
+            path: azure-identity-token
+
+additionalVolumeMounts:
+  - name: azure-identity-token
+    mountPath: /var/run/secrets/azure/tokens
+    readOnly: true
 
 toolsets:
   kubernetes/core:

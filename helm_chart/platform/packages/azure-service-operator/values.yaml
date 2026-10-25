@@ -18,6 +18,9 @@ crdPattern:
 
 azureTargetNamespaces:
   - azure-resources
+{{- if and (eq .Values.cluster.role "management") .Values.holmes.enabled }}
+  - holmes
+{{- end }}
 {{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
   - atlantis
 {{- end }}

@@ -1,20 +1,3 @@
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: holmes-model
-  namespace: holmes
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: azure-kv
-    kind: ClusterSecretStore
-  target:
-    name: holmes-model
-  data:
-    - secretKey: HOLMES_MODEL_API_KEY
-      remoteRef:
-        key: {{ .Values.holmes.modelKeyVaultSecret | quote }}
----
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
 metadata:
@@ -148,6 +131,15 @@ spec:
 {{- end }}
 
 {{- range .Values.holmes.modelCidrs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
+
+{{- range .Values.holmes.entraCidrs }}
     - to:
         - ipBlock:
             cidr: {{ . | quote }}

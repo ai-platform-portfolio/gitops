@@ -40,6 +40,8 @@ spec:
 {{ if .Values.holmes.enabled }}
           ---
 {{ tpl (.Files.Get "packages/holmes/access.yaml") . | indent 10 }}
+          ---
+{{ tpl (.Files.Get "packages/holmes/aso-credential.yaml") . | indent 10 }}
 {{ end }}
 {{ if eq .Values.cluster.role "management" }}
           ---

@@ -103,12 +103,19 @@ def main():
             'runtime': runtime,
             'holmes': {
                 'enabled': True,
-                'model': 'openai/test',
+                'model': 'azure/test',
                 'modelEndpoint': 'https://model.example.test/v1',
-                'modelApiVersion': '',
-                'modelKeyVaultSecret': 'holmes-test-model',
+                'modelApiVersion': '2025-04-01-preview',
                 'modelCidrs': ['10.1.2.5/32'],
                 'apiCidrs': ['10.1.0.5/32'],
+                'entraCidrs': ['10.1.3.5/32'],
+                'azure': {
+                    'location': 'uksouth',
+                    'identityResourceGroupName': 'rg-management-holmes',
+                    'foundryResourceGroupName': 'rg-foundry',
+                    'foundryResourceName': 'foundry-test',
+                    'asoClientIdSecret': 'aso-provisioner-client-id',
+                },
             },
         }))
         with_holmes = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
@@ -116,13 +123,17 @@ def main():
         assert holmes['spec']['source']['targetRevision'] == '0.45.0'
         assert holmes['spec']['source']['helm']['valuesObject']['enableTelemetry'] is False
         assert holmes['spec']['source']['helm']['valuesObject']['operator']['enabled'] is False
-        assert holmes['spec']['source']['helm']['valuesObject']['modelList']['approved']['model'] == 'openai/test'
+        assert holmes['spec']['source']['helm']['valuesObject']['modelList']['approved']['model'] == 'azure/test'
+        assert 'api_key' not in holmes['spec']['source']['helm']['valuesObject']['modelList']['approved']
+        holmes_azure = next(app for app in with_holmes if app['metadata']['name'] == 'holmes-azure')
+        azure_resources = list(yaml.safe_load_all(holmes_azure['spec']['source']['helm']['valuesObject']['manifests']))
+        assert {'ResourceGroup', 'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'} == {resource['kind'] for resource in azure_resources}
         config_app = next(app for app in with_holmes if app['metadata']['name'] == 'configuration')
         holmes_resources = list(yaml.safe_load_all(config_app['spec']['source']['helm']['valuesObject']['manifests']))
         holmes_role = next(resource for resource in holmes_resources if resource['kind'] == 'ClusterRole' and resource['metadata']['name'] == 'holmes-read')
         assert all(rule['verbs'] == ['get', 'list', 'watch'] for rule in holmes_role['rules'])
         assert not any('secrets' in rule['resources'] for rule in holmes_role['rules'])
-        assert {'holmes-model', 'holmes-api-token', 'holmes-egress', 'holmes-ingress'} <= {
+        assert {'holmes-aso-credential', 'holmes-api-token', 'holmes-egress', 'holmes-ingress'} <= {
             resource['metadata']['name'] for resource in holmes_resources
         }
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis}))
