@@ -4,7 +4,7 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from helm_chart.scripts.cluster import Cluster
+from helm_chart.scripts.cluster import Cluster, wait_for
 from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
 
 
@@ -78,6 +78,25 @@ class CredentialTests(unittest.TestCase):
 
         prepare_sonarqube(cluster, run, wait)
         self.assertEqual(cluster.manifest.call_args.args[0]['metadata']['name'], 'sonarqube-jdbc')
+
+
+class HealthWaitTests(unittest.TestCase):
+    def test_temporary_kubernetes_command_errors_do_not_abort_health_wait(self):
+        error = subprocess.CalledProcessError(1, ['kubectl', 'get', 'applications.argoproj.io'])
+        check = Mock(side_effect=[error, error, False, True])
+        with patch('helm_chart.scripts.cluster.time.sleep') as sleep:
+            wait_for(check, 'Waiting for Argo', timeout=30, retry_command_errors=True)
+        self.assertEqual(check.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
+
+    def test_repeated_command_errors_are_reported(self):
+        error = subprocess.CalledProcessError(1, ['kubectl', 'get', 'applications.argoproj.io'])
+        check = Mock(side_effect=error)
+        with patch('helm_chart.scripts.cluster.time.sleep') as sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                wait_for(check, 'Waiting for Argo', retry_command_errors=True)
+        self.assertEqual(check.call_count, 6)
+        self.assertEqual(sleep.call_count, 5)
 
 
 class PlatformInputTests(unittest.TestCase):
@@ -383,7 +402,7 @@ class ArgoIngressTests(unittest.TestCase):
         response = Mock(status=200)
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
-        def wait(check, description):
+        def wait(check, description, retry_command_errors=False):
             self.assertTrue(check())
             certificate['status']['conditions'][0]['observedGeneration'] = 1
             self.assertFalse(check())

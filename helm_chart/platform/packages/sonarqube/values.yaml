@@ -8,6 +8,11 @@ jdbcOverwrite:
   jdbcSecretPasswordKey: jdbc-password
 monitoringPasscodeSecretName: sonarqube-monitoring
 monitoringPasscodeSecretKey: passcode
+
+resources:
+  requests:
+    cpu: 200m
+
 extraVolumes:
 - name: jdbc-ca
   secret:
