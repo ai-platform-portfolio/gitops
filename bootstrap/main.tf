@@ -158,7 +158,7 @@ module "identities" {
 # Holmes owns its inference identity and account role assignment through ASO.
 # This module owns only the new account, projects, deployments and private endpoint.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=2b2924ed663031a6ca5ca6d973dae3f9b8844c4a"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=22dd90ec08f0b31c71323386720555f3847f7288"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
