@@ -73,7 +73,13 @@ Testkube's namespace `aso-credential` from runtime client/account context. No
 manual provisioner Key Vault secret is required for that package. The global
 credential remains empty; Atlantis retains its separately configured authority.
 
-The base installation watches `azure-resources` and `testkube`; enabled Holmes
+On management, GitOps also creates `cluster-onboarding/aso-credential` from
+the existing ASO bootstrap identity and account context. Foundation Azure CRs
+use this namespace credential while provisioning a new cluster; the new
+cluster's own ASO identity is used only after its local platform installs.
+
+The base installation watches `azure-resources` and `testkube`, plus
+`cluster-onboarding` on management; enabled Holmes
 and optional Atlantis add their namespaces. New consumers must supply scoped namespace credentials and run
 after ASO health. Never let ASO reconcile Terraform-owned resource instances.
 Namespace writers can exercise the credential's Azure permissions, even without
