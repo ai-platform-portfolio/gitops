@@ -13,7 +13,7 @@ of Azure service dependencies; CloudNativePG keeps ownership of PostgreSQL.
 | Stage | Parent wave | Responsibility |
 | --- | --- | --- |
 | `crossplane` | 0 | Install the core controllers and package APIs |
-| `crossplane-packages` | 5 | Install the AzureAD provider, function and federated runtime |
+| `crossplane-packages` | 5 | Install the AzureAD provider, function, federated runtime and activation policy |
 | `crossplane-identity-api` | 6 | Install the provider configuration, OIDC API and composition |
 | `service-identities` | 7 | Declare the Langfuse identity and direct user assignments |
 | `langfuse` | 40 | Consume the generated credential through native OIDC |
@@ -29,6 +29,12 @@ identity reconciliation and assignments. These gates hold later waves until the
 controllers and identities are ready. Argo still manages workload rollout; it does
 not execute Graph API calls. Teardown reverses the child Application waves so Graph
 resources are removed while the provider and its authentication still exist.
+
+Crossplane's first-install init step creates the `default` managed resource
+activation policy from Helm values. It does not update that policy when the
+activation list changes. Argo therefore reconciles the same policy in
+`crossplane-packages`, using the activation list from the core chart values as
+the single source. This activates new provider CRDs on an existing cluster.
 
 ## Controller authentication
 
