@@ -258,3 +258,9 @@ identities = {
     }
   }
 }
+
+# Hubless fleet: inventory and future staged upgrades; Argo owns packages.
+fleet = {
+  name         = "fleet-platform"
+  update_group = "management"
+}

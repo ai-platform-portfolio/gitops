@@ -83,8 +83,17 @@ module "aks_admin_group" {
   members = [data.azurerm_client_config.current.object_id]
 }
 
+# Shared fleet foundation; each cluster root owns its own membership.
+module "fleet" {
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/kubernetes-fleet-manager?ref=dc4db780653f68fcd7a0d3fff48dbd35bb7d1c22"
+  name                = var.fleet.name
+  location            = var.azure.location
+  resource_group_name = azurerm_resource_group.this.name
+  tags                = var.azure.tags
+}
+
 module "aks" {
-  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=d2c8a5391b4935fda9cbde79a828b905a8f500b6"
+  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=dc4db780653f68fcd7a0d3fff48dbd35bb7d1c22"
   name                   = var.aks.name
   location               = var.azure.location
   resource_group_name    = azurerm_resource_group.this.name
@@ -94,6 +103,12 @@ module "aks" {
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
   container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
   vnet_subnet_id         = module.network.subnet_ids[var.aks.system_node_pool.subnet_key]
+
+  fleet_membership = {
+    fleet_id = module.fleet.id
+    name     = var.platform.cluster_name
+    group    = var.fleet.update_group
+  }
 
   system_node_pool = {
     vm_size         = var.aks.system_node_pool.vm_size
