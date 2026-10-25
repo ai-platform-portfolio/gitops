@@ -84,6 +84,10 @@ its plan at apply time rather than consuming a saved plan from `make plan`.
 `make up` creates networking, AKS, managed identities, disposable application
 data containers and the Argo CD Helm release. It then seeds the full platform
 chart into Argo CD, prepares application credentials and waits for reconciliation.
+Before Helm contacts a newly created or updated AKS API, Terraform waits for
+three consecutive authenticated readiness responses. This covers the period
+when Azure has completed cluster or API allowlist changes but client access has
+not yet propagated; it fails after ten minutes with an allowlist/access hint.
 Envoy Gateway, cert-manager, ExternalDNS, databases, observability and the enabled
 applications are included. Packages configured as disabled remain disabled.
 

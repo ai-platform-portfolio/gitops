@@ -2,6 +2,7 @@
 import base64
 import json
 import secrets
+import subprocess
 
 
 def secret(cluster, namespace, name, data, secret_type='Opaque', labels=None):
@@ -59,10 +60,15 @@ def prepare(cluster):
 
 def prepare_sonarqube(cluster, run, wait):
     def ready():
-        api = run(*cluster.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
-        if 'clusters.postgresql.cnpg.io' not in api:
+        try:
+            api = run(*cluster.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
+            if 'clusters.postgresql.cnpg.io' not in api:
+                return False
+            database = cluster.object('clusters.postgresql.cnpg.io', 'platform', 'postgres')
+        except subprocess.CalledProcessError:
+            # Discovery and access can briefly disagree while the CNPG CRD and
+            # AKS authorization caches settle during a fresh installation.
             return False
-        database = cluster.object('clusters.postgresql.cnpg.io', 'platform', 'postgres')
         return bool(database and any(c['type'] == 'Ready' and c['status'] == 'True'
                     for c in database.get('status', {}).get('conditions', [])))
 
