@@ -114,6 +114,64 @@ Envoy forwards HTTP to Argo inside the cluster; backend encryption and restricte
 workload access remain hardening work. ExternalDNS owns the DNS entry; Terraform
 owns the Argo release and its canonical URL. No port forwarding is required.
 
+## Cluster overview and package navigation
+
+The persistent **Cluster overview** banner opens the Applications page filtered to
+`platform.ai-platform-portfolio/overview=cluster`. Bookmark that URL after sign-in.
+The lifecycle also prints it after HTTPS verification. This is a native label
+filter and banner; it does not replace Argo's default landing route or remove
+package Applications from the unfiltered list.
+
+On management, the overview contains one local `platform` tile plus one
+`onboard-<cluster>` tile for each registered workload. On a workload, it contains
+its local `platform` tile. Open `platform` to see package Applications in its
+resource tree, then open a package for resources, logs, diffs and sync operations.
+Open an onboarding tile's external link to reach that workload's Argo portal.
+The workload root also has Argo's `managed-by-url` annotation so its node in the
+management onboarding tree links to the owning instance.
+
+For inventory, open **Settings → Clusters** (`/settings/clusters`) on management.
+It lists registered cluster names, API addresses and connection states. Include
+the local management connection when counting the whole fleet. Registration,
+connectivity and package health are different: a stale registration may refer to
+a deleted cluster, and an onboarding Application being Synced does not prove all
+workload packages are healthy. Inspect the workload's `platform` tree for package
+health. Argo's cluster list does not provision AKS clusters or manage nodes.
+
+There is also a native **ApplicationSets** page (`/applicationsets`). Open
+`workload-platforms` for the generated workload onboarding Applications. Its child
+count excludes management and describes generated Applications, not independently
+verified running clusters. The ApplicationSet's own health describes controller
+conditions; it is not a fleet-wide package health summary.
+
+The pinned chart **10.11.1** installs stable **Argo CD 3.5.6**. The ApplicationSets
+UI itself is still marked **alpha**, even in that stable release. The regular
+App of Apps tree and label-filtered Applications view provide the main navigation.
+Argo does not automatically collapse child Applications out of the unfiltered
+Applications page. AppProjects provide grouping and access policy, not folders.
+
+The researched prerelease is **3.6.0-rc4**; it is not selected here. Its 3.6
+release notes include a Resource Explorer, regex application/ApplicationSet search,
+settings search/pagination, large-list performance work and Progressive Sync
+observability. These do not remove the separate-instance ownership boundary or
+make cluster registration a package health check. Reassess after 3.6 reaches GA.
+See the [3.6 release candidate notes](https://github.com/argoproj/argo-cd/releases/tag/v3.6.0-rc1).
+
+Each workload reconciles locally. Management is an onboarding hub rather than a
+recursive view of every workload's resources. A single central Argo managing all
+package Applications would provide central package operations, but would change
+this ownership and availability model; it is not required for this overview.
+Subsequent clusters need their own Terraform root/state, unique names and Argo
+hostnames, and registration via `HUB_KUBECONFIG`; this change does not provision a
+second cluster or validate the multi-cluster deployment path. See the
+[federation guide](helm_chart/federation/README.md).
+
+Sources: [App of Apps](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/),
+[ApplicationSets UI](https://argo-cd.readthedocs.io/en/stable/user-guide/application-set-ui/),
+[cross-instance links](https://argo-cd.readthedocs.io/en/stable/operator-manual/managed-by-url/),
+[stable UI filter implementation](https://github.com/argoproj/argo-cd/blob/v3.5.6/ui/src/app/applications/components/applications-list/applications-list.tsx),
+[3.5.6 release](https://github.com/argoproj/argo-cd/releases/tag/v3.5.6).
+
 ## Argo CD sign-in
 
 Select **LOGIN VIA MICROSOFT ENTRA ID** on the Argo login page. Bootstrap creates

@@ -19,6 +19,22 @@ The local platform root includes federation only when `cluster.role` is
 `management`. Workloads do not create another fleet onboarding controller.
 Terraform owns each Argo Helm release; Argo does not manage that same release.
 
+## Fleet navigation
+
+Use the management **Cluster overview** banner for the local `platform` plus one
+`onboard-<cluster>` tile per registered workload. The onboarding tile's external
+link opens that workload's Argo; its root node links there through
+`argocd.argoproj.io/managed-by-url`. The destination Argo still authenticates and
+authorises the user through its own Entra configuration.
+
+**Settings → Clusters** lists registered connections. **ApplicationSets →
+workload-platforms** shows generated onboarding Applications in a tree (an alpha
+UI feature in stable Argo 3.5). Neither onboarding sync nor ApplicationSet health
+is a complete workload package health report. Open each workload's local
+`platform` Application to inspect its packages. See the
+[overview guide](../../README.md#cluster-overview-and-package-navigation) for
+inventory limits and the distinction between registered and running clusters.
+
 ## Registration and configuration
 
 `helm_chart/scripts/cluster.py` registers a workload using a cluster Secret on
