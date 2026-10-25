@@ -5,13 +5,13 @@ chart at wave 50, after the LGTM backends and Kubernetes collector. It is one
 private API Deployment and Service in the `holmes` namespace. Its operator,
 Robusta platform, GitHub MCP server and Kubernetes remediation MCP server are
 disabled. No database, persistent disk or public route is added. The package
-is initially disabled while the private management Foundry account and model
-in [bootstrap PR #48](https://github.com/ai-platform-portfolio/gitops/pull/48)
-remain unapplied and the AKS cluster is torn down.
+is initially disabled. [Bootstrap PR #48](https://github.com/ai-platform-portfolio/gitops/pull/48)
+has merged, but its private management Foundry account and model have not been
+applied, and the AKS cluster is torn down.
 
 ## Enablement requirements
 
-The bootstrap proposal selects a UK South `gpt-4.1-mini` deployment named
+The merged bootstrap declares a UK South `gpt-4.1-mini` deployment named
 `chat` with regional `Standard` processing, a private endpoint and local API
 keys disabled. The account name, resource group, endpoint and API version are
 preconfigured in platform values, but must be verified against the actual
@@ -34,14 +34,15 @@ and complete these remaining GitOps platform values:
 | `entraCidrs` | Entra token endpoint ranges, or a tested private/proxy route. Maintain them as Microsoft changes them. |
 | `azure.foundryResourceGroupName` / `foundryResourceName` | Preconfigured new management account; verify it exists before enabling. |
 | `azure.identityResourceGroupName` | New package-owned group; do not point at a shared group. |
-| `azure.asoClientIdSecret` | Existing scoped ASO provisioner client ID in Key Vault. |
+| `azure.asoClientIdSecret` | Key Vault secret for a scoped ASO provisioner client ID. It is not present yet; establish and verify its federation and Azure permissions before enabling. |
 
 The package's Azure resources are GitOps owned by ASO: a new resource group,
 managed identity, AKS federated credential and `Cognitive Services OpenAI User`
-assignment at the existing Foundry resource. ASO does not adopt the existing
-Foundry resource. Its provisioner needs permission to create the new group and
-identity and assign that role at the Foundry scope; verify its existing federation
-and authority before enabling. ESO delivers its credential to the new namespace.
+assignment scoped to the bootstrap-owned Foundry account after it exists. ASO
+does not adopt that account. Its provisioner needs permission to create the new
+group and identity and assign that role at the Foundry scope. The provisioner
+credential and its Azure authority are not established yet. ESO will deliver
+its credential to the new namespace.
 ASO exports the new identity client ID to a ConfigMap. The Holmes pod receives
 that ID and a projected Azure-audience service account token; the pinned source
 uses `DefaultAzureCredential` with `AZURE_AD_TOKEN_AUTH=true`. There is no model
