@@ -1,0 +1,10 @@
+# GitOps-owned workload profile. Terraform owns AKS; management Argo owns
+# service identities, containers and application reconciliation.
+cluster:
+  name: aks-workload-01
+  role: workload
+  location: uksouth
+  resourceGroup: rg-aks-workload-01
+
+request:
+  issue: AI-88
