@@ -15,7 +15,7 @@ of Azure service dependencies; CloudNativePG keeps ownership of PostgreSQL.
 | `crossplane` | 0 | Install the core controllers and package APIs |
 | `crossplane-packages` | 5 | Install the AzureAD provider, function, federated runtime and activation policy |
 | `crossplane-identity-api` | 6 | Install the provider configuration, OIDC API and composition |
-| `service-identities` | 7 | Declare the Langfuse identity and direct user assignments |
+| `service-identities` | 11 | Declare identities and assignments after the shared secret store exists |
 | `langfuse` | 40 | Consume the generated credential through native OIDC |
 
 Argo owns the manifests, including each `OIDCApplication` request. Crossplane

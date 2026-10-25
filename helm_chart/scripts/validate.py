@@ -333,7 +333,7 @@ def main():
         assert not {'backstage', 'backstage-credentials', 'backstage-reloader'} & workload_names
         assert waves['configuration'] < waves['atlantis-azure'] < waves['atlantis'] < waves['routes']
         assert waves['azure-service-operator'] < waves['atlantis-azure']
-        assert waves['crossplane'] < waves['crossplane-packages'] < waves['crossplane-identity-api'] < waves['service-identities'] < waves['langfuse']
+        assert waves['crossplane'] < waves['crossplane-packages'] < waves['crossplane-identity-api'] < waves['configuration'] < waves['service-identities'] < waves['langfuse']
         workload_namespaces = next(a for a in workload if a['metadata']['name'] == 'namespaces')
         assert 'azureserviceoperator-system' in workload_namespaces['spec']['source']['helm']['valuesObject']['manifests']
         workload_azure = next(a for a in workload if a['metadata']['name'] == 'holmes-azure')
