@@ -103,17 +103,25 @@ network = {
   }
 }
 
+private_dns = {
+  zones = {
+    openai            = { name = "privatelink.openai.azure.com" }
+    cognitiveservices = { name = "privatelink.cognitiveservices.azure.com" }
+    services_ai       = { name = "privatelink.services.ai.azure.com" }
+  }
+
+  vnet_links = {
+    openai            = { name = "management", zone_key = "openai" }
+    cognitiveservices = { name = "management", zone_key = "cognitiveservices" }
+    services_ai       = { name = "management", zone_key = "services_ai" }
+  }
+}
+
 foundry = {
   name                        = "foundry-management-portfolio"
   location                    = "uksouth"
   private_endpoint_subnet_key = "snet-pe-management"
-  dns_link_name               = "management"
-
-  private_dns_zones = [
-    "privatelink.openai.azure.com",
-    "privatelink.cognitiveservices.azure.com",
-    "privatelink.services.ai.azure.com",
-  ]
+  private_dns_zone_keys       = ["openai", "cognitiveservices", "services_ai"]
 
   projects = {
     management = {

@@ -62,9 +62,9 @@ resource "azurerm_storage_container" "platform" {
   container_access_type = "private"
 }
 
-resource "azurerm_private_dns_zone" "foundry" {
-  for_each            = var.foundry.private_dns_zones
-  name                = each.value
+resource "azurerm_private_dns_zone" "private" {
+  for_each            = var.private_dns.zones
+  name                = each.value.name
   resource_group_name = azurerm_resource_group.this.name
   tags                = var.azure.tags
 }
@@ -79,10 +79,11 @@ module "network" {
   tags                = var.azure.tags
 
   private_dns_zone_links = {
-    for zone, resource in azurerm_private_dns_zone.foundry : zone => {
-      name                  = var.foundry.dns_link_name
+    for key, link in var.private_dns.vnet_links : key => {
+      name                  = link.name
       resource_group_name   = azurerm_resource_group.this.name
-      private_dns_zone_name = resource.name
+      private_dns_zone_name = azurerm_private_dns_zone.private[link.zone_key].name
+      registration_enabled  = link.registration_enabled
     }
   }
 }
@@ -163,7 +164,7 @@ module "foundry" {
   managed_identity_id        = module.identities["foundry"].identity_id
   private_endpoint_location  = var.azure.location
   private_endpoint_subnet_id = module.network.subnet_ids[var.foundry.private_endpoint_subnet_key]
-  private_dns_zone_ids       = [for zone in var.foundry.private_dns_zones : azurerm_private_dns_zone.foundry[zone].id]
+  private_dns_zone_ids       = [for key in var.foundry.private_dns_zone_keys : azurerm_private_dns_zone.private[key].id]
   projects                   = var.foundry.projects
   deployments                = var.foundry.deployments
   tags                       = var.azure.tags

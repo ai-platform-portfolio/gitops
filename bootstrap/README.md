@@ -9,8 +9,10 @@ in `provider.tf`.
 
 The management root also declares a new private Foundry account, one management
 project, a regional Standard chat deployment, three private DNS zones and a
-private endpoint in the dedicated subnet. The reusable network module owns
-the links from these caller-owned zones to the AKS VNet. The account uses
+private endpoint in the dedicated subnet. The independent `private_dns` input
+owns zone definitions and VNet link choices; the reusable network module owns
+the links to the AKS VNet. Foundry selects its required zones by their keys, so
+other resources can use the same DNS configuration. The account uses
 its own user-assigned identity. Public network access and local key authentication
 are disabled by the pinned module defaults. The existing public `foundry-portfolio`
 account is outside this root and is not adopted or changed. Model deployment

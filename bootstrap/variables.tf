@@ -66,15 +66,35 @@ variable "network" {
   })
 }
 
+variable "private_dns" {
+  description = "Private DNS zones owned by bootstrap and optional links to the management VNet."
+
+  type = object({
+    zones = map(object({
+      name = string
+    }))
+
+    vnet_links = map(object({
+      name                 = string
+      zone_key             = string
+      registration_enabled = optional(bool, false)
+    }))
+  })
+
+  validation {
+    condition     = alltrue([for link in values(var.private_dns.vnet_links) : contains(keys(var.private_dns.zones), link.zone_key)])
+    error_message = "Every private DNS VNet link must reference a defined zone key."
+  }
+}
+
 variable "foundry" {
-  description = "Private management Foundry account, DNS and regional model deployment choices."
+  description = "Private management Foundry account and regional model deployment choices."
 
   type = object({
     name                        = string
     location                    = string
     private_endpoint_subnet_key = string
-    dns_link_name               = string
-    private_dns_zones           = set(string)
+    private_dns_zone_keys       = set(string)
 
     projects = map(object({
       display_name = optional(string)
