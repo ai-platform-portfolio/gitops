@@ -69,24 +69,22 @@ resource "azurerm_private_dns_zone" "foundry" {
   tags                = var.azure.tags
 }
 
-resource "azurerm_private_dns_zone_virtual_network_link" "foundry" {
-  for_each              = azurerm_private_dns_zone.foundry
-  name                  = var.foundry.dns_link_name
-  resource_group_name   = azurerm_resource_group.this.name
-  private_dns_zone_name = each.value.name
-  virtual_network_id    = module.network.vnet_id
-  registration_enabled  = false
-  tags                  = var.azure.tags
-}
-
 module "network" {
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=94b337bc3eaaf50d4b0936a965970e78906b9e46"
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=edae315424f8f1fd5bc306ca647d9cc27298d1fc"
   name                = var.network.name
   resource_group_name = azurerm_resource_group.this.name
   location            = var.azure.location
   address_space       = var.network.address_space
   subnets             = var.network.subnets
   tags                = var.azure.tags
+
+  private_dns_zone_links = {
+    for zone, resource in azurerm_private_dns_zone.foundry : zone => {
+      name                  = var.foundry.dns_link_name
+      resource_group_name   = azurerm_resource_group.this.name
+      private_dns_zone_name = resource.name
+    }
+  }
 }
 
 # Bootstrap owns this cluster-admin group; it needs no Azure RBAC assignments.
@@ -170,7 +168,7 @@ module "foundry" {
   deployments                = var.foundry.deployments
   tags                       = var.azure.tags
 
-  depends_on = [azurerm_private_dns_zone_virtual_network_link.foundry]
+  depends_on = [module.network]
 }
 
 # Bootstrap applications share one library call; their choices live in tfvars.

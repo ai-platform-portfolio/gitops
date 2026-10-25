@@ -8,8 +8,9 @@ clusters have independent roots. Inputs belong in tfvars; declarations stay in
 in `provider.tf`.
 
 The management root also declares a new private Foundry account, one management
-project, a regional Standard chat deployment, three private DNS zones linked to
-the AKS VNet, and a private endpoint in the dedicated subnet. The account uses
+project, a regional Standard chat deployment, three private DNS zones and a
+private endpoint in the dedicated subnet. The reusable network module owns
+the links from these caller-owned zones to the AKS VNet. The account uses
 its own user-assigned identity. Public network access and local key authentication
 are disabled by the pinned module defaults. The existing public `foundry-portfolio`
 account is outside this root and is not adopted or changed. Model deployment
@@ -19,8 +20,8 @@ is billed even though HolmesGPT itself is free.
 
 HolmesGPT's ASO-owned identity and inference role assignment remain in the
 Holmes GitOps package. The Foundry module's optional inference principal is
-unset here, avoiding a second owner for that grant. Merge the library change
-at Terraform PR #12 before this root's pinned revision is consumed. The Holmes
+unset here, avoiding a second owner for that grant. Merge the network library
+change at Terraform PR #13 before this root's pinned revision is consumed. The Holmes
 package still needs its own reviewed model endpoint/API version, private endpoint
 CIDR, Kubernetes API and Entra egress ranges, scoped ASO credential, live DNS
 resolution and successful workload-identity inference test before enablement.
