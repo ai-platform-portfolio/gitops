@@ -130,7 +130,7 @@ module "aks" {
 }
 
 module "identities" {
-  for_each            = var.identities
+  for_each            = { for key, identity in var.identities : key => identity if key != "aso" }
   source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/managed-identity?ref=453269ded9ea65cbc40f5ce9a240f022f8bea5bf"
   name                = each.value.name
   location            = var.azure.location
@@ -152,6 +152,37 @@ module "identities" {
   }
 
   tags = var.azure.tags
+}
+
+# ASO needs a role on Foundry, which depends on the separate Foundry identity.
+# Keep that dependency outside the shared identity loop to avoid a cycle.
+module "aso_identity" {
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/managed-identity?ref=453269ded9ea65cbc40f5ce9a240f022f8bea5bf"
+  name                = var.identities["aso"].name
+  location            = var.azure.location
+  resource_group_name = azurerm_resource_group.this.name
+
+  federated_credentials = {
+    for name, credential in var.identities["aso"].federated_credentials : name => {
+      issuer    = module.aks.oidc_issuer_url
+      subject   = "system:serviceaccount:${credential.namespace}:${credential.service_account}"
+      audiences = credential.audiences
+    }
+  }
+
+  role_assignments = {
+    for name, assignment in var.identities["aso"].role_assignments : name => {
+      scope                = assignment.scope == "foundry_account" ? module.foundry.id : local.role_scopes[assignment.scope]
+      role_definition_name = assignment.role_definition_name
+    }
+  }
+
+  tags = var.azure.tags
+}
+
+moved {
+  from = module.identities["aso"]
+  to   = module.aso_identity
 }
 
 # Consumers own their inference identities and role assignments separately.

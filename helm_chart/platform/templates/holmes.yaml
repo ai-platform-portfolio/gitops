@@ -5,9 +5,7 @@
 {{- $_ := required "holmes.modelApiVersion is required for Azure Foundry" .Values.holmes.modelApiVersion }}
 {{- $_ := required "holmes.azure.foundryResourceGroupName is required" .Values.holmes.azure.foundryResourceGroupName }}
 {{- $_ := required "holmes.azure.foundryResourceName is required" .Values.holmes.azure.foundryResourceName }}
-{{- $_ := required "holmes.azure.identityResourceGroupName is required" .Values.holmes.azure.identityResourceGroupName }}
 {{- $_ := required "holmes.azure.location is required" .Values.holmes.azure.location }}
-{{- $_ := required "holmes.azure.asoClientIdSecret is required" .Values.holmes.azure.asoClientIdSecret }}
 {{- if not (hasPrefix "https://" .Values.holmes.modelEndpoint) }}
 {{- fail "holmes.modelEndpoint must use HTTPS" }}
 {{- end }}

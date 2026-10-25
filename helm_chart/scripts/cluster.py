@@ -127,6 +127,7 @@ class Cluster:
     def seed(self, root):
         if not self.hub:
             self.manifest(root)
+            self.resume_stale_root_sync()
             if self.settings['cluster']['role'] == 'management':
                 self.manifest({'apiVersion': 'v1', 'kind': 'ConfigMap',
                     'metadata': {'name': 'platform-hub', 'namespace': 'argocd'},
@@ -154,6 +155,30 @@ class Cluster:
                 'labels': {'argocd.argoproj.io/secret-type': 'cluster', 'platform.ai-platform-portfolio/role': 'workload'},
                 'annotations': {'platform.ai-platform-portfolio/root': json.dumps(root)}},
             'stringData': {'name': name, 'server': self.connection['server'], 'config': json.dumps(config)}}, self.hub)
+
+    def resume_stale_root_sync(self):
+        app = self.object('applications.argoproj.io', 'platform', 'argocd')
+        status = (app or {}).get('status', {})
+        operation = status.get('operationState', {})
+        active_revision = operation.get('syncResult', {}).get('revision')
+        current_revision = status.get('sync', {}).get('revision')
+        if operation.get('phase') != 'Running' or not active_revision or not current_revision:
+            return
+        if active_revision == current_revision:
+            return
+
+        # A prior wave can remain blocked on an old manifest after main advances.
+        # Argo will not begin the new automated sync until that operation ends.
+        print('Terminating stale platform sync so Argo can reconcile the current revision', flush=True)
+        run(*self.kube, '-n', 'argocd', 'patch', 'applications.argoproj.io', 'platform',
+            '--type=merge', '-p', json.dumps({'status': {'operationState': {'phase': 'Terminating'}}}))
+
+        def old_operation_finished():
+            latest = self.object('applications.argoproj.io', 'platform', 'argocd')
+            state = (latest or {}).get('status', {}).get('operationState', {})
+            return state.get('syncResult', {}).get('revision') != active_revision or state.get('phase') not in {'Running', 'Terminating'}
+
+        wait_for(old_operation_finished, 'Waiting for stale platform sync to stop', timeout=120)
 
     def ready(self):
         def current(app):

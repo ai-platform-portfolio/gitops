@@ -239,6 +239,10 @@ identities = {
         scope                = "storage_account"
         role_definition_name = "Role Based Access Control Administrator"
       }
+      foundry_roles = {
+        scope                = "foundry_account"
+        role_definition_name = "Role Based Access Control Administrator"
+      }
     }
   }
 
