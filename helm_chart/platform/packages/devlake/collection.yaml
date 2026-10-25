@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: devlake-collection
+  namespace: devlake
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devlake-collection
+  namespace: devlake
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [devlake-configure]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [devlake-delivery-checkpoints]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devlake-collection
+  namespace: devlake
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: devlake-collection
+subjects:
+  - kind: ServiceAccount
+    name: devlake-collection
+    namespace: devlake
+{{- $applications := list }}
+{{- range .Values.devlake.projects }}
+{{- with .application }}
+{{- $applications = append $applications . }}
+{{- end }}
+{{- end }}
+{{- if $applications }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devlake-collection
+  namespace: argocd
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    resourceNames: {{ $applications | uniq | toJson }}
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devlake-collection
+  namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: devlake-collection
+subjects:
+  - kind: ServiceAccount
+    name: devlake-collection
+    namespace: devlake
+{{- end }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: devlake-collection
+  namespace: devlake
+spec:
+  schedule: '* * * * *'
+  suspend: {{ empty .Values.devlake.projects }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 50
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: devlake-collection
+        spec:
+          serviceAccountName: devlake-collection
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1010
+            runAsGroup: 1010
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: collect
+              image: apache/devlake:v1.0.2@sha256:bae4e753959584b152fd2d66b2b13c4bc6c5ce02b9bd7c4a000e3e1296b09343
+              command: [python3, /config/collect.py]
+              env:
+                - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+                - name: CLUSTER_NAME
+                  value: {{ .Values.cluster.name | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              volumeMounts:
+                - {name: config, mountPath: /config, readOnly: true}
+                - {name: credential, mountPath: /credentials, readOnly: true}
+          volumes:
+            - name: config
+              configMap:
+                name: devlake-configure
+            - name: credential
+              secret:
+                secretName: devlake-ingestion
+
+---
+
+# Install policy/filter before the public HTTPRoute. Entra authenticates assigned
+# administrators; retained Nginx Basic auth verifies the injected app credential.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: devlake-sso
+  namespace: devlake
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: devlake}
+  oidc:
+    provider:
+      issuer: https://login.microsoftonline.com/{{ .Values.runtime.AZURE_TENANT_ID }}/v2.0
+    clientIDRef: {name: devlake-sso}
+    clientSecret: {name: devlake-sso}
+    redirectURL: https://devlake.{{ .Values.runtime.DNS_ZONE }}/oauth2/callback
+    logoutPath: /logout
+    scopes: [openid, profile, email]
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: devlake-admin-credential
+  namespace: devlake
+spec:
+  credentialInjection:
+    overwrite: true
+    credential:
+      valueRef: {name: devlake-automation}

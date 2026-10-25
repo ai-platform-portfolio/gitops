@@ -42,4 +42,9 @@ spec:
 {{ tpl (.Files.Get "packages/backstage/networking.yaml") . | indent 10 }}
 {{- end }}
 
+{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+          ---
+{{ tpl (.Files.Get "packages/devlake/networking.yaml") . | indent 10 }}
+{{- end }}
+
 {{ include "platform.syncPolicy" . | indent 2 }}

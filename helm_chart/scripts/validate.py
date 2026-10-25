@@ -97,6 +97,7 @@ def main():
             'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
             'backstage', 'backstage-credentials', 'backstage-reloader',
+            'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
@@ -255,7 +256,7 @@ def main():
                     assert all(listener['protocol'] == 'HTTP' for listener in gateway['spec']['listeners'])
                 if app['metadata']['name'] == 'routes':
                     listeners = [d for d in documents if d['kind'] == 'ListenerSet']
-                    assert len(listeners) == 5
+                    assert len(listeners) == 6
                     portal_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'backstage')
                     assert portal_route['spec']['rules'][0]['backendRefs'] == [{'name': 'backstage', 'port': 7007}]
                     route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'atlantis')
@@ -290,6 +291,9 @@ def main():
         routes = next(a for a in workload if a['metadata']['name'] == 'routes')
         initial_routes = [d for d in yaml.safe_load_all(routes['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert not any(d['metadata']['namespace'] == 'sonarqube' for d in initial_routes), 'Initial routes must not block on a Sonar backend that has not been installed'
+        assert not any('devlake' in json.dumps(a) for a in workload), 'DevLake belongs on management only'
+        assert waves['configuration'] < waves['postgres'] < waves['devlake-credentials'] < waves['grafana'] < waves['devlake'] < waves['devlake-configure'] < waves['devlake-collection'] < waves['routes']
+        assert waves['crossplane-identity-api'] < waves['service-identities'] < waves['devlake']
         assert waves['routes'] > waves['sonarqube'], 'Activate routes after backend health'
         assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
         assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
@@ -371,6 +375,41 @@ def main():
             assert result.returncode and 'schema' in result.stderr, 'Unsafe Backstage settings must fail Helm validation'
         print('Backstage: GitOps configuration, ESO credential gates, shared database and network isolation verified.')
 
+        devlake_apps = {a['metadata']['name']: a for a in applications}
+        devlake_resources = [d for a in applications for d in yaml.safe_load_all(
+            a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+        for name in ['devlake-role', 'devlake-grafana-role', 'devlake-encryption']:
+            es = next(d for d in devlake_resources if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == name)
+            assert '{{ .password }}' in es['spec']['target']['template']['data'].values(), 'ESO templates must survive Helm evaluation'
+        admin = next(d for d in devlake_resources if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'devlake-automation')
+        assert admin['spec']['target']['template']['data']['credential'] == 'Basic {{ printf "platform-admin:%s" .password | b64enc }}'
+        core = next(d for d in devlake_resources if d['kind'] == 'Deployment' and d['metadata']['name'] == 'devlake')
+        container = core['spec']['template']['spec']['containers'][0]
+        assert container['image'] == 'apache/devlake:v1.0.2@sha256:bae4e753959584b152fd2d66b2b13c4bc6c5ce02b9bd7c4a000e3e1296b09343'
+        assert 'for name in dora webhook org refdiff github github_graphql gitextractor' in container['command'][2]
+        assert not any(e['name'].startswith('OIDC_') for e in container['env']), 'Stable DevLake has no native OIDC'
+        assert container['securityContext']['readOnlyRootFilesystem']
+        network = next(d for d in devlake_resources if d['kind'] == 'NetworkPolicy' and d['metadata']['name'] == 'devlake')
+        core_egress = next(rule for rule in network['spec']['egress'] if {'protocol': 'TCP', 'port': 8080} in rule['ports'])
+        assert core_egress['to'] == [{'podSelector': {'matchLabels': {'app.kubernetes.io/name': 'devlake'}}}]
+        assert not any(d['kind'] == 'PersistentVolumeClaim' and d['metadata'].get('namespace') == 'devlake' for d in devlake_resources)
+        policy = next(d for d in devlake_resources if d['kind'] == 'SecurityPolicy' and d['metadata']['name'] == 'devlake-sso')
+        assert policy['spec']['oidc']['clientIDRef'] == {'name': 'devlake-sso'}
+        assert policy['spec']['oidc']['clientSecret'] == {'name': 'devlake-sso'}
+        machine = next(d for d in devlake_resources if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'devlake-ingestion')
+        assert 'filters' not in machine['spec']['rules'][0], 'Machine ingestion must never receive an injected administration credential'
+        ui = next(d for d in devlake_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'devlake-ui')['data']['default.conf']
+        assert 'auth_basic_user_file /etc/devlake-auth/.htpasswd;' in ui and 'if ($devlake_reject_origin)' in ui
+        assert next(d for d in devlake_resources if d['kind'] == 'CronJob' and d['metadata']['name'] == 'devlake-collection')['spec']['suspend'] is True
+        access = next(d for d in devlake_resources if d['kind'] == 'Job' and d['metadata']['name'].startswith('devlake-access-'))
+        assert access['metadata']['annotations']['argocd.argoproj.io/sync-wave'] == '1'
+        values.write_text(json.dumps({'runtime': runtime, 'devlake': {'enabled': False}}))
+        without = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+        assert not any('devlake' in json.dumps(a) for a in without), 'Disabling DevLake must remove every package dependency'
+        assert next(a for a in without if a['metadata']['name'] == 'grafana')['metadata']['annotations']['argocd.argoproj.io/sync-wave'] == '30'
+        print('DevLake: stable images, deferred ESO templates, PostgreSQL reuse, SSO/API isolation and access gates verified.')
+
+
 
         def render(app):
             source = app['spec'].get('source') or app['spec']['sources'][0]
@@ -413,8 +452,8 @@ def main():
                     manager = pod['containers'][0]
                     assert manager['image'] == 'arigaio/atlas-operator:0.8.4'
                     assert manager['args'] == ['--namespace=atlas-system']
-                    assert pod['securityContext']['runAsNonRoot'] is True
-                    assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+                    assert manager['securityContext']['runAsNonRoot'] is True
+                    assert manager['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
                     assert manager['securityContext']['allowPrivilegeEscalation'] is False
                     env = {e['name']: e.get('value') for e in manager['env']}
                     assert env == {'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'false', 'WATCH_SECRETS': 'false'}
@@ -438,7 +477,7 @@ def main():
                     assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,holmes,atlantis'
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
-                if name in {'langfuse-reloader', 'backstage-reloader'}:
+                if name in {'langfuse-reloader', 'backstage-reloader', 'devlake-reloader'}:
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')
                     pod = deployment['spec']['template']['spec']
                     assert pod['securityContext']['runAsNonRoot'] is True

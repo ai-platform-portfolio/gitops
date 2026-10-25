@@ -62,14 +62,29 @@ resource "azurerm_storage_container" "platform" {
   container_access_type = "private"
 }
 
+resource "azurerm_private_dns_zone" "private" {
+  for_each            = var.private_dns
+  name                = each.value.name
+  resource_group_name = azurerm_resource_group.this.name
+  tags                = var.azure.tags
+}
+
 module "network" {
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=94b337bc3eaaf50d4b0936a965970e78906b9e46"
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
   name                = var.network.name
   resource_group_name = azurerm_resource_group.this.name
   location            = var.azure.location
   address_space       = var.network.address_space
   subnets             = var.network.subnets
   tags                = var.azure.tags
+
+  private_dns_zone_links = {
+    for key, zone in var.private_dns : key => {
+      name                  = var.network.name
+      resource_group_name   = azurerm_resource_group.this.name
+      private_dns_zone_name = azurerm_private_dns_zone.private[key].name
+    } if zone.vnet_link
+  }
 }
 
 # Bootstrap owns this cluster-admin group; it needs no Azure RBAC assignments.
@@ -136,6 +151,24 @@ module "identities" {
   }
 
   tags = var.azure.tags
+}
+
+# Consumers own their inference identities and role assignments separately.
+# This module owns the account, projects, deployments and private endpoint.
+module "foundry" {
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
+  name                       = var.foundry.name
+  resource_group_name        = azurerm_resource_group.this.name
+  location                   = var.foundry.location
+  managed_identity_id        = module.identities["foundry"].identity_id
+  private_endpoint_location  = var.azure.location
+  private_endpoint_subnet_id = module.network.subnet_ids[var.foundry.private_endpoint_subnet_key]
+  private_dns_zone_ids       = [for key in var.foundry.private_dns_zone_keys : azurerm_private_dns_zone.private[key].id]
+  projects                   = var.foundry.projects
+  deployments                = var.foundry.deployments
+  tags                       = var.azure.tags
+
+  depends_on = [module.network]
 }
 
 # Bootstrap applications share one library call; their choices live in tfvars.

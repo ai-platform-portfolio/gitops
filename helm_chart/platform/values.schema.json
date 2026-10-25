@@ -200,6 +200,93 @@
           }
         }
       ]
+    },
+    "devlake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "users",
+        "credentialValidityDays",
+        "projects"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "credentialValidityDays": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 365
+        },
+        "users": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+            "maxLength": 54
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
+          }
+        },
+        "projects": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+            "maxLength": 60
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "description"
+            ],
+            "properties": {
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "application": {
+                "type": "string",
+                "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "PRODUCTION",
+                  "STAGING",
+                  "DEVELOPMENT",
+                  "TESTING"
+                ]
+              }
+            },
+            "dependencies": {
+              "application": [
+                "environment"
+              ]
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "users": {
+                "minProperties": 1
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "definitions": {

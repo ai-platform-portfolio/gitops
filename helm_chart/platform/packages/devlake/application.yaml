@@ -1,0 +1,225 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devlake-ui
+  namespace: devlake
+data:
+  default.conf: |
+    map "$request_method:$http_origin" $devlake_reject_origin {
+      default 0;
+      ~^(POST|PUT|PATCH|DELETE):https://devlake\.{{ .Values.runtime.DNS_ZONE | replace "." "\\." }}$ 0;
+      ~^(POST|PUT|PATCH|DELETE): 1;
+    }
+    server {
+      listen 4000;
+      server_name _;
+      absolute_redirect off;
+      client_max_body_size 2m;
+      root /usr/share/nginx/html;
+      auth_basic "DevLake administration";
+      auth_basic_user_file /etc/devlake-auth/.htpasswd;
+
+      location / { try_files $uri /index.html; }
+      location = /health { auth_basic off; access_log off; return 200; }
+      location = /api/proceed-db-migration { return 404; }
+      location /api/rest/ {
+        auth_basic off;
+        proxy_pass http://devlake:8080/rest/;
+        proxy_set_header X-Forwarded-User "";
+        proxy_set_header X-Forwarded-Email "";
+      }
+      location /api/ {
+        if ($devlake_reject_origin) { return 403; }
+        proxy_pass http://devlake:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-User "";
+        proxy_set_header X-Forwarded-Email "";
+        proxy_set_header X-Forwarded-User-Secret "";
+        proxy_read_timeout 60s;
+      }
+      location /grafana/ { return 302 https://grafana.{{ .Values.runtime.DNS_ZONE }}/; }
+    }
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devlake
+  namespace: devlake
+  annotations:
+    configmap.reloader.stakater.com/reload: devlake-ui
+    secret.reloader.stakater.com/reload: devlake-database,devlake-encryption,devlake-automation
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: devlake
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: devlake
+      annotations:
+        checksum/config: {{ printf "%s%s" (.Files.Get "packages/devlake/application.yaml") .Values.runtime.DNS_ZONE | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: platform
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1010
+        runAsGroup: 1010
+        fsGroup: 1010
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: devlake
+          image: apache/devlake:v1.0.2@sha256:bae4e753959584b152fd2d66b2b13c4bc6c5ce02b9bd7c4a000e3e1296b09343
+          command:
+            - sh
+            - -ec
+            - |
+              mkdir -p /tmp/plugins
+              for name in dora webhook org refdiff github github_graphql gitextractor; do
+                ln -s /app/bin/plugins/$name/$name.so /tmp/plugins/$name.so
+              done
+              exec lake
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef: {name: devlake-database, key: DB_URL}
+            - name: ENCRYPTION_SECRET
+              valueFrom:
+                secretKeyRef: {name: devlake-encryption, key: secret}
+            - {name: MODE, value: release}
+            - {name: FORCE_MIGRATION, value: "true"}
+            - {name: PIPELINE_MAX_PARALLEL, value: "1"}
+            - {name: DISABLED_REMOTE_PLUGINS, value: "true"}
+            - {name: PLUGIN_DIR, value: /tmp/plugins}
+          startupProbe:
+            httpGet: {path: /ready, port: http}
+            failureThreshold: 120
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+          livenessProbe:
+            httpGet: {path: /ping, port: http}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: postgres-ca, mountPath: /etc/postgres, readOnly: true}
+            - {name: logs, mountPath: /app/logs}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: postgres-ca
+          secret:
+            secretName: devlake-database
+            items:
+              - {key: ca.crt, path: ca.crt}
+        - name: logs
+          emptyDir: {sizeLimit: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devlake
+  namespace: devlake
+spec:
+  selector:
+    app.kubernetes.io/name: devlake
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devlake-ui
+  namespace: devlake
+  annotations:
+    configmap.reloader.stakater.com/reload: devlake-ui
+    secret.reloader.stakater.com/reload: devlake-database,devlake-encryption,devlake-automation
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: devlake-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: devlake-ui
+      annotations:
+        checksum/config: {{ printf "%s%s" (.Files.Get "packages/devlake/application.yaml") .Values.runtime.DNS_ZONE | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: platform
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: devlake-ui
+          image: apache/devlake-config-ui:v1.0.2@sha256:3527bd205d0c0bd74f1c1687d124cb26ae73681376ebd1c6cc656b8d78a86584
+          ports:
+            - {name: http, containerPort: 4000}
+          command: [nginx, -g, "daemon off;"]
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            failureThreshold: 120
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: admin, mountPath: /etc/devlake-auth, readOnly: true}
+            - {name: nginx, mountPath: /etc/nginx/conf.d, readOnly: true}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: admin
+          secret:
+            secretName: devlake-automation
+            items:
+              - {key: .htpasswd, path: .htpasswd}
+        - name: nginx
+          configMap:
+            name: devlake-ui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devlake-ui
+  namespace: devlake
+spec:
+  selector:
+    app.kubernetes.io/name: devlake-ui
+  ports:
+    - {name: http, port: 4000, targetPort: http}

@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: devlake
+  namespace: postgres
+spec:
+  name: devlake
+  owner: devlake
+  cluster:
+    name: platform
+  databaseReclaimPolicy: retain

@@ -1,0 +1,198 @@
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: devlake-role
+  namespace: postgres
+spec:
+  length: 48
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: devlake-role
+  namespace: postgres
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: devlake-role
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+      data:
+        username: devlake
+        password: {{ `{{ .password }}` | quote }}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: devlake-role
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: devlake-grafana-role
+  namespace: postgres
+spec:
+  length: 48
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: devlake-grafana-role
+  namespace: postgres
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: devlake-grafana-role
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+      data:
+        username: devlake_grafana
+        password: {{ `{{ .password }}` | quote }}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: devlake-grafana-role
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: devlake-encryption
+  namespace: devlake
+spec:
+  length: 128
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: devlake-encryption
+  namespace: devlake
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: devlake-encryption
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      data:
+        secret: {{ `{{ .password }}` | quote }}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: devlake-encryption
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: devlake-automation
+  namespace: devlake
+spec:
+  length: 64
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: devlake-automation
+  namespace: devlake
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: devlake-automation
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      data:
+        .htpasswd: {{ `{{ htpasswd "platform-admin" .password }}` | quote }}
+        credential: {{ `Basic {{ printf "platform-admin:%s" .password | b64enc }}` | quote }}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: devlake-automation
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devlake
+  namespace: devlake
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake-ui
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake-configure
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake-collection
+      ports:
+        - {protocol: TCP, port: 8080}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+      ports:
+        - {protocol: TCP, port: 4000}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: postgres
+          podSelector:
+            matchLabels:
+              cnpg.io/cluster: platform
+      ports:
+        - {protocol: TCP, port: 5432}
+    # Connectors and Entra use HTTPS. Kubernetes policies cannot restrict FQDNs.
+    - ports:
+        - {protocol: TCP, port: 443}

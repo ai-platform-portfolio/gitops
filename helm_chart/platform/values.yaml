@@ -79,3 +79,13 @@ langfuse:
       portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575
     credentialValidityDays: 180
     allowAccountLinking: true
+
+# Free, management-only delivery analytics; PostgreSQL and Grafana are shared.
+devlake:
+  enabled: true
+  credentialValidityDays: 180
+  users:
+    portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575
+  # One project/webhook per service/environment. Empty until a real delivery
+  # boundary is selected; never classify management/bootstrap syncs as production.
+  projects: {}
