@@ -70,7 +70,7 @@ resource "azurerm_private_dns_zone" "foundry" {
 }
 
 module "network" {
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=edae315424f8f1fd5bc306ca647d9cc27298d1fc"
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
   name                = var.network.name
   resource_group_name = azurerm_resource_group.this.name
   location            = var.azure.location
@@ -156,7 +156,7 @@ module "identities" {
 # Holmes owns its inference identity and account role assignment through ASO.
 # This module owns only the new account, projects, deployments and private endpoint.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=22dd90ec08f0b31c71323386720555f3847f7288"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location

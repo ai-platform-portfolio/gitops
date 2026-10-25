@@ -20,8 +20,8 @@ is billed even though HolmesGPT itself is free.
 
 HolmesGPT's ASO-owned identity and inference role assignment remain in the
 Holmes GitOps package. The Foundry module's optional inference principal is
-unset here, avoiding a second owner for that grant. Merge the network library
-change at Terraform PR #13 before this root's pinned revision is consumed. The Holmes
+unset here, avoiding a second owner for that grant. Both modules are pinned to
+the merged Terraform PR #13 revision. The Holmes
 package still needs its own reviewed model endpoint/API version, private endpoint
 CIDR, Kubernetes API and Entra egress ranges, scoped ASO credential, live DNS
 resolution and successful workload-identity inference test before enablement.
