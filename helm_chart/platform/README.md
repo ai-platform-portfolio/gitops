@@ -59,7 +59,7 @@ files easier to find.
 | 20 | plugin-barman-cloud, external-dns, gateway, testkube-azure (management), optional atlantis-azure | Operators/configuration are available |
 | 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir, testkube-nats (management) | Database operators, backup plugin and shared secrets are ready |
-| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials, testkube-credentials and testkube-storage (management) | Backend services are ready |
+| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials, testkube-storage (management) | Backend services are ready |
 | 60 | sonarqube, optional backstage, testkube (management) | PostgreSQL roles, databases and consumer credentials are ready |
 | 65 | testkube-checks (management) | Schema version, artifact roundtrip and failure propagation must pass |
 | 70 | sonarqube-configure, testkube-analysis (management) | SonarQube is healthy before its configuration job runs |

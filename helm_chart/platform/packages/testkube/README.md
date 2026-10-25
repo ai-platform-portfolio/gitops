@@ -7,6 +7,25 @@ is required. Argo Rollouts is installed on every cluster; Argo Workflows is not
 a Testkube dependency and is not added. Existing Crossplane remains the owner of
 GitOps Entra application management; ASO owns the Azure resources below.
 
+## Package layout
+
+Files follow deployment stages rather than individual resource types:
+
+| File | Contents / owner |
+| --- | --- |
+| `namespace.yaml` | Restricted namespace, shared namespaces stage |
+| `configuration.yaml` | Generated credentials, internal TLS and networking, shared configuration stage |
+| `azure-resources.yaml` | ASO-managed Azure dependencies |
+| `database.yaml` | Dedicated database, shared PostgreSQL stage |
+| `nats-values.yaml` | Independently ordered persistent broker release |
+| `dependencies.yaml` | PostgreSQL credential delivery and storage adapter, wave 40 |
+| `values.yaml` | Testkube Helm release |
+| `checks.yaml` | Installation workflows, script ConfigMaps and ordered validation Jobs |
+| `analysis.yaml` | Reusable release analysis template |
+
+The two check scripts stay separate so reviewers can read executable logic without
+YAML indentation. `templates/testkube.yaml` shows the Application dependency order.
+
 ## One-command deployment and sequencing
 
 Use the repository's existing `make up` after setting up its documented backend,
@@ -28,7 +47,7 @@ existing bootstrap identities. One command does not grant the caller privileges.
 | 65 | Schema-version check, then real workflow execution/artifact download and deliberate failure checks |
 | 70 | Reusable Rollouts analysis template becomes available |
 
-These are separate child Applications, gated by the root's current-source
+These stages use separate child Applications, gated by the root's current-source
 Application health customization. Within `testkube-checks`, the schema Job is
 wave 0 and execution Job wave 5. They are normal tracked Jobs, not hooks that
 can be skipped on first installation. Package/configuration changes give them
@@ -91,6 +110,14 @@ use a dedicated tokenless service account, restricted security context, read-onl
 root filesystem and resource requests/limits. Defaults are not an admission
 policy: only trusted authors may change workflow definitions or namespace labels.
 Test egress is unrestricted so application tests can reach their targets.
+
+Public HTTPS elsewhere in this repository uses an issuer-annotated ListenerSet
+(for example `packages/argocd/networking.yaml` and
+`packages/backstage/networking.yaml`); cert-manager generates its certificate,
+and the HTTPRoute attaches to that listener. This package has no public route.
+Its explicit private CA/server/client certificates in `configuration.yaml` are
+for NATS mutual TLS and S3Proxy's internal TLS/PKCS12 keystore. Listener certificate
+automation cannot issue NATS client credentials or replace these backend secrets.
 
 Database, API-to-storage and NATS connections verify private CA certificates;
 NATS additionally requires a client certificate. Reloader restarts affected

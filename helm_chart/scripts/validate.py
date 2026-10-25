@@ -89,7 +89,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-credentials', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
+            'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -176,7 +176,7 @@ def main():
                         assert secrets[name]['spec']['refreshPolicy'] == 'CreatedOnce'
                         assert secrets[name]['spec']['target']['immutable'] is True
                         assert '{{ .password }}' in json.dumps(secrets[name]['spec']['target']['template']['data'])
-                if app['metadata']['name'] == 'testkube-credentials':
+                if app['metadata']['name'] == 'testkube-storage':
                     reader = next(d for d in documents if d['kind'] == 'Role')
                     assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['testkube-role', 'platform-ca'], 'verbs': ['get']}]
                     secret = next(d for d in documents if d['kind'] == 'ExternalSecret')
@@ -279,7 +279,7 @@ def main():
         assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
         assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
         assert waves['cert-manager'] < waves['clickhouse-operator'] < waves['clickhouse'], 'ClickHouse webhook certificates require cert-manager before the operator and database'
-        assert waves['external-secrets'] < waves['configuration'] < waves['postgres'] < waves['testkube-credentials'] < waves['testkube']
+        assert waves['external-secrets'] < waves['configuration'] < waves['postgres'] < waves['testkube-storage'] < waves['testkube']
         assert waves['configuration'] < waves['testkube-azure'] < waves['testkube-storage'] < waves['testkube']
         assert waves['testkube'] < waves['testkube-checks'] < waves['testkube-analysis']
         assert not any(a['metadata']['name'].startswith('testkube') for a in workload), 'Central Testkube must not be duplicated on workloads'

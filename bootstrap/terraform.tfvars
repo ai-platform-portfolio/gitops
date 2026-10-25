@@ -200,7 +200,7 @@ identities = {
 
     role_assignments = {
       identities = {
-        scope                = "bootstrap_group"
+        scope                = "resource_group"
         role_definition_name = "Managed Identity Contributor"
       }
       storage = {
