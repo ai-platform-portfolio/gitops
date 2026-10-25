@@ -63,7 +63,7 @@ resource "azurerm_storage_container" "platform" {
 }
 
 resource "azurerm_private_dns_zone" "private" {
-  for_each            = var.private_dns.zones
+  for_each            = var.private_dns
   name                = each.value.name
   resource_group_name = azurerm_resource_group.this.name
   tags                = var.azure.tags
@@ -79,12 +79,11 @@ module "network" {
   tags                = var.azure.tags
 
   private_dns_zone_links = {
-    for key, link in var.private_dns.vnet_links : key => {
-      name                  = link.name
+    for key, zone in var.private_dns : key => {
+      name                  = var.network.name
       resource_group_name   = azurerm_resource_group.this.name
-      private_dns_zone_name = azurerm_private_dns_zone.private[link.zone_key].name
-      registration_enabled  = link.registration_enabled
-    }
+      private_dns_zone_name = azurerm_private_dns_zone.private[key].name
+    } if zone.vnet_link
   }
 }
 
@@ -154,8 +153,8 @@ module "identities" {
   tags = var.azure.tags
 }
 
-# Holmes owns its inference identity and account role assignment through ASO.
-# This module owns only the new account, projects, deployments and private endpoint.
+# Consumers own their inference identities and role assignments separately.
+# This module owns the account, projects, deployments and private endpoint.
 module "foundry" {
   source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
   name                       = var.foundry.name

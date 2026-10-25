@@ -67,24 +67,11 @@ variable "network" {
 }
 
 variable "private_dns" {
-  description = "Private DNS zones owned by bootstrap and optional links to the management VNet."
-
-  type = object({
-    zones = map(object({
-      name = string
-    }))
-
-    vnet_links = map(object({
-      name                 = string
-      zone_key             = string
-      registration_enabled = optional(bool, false)
-    }))
-  })
-
-  validation {
-    condition     = alltrue([for link in values(var.private_dns.vnet_links) : contains(keys(var.private_dns.zones), link.zone_key)])
-    error_message = "Every private DNS VNet link must reference a defined zone key."
-  }
+  description = "Private DNS zones owned by bootstrap; optionally link each zone to the management VNet."
+  type = map(object({
+    name      = string
+    vnet_link = optional(bool, false)
+  }))
 }
 
 variable "foundry" {
@@ -110,10 +97,6 @@ variable "foundry" {
     }))
   })
 
-  validation {
-    condition     = contains(keys(var.foundry.deployments), "holmes")
-    error_message = "Define a regional Holmes model deployment."
-  }
 }
 
 variable "aks" {

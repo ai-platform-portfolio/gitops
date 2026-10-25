@@ -104,17 +104,9 @@ network = {
 }
 
 private_dns = {
-  zones = {
-    openai            = { name = "privatelink.openai.azure.com" }
-    cognitiveservices = { name = "privatelink.cognitiveservices.azure.com" }
-    services_ai       = { name = "privatelink.services.ai.azure.com" }
-  }
-
-  vnet_links = {
-    openai            = { name = "management", zone_key = "openai" }
-    cognitiveservices = { name = "management", zone_key = "cognitiveservices" }
-    services_ai       = { name = "management", zone_key = "services_ai" }
-  }
+  openai            = { name = "privatelink.openai.azure.com", vnet_link = true }
+  cognitiveservices = { name = "privatelink.cognitiveservices.azure.com", vnet_link = true }
+  services_ai       = { name = "privatelink.services.ai.azure.com", vnet_link = true }
 }
 
 foundry = {
@@ -131,7 +123,7 @@ foundry = {
   }
 
   deployments = {
-    holmes = {
+    chat = {
       model_name    = "gpt-4.1-mini"
       model_version = "2025-04-14"
       capacity      = 10

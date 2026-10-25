@@ -9,24 +9,21 @@ in `provider.tf`.
 
 The management root also declares a new private Foundry account, one management
 project, a regional Standard chat deployment, three private DNS zones and a
-private endpoint in the dedicated subnet. The independent `private_dns` input
-owns zone definitions and VNet link choices; the reusable network module owns
-the links to the AKS VNet. Foundry selects its required zones by their keys, so
+private endpoint in the dedicated subnet. The independent `private_dns` map
+owns zone definitions; `vnet_link` defaults to `false`, and the reusable network
+module creates links only for zones that opt in. Foundry selects zones by key, so
 other resources can use the same DNS configuration. The account uses
 its own user-assigned identity. Public network access and local key authentication
 are disabled by the pinned module defaults. The existing public `foundry-portfolio`
 account is outside this root and is not adopted or changed. Model deployment
 capacity, version and region are explicit in `terraform.tfvars`; review quota,
 availability and processing requirements again before apply. Azure model usage
-is billed even though HolmesGPT itself is free.
+is billed.
 
-HolmesGPT's ASO-owned identity and inference role assignment remain in the
-Holmes GitOps package. The Foundry module's optional inference principal is
-unset here, avoiding a second owner for that grant. Both modules are pinned to
-the merged Terraform PR #13 revision. The Holmes
-package still needs its own reviewed model endpoint/API version, private endpoint
-CIDR, Kubernetes API and Entra egress ranges, scoped ASO credential, live DNS
-resolution and successful workload-identity inference test before enablement.
+Inference consumers own their identities and account role assignments separately.
+The Foundry module's optional inference principal is unset here, avoiding a
+second owner for those grants. Both modules are pinned to the merged Terraform
+PR #13 revision.
 
 `argocd-values.yaml` holds deployment settings and group RBAC.
 `argocd-configmap.yaml` is the actual commented Argo resource, including OIDC,
