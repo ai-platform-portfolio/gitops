@@ -1,5 +1,4 @@
-{{- if eq .Values.cluster.role "management" }}
-# Central standalone testing service; execution gates remain local to this cluster.
+# Local standalone testing service; execution gates remain local to this cluster.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -229,4 +228,3 @@ spec:
 {{ tpl (.Files.Get "packages/testkube/analysis.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
-{{- end }}

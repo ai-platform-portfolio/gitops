@@ -1,0 +1,97 @@
+replicas: 1
+
+createServiceAccount: false
+customServiceAccountName: holmes
+k8sRBAC: false
+
+enableTelemetry: false
+sentryDSN: ""
+
+operator:
+  enabled: false
+
+modelList:
+  approved:
+    model: {{ .Values.holmes.model | quote }}
+    api_base: {{ .Values.holmes.modelEndpoint | quote }}
+    api_version: {{ .Values.holmes.modelApiVersion | quote }}
+
+extraEnvVarsSecrets:
+  - holmes-api-token
+
+additionalEnvVars:
+  - name: MODEL
+    value: approved
+  - name: AZURE_AD_TOKEN_AUTH
+    value: "true"
+  - name: AZURE_CLIENT_ID
+    valueFrom:
+      configMapKeyRef:
+        name: holmes-identity
+        key: clientId
+  - name: AZURE_TENANT_ID
+    value: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  - name: AZURE_FEDERATED_TOKEN_FILE
+    value: /var/run/secrets/azure/tokens/azure-identity-token
+
+additionalVolumes:
+  - name: azure-identity-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: api://AzureADTokenExchange
+            expirationSeconds: 3600
+            path: azure-identity-token
+
+additionalVolumeMounts:
+  - name: azure-identity-token
+    mountPath: /var/run/secrets/azure/tokens
+    readOnly: true
+
+toolsets:
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: true
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://mimir-gateway.lgtm.svc.cluster.local/prometheus
+  grafana/loki:
+    enabled: true
+    config:
+      api_url: http://loki-gateway.lgtm.svc.cluster.local
+  grafana/tempo:
+    enabled: true
+    config:
+      api_url: http://tempo.lgtm.svc.cluster.local:3200
+  robusta:
+    enabled: false
+  internet:
+    enabled: false
+  bash:
+    enabled: false
+  skills:
+    enabled: false
+  connectivity_check:
+    enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]

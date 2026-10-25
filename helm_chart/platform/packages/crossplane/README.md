@@ -1,7 +1,7 @@
 # Entra identities with Crossplane
 
 Argo installs Crossplane 2.4.3, AzureAD provider 2.5.0 and the standard
-patch-and-transform function 0.11.1. Only the management cluster installs them.
+patch-and-transform function 0.11.1 on each cluster.
 The three Argo stages share `templates/crossplane.yaml`; separate Applications
 preserve dependency health gates without separate template files. Langfuse
 dependencies share its existing template. There is no Azure ARM provider or SQL

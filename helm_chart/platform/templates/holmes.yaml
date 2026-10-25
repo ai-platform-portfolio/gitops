@@ -1,0 +1,42 @@
+{{- if .Values.holmes.enabled }}
+{{- $_ := required "holmes.model must name the approved model deployment" .Values.holmes.model }}
+{{- $_ := required "holmes.modelEndpoint must be an approved HTTPS endpoint" .Values.holmes.modelEndpoint }}
+{{- if not (hasPrefix "azure/" .Values.holmes.model) }}{{- fail "holmes.model must use the azure/ provider for Entra workload identity" }}{{- end }}
+{{- $_ := required "holmes.modelApiVersion is required for Azure Foundry" .Values.holmes.modelApiVersion }}
+{{- $_ := required "holmes.azure.foundryResourceGroupName is required" .Values.holmes.azure.foundryResourceGroupName }}
+{{- $_ := required "holmes.azure.foundryResourceName is required" .Values.holmes.azure.foundryResourceName }}
+{{- $_ := required "holmes.azure.identityResourceGroupName is required" .Values.holmes.azure.identityResourceGroupName }}
+{{- $_ := required "holmes.azure.location is required" .Values.holmes.azure.location }}
+{{- $_ := required "holmes.azure.asoClientIdSecret is required" .Values.holmes.azure.asoClientIdSecret }}
+{{- if not (hasPrefix "https://" .Values.holmes.modelEndpoint) }}
+{{- fail "holmes.modelEndpoint must use HTTPS" }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: holmes
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "50"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: holmes
+
+  source:
+    repoURL: https://robusta-charts.storage.googleapis.com
+    chart: holmes
+    targetRevision: "0.45.0"
+    helm:
+      releaseName: holmes
+      valuesObject:
+{{ tpl (.Files.Get "packages/holmes/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

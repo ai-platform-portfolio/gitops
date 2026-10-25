@@ -48,10 +48,8 @@ spec:
 {{ tpl (.Files.Get "packages/external-secrets/namespace.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/reflector/namespace.yaml") . | indent 10 }}
-{{- if eq .Values.cluster.role "management" }}
           ---
 {{ tpl (.Files.Get "packages/testkube/namespace.yaml") . | indent 10 }}
-{{- end }}
           ---
 {{ tpl (.Files.Get "packages/argo-rollouts/namespace.yaml") . | indent 10 }}
           ---
@@ -60,23 +58,24 @@ spec:
 {{ tpl (.Files.Get "packages/lgtm/namespace.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/k8s-monitoring/namespace.yaml") . | indent 10 }}
-{{ if eq .Values.cluster.role "management" }}
+{{ if .Values.holmes.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/holmes/namespace.yaml") . | indent 10 }}
+{{ end }}
           ---
 {{ tpl (.Files.Get "packages/azure-service-operator/namespace.yaml") . | indent 10 }}
-{{ end }}
 
-{{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
+{{- if .Values.atlantis.enabled }}
           ---
 {{ tpl (.Files.Get "packages/atlantis/namespace.yaml") . | indent 10 }}
 {{- end }}
-
 
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
           ---
 {{ tpl (.Files.Get "packages/backstage/namespace.yaml") . | indent 10 }}
 {{- end }}
 
-{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+{{- if .Values.devlake.enabled }}
           ---
 {{ tpl (.Files.Get "packages/devlake/namespace.yaml") . | indent 10 }}
 {{- end }}

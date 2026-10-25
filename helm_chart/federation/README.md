@@ -15,8 +15,9 @@ Management Argo CD
                  └─ package Applications reconciled by workload Argo CD
 ```
 
-The local platform root includes federation only when `cluster.role` is
-`management`. Workloads do not create another fleet onboarding controller.
+The local platform root includes federation on every cluster. Only management
+holds registered workload cluster Secrets, so its ApplicationSet creates the
+onboarding Applications. Other clusters have an empty selector result.
 Terraform owns each Argo Helm release; Argo does not manage that same release.
 
 ## Registration and configuration

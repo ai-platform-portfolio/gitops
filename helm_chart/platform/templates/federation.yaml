@@ -1,5 +1,4 @@
-{{- if eq .Values.cluster.role "management" }}
-# Install foundational controllers and management onboarding.
+# Install the fleet registration controller; only the hub has workload registrations.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -28,4 +27,3 @@ spec:
 {{ .Values.git | toYaml | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
-{{- end }}

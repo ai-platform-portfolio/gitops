@@ -1,5 +1,5 @@
 langfuse:
-{{- if and .Values.langfuse.sso.enabled (eq .Values.cluster.role "management") }}
+{{- if .Values.langfuse.sso.enabled }}
   web:
     deployment:
       annotations:

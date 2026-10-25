@@ -38,7 +38,7 @@ metadata:
   labels:
     platform.ai-platform-portfolio/managed: "true"
   annotations:
-    argocd.argoproj.io/sync-wave: {{ ternary "45" "30" (and .Values.devlake.enabled (eq .Values.cluster.role "management")) | quote }}
+    argocd.argoproj.io/sync-wave: {{ ternary "45" "30" (.Values.devlake.enabled) | quote }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 

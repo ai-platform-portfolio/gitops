@@ -1,6 +1,6 @@
 # Standalone Testkube
 
-The management root installs free standalone Testkube chart `2.14.2`, official
+Each cluster root installs free standalone Testkube chart `2.14.2`, official
 NATS chart `2.15.1` and S3Proxy `4.1.1`. No hosted account, license activation,
 MongoDB, additional PostgreSQL server, local object store or new storage account
 is required. Argo Rollouts is installed on every cluster; Argo Workflows is not
@@ -57,7 +57,7 @@ API readiness alone is insufficient because upstream logs migration errors as
 warnings. The check requires applied Goose version `20260917090000` for this pin.
 
 Terraform supplies only ASO's controller bootstrap authority: a dedicated identity
-trusted by the management ASO service account, with Managed Identity Contributor
+trusted by its cluster's ASO service account, with Managed Identity Contributor
 on the cluster resource group and Storage Account Contributor plus Role Based
 Access Control Administrator on the existing application account. GitOps creates
 the namespace credential from runtime context. ASO then creates the separate
@@ -156,11 +156,9 @@ behavior per application. The reserved `platform-storage-smoke` and
 `platform-failure-smoke` definitions are installation checks, not business tests.
 See [Rollouts](../argo-rollouts/README.md) for traffic ownership and Argo diff rules.
 
-This first installation is centralized on management and its reusable gate is
-for that same cluster. Workload clusters receive Rollouts but no duplicate broker
-or adapter. Cross-cluster Testkube access, authentication and application gate
-wiring require a separate design; a management ClusterIP is not reachable merely
-because another cluster has Rollouts installed.
+Each cluster installs its own Testkube service and dependencies, and its reusable
+gate targets that same cluster. Cross-cluster Testkube access and application gate
+wiring require a separate design; a ClusterIP is local to its cluster.
 
 ## PostgreSQL permission handover to Atlas later
 

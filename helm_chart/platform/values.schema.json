@@ -2,6 +2,50 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "holmes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "model", "modelEndpoint", "modelApiVersion", "modelCidrs", "apiCidrs", "entraCidrs", "azure"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "model": {"type": "string"},
+        "modelEndpoint": {"type": "string"},
+        "modelApiVersion": {"type": "string"},
+        "modelCidrs": {"$ref": "#/definitions/cidrList"},
+        "apiCidrs": {"$ref": "#/definitions/cidrList"},
+        "entraCidrs": {"$ref": "#/definitions/cidrList"},
+        "azure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["location", "identityResourceGroupName", "foundryResourceGroupName", "foundryResourceName", "asoClientIdSecret"],
+          "properties": {
+            "location": {"type": "string"},
+            "identityResourceGroupName": {"type": "string"},
+            "foundryResourceGroupName": {"type": "string"},
+            "foundryResourceName": {"type": "string"},
+            "asoClientIdSecret": {"type": "string"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"enabled": {"const": true}}},
+          "then": {
+            "properties": {
+              "model": {"pattern": "^azure/[^\\s]+$"},
+              "modelEndpoint": {"pattern": "^https://[^\\s]+$"},
+              "modelApiVersion": {"minLength": 1},
+              "azure": {
+                "properties": {
+                  "foundryResourceGroupName": {"minLength": 1},
+                  "foundryResourceName": {"minLength": 1}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "backstage": {
       "type": "object",
       "required": [
@@ -243,6 +287,17 @@
           }
         }
       ]
+    }
+  },
+  "definitions": {
+    "cidrList": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$"
+      }
     }
   }
 }

@@ -16,6 +16,12 @@ chart as one local root Application. All standard packages are installed; option
 Atlantis and Backstage packages follow their existing enablement settings. There
 is no foundations-only profile.
 
+Every cluster renders the same platform packages except Backstage, which remains
+management-only. Workload cluster infrastructure still needs its own Terraform
+root and per-cluster runtime values, including an ASO provisioner identity,
+Crossplane identity and AKS OIDC issuer. Rendering the chart does not create
+those foundations or verify private routes to shared Azure services.
+
 `packages/argocd/` owns the Argo ListenerSet, certificate annotation and HTTPRoutes.
 It adds the gateway label to the existing Argo namespace, with deletion/pruning
 disabled for that namespace. The Helm release and canonical URL remain
@@ -53,16 +59,17 @@ files easier to find.
 | Wave | Applications | Dependency |
 | --- | --- | --- |
 | -10 | namespaces | Namespaces exist before resources and credentials are consumed |
-| 0 | reflector, envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
-| 5 | cert-manager, testkube-reloader (management) | Envoy has installed Gateway API and ListenerSet CRDs |
-| 10 | argo-rollouts, atlas-operator, cloudnative-pg, configuration, azure-service-operator (management only) | Gateway API exists for Rollouts; foundation controllers can reconcile issuers, secret stores and external secrets |
-| 20 | plugin-barman-cloud, external-dns, gateway, testkube-azure (management), optional atlantis-azure | Operators/configuration are available |
+| 0 | reflector, envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation is installed on each cluster |
+| 5 | cert-manager, testkube-reloader | Envoy has installed Gateway API and ListenerSet CRDs |
+| 10 | argo-rollouts, atlas-operator, cloudnative-pg, configuration, azure-service-operator | Gateway API exists for Rollouts; foundation controllers can reconcile issuers, secret stores and external secrets |
+| 20 | plugin-barman-cloud, external-dns, gateway, testkube-azure, optional atlantis-azure | Operators/configuration are available |
 | 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
-| 30 | postgres, clickhouse, loki, grafana, tempo, mimir, testkube-nats (management) | Database operators, backup plugin and shared secrets are ready |
-| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials, testkube-storage (management) | Backend services are ready |
-| 60 | sonarqube, optional backstage, testkube (management) | PostgreSQL roles, databases and consumer credentials are ready |
-| 65 | testkube-checks (management) | Schema version, artifact roundtrip and failure propagation must pass |
-| 70 | sonarqube-configure, testkube-analysis (management) | SonarQube is healthy before its configuration job runs |
+| 30 | postgres, clickhouse, loki, grafana, tempo, mimir, testkube-nats | Database operators, backup plugin and shared secrets are ready |
+| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials, testkube-storage | Backend services are ready |
+| 50 | holmes | LGTM and Kubernetes telemetry are available; live model and identity validation still required |
+| 60 | sonarqube, optional backstage, testkube | PostgreSQL roles, databases and consumer credentials are ready |
+| 65 | testkube-checks | Schema version, artifact roundtrip and failure propagation must pass |
+| 70 | sonarqube-configure, testkube-analysis | SonarQube is healthy before its configuration job runs |
 | 80 | routes | Application backends are ready before public routes are attached |
 
 Waves belong to child Applications in one local root. The custom Application
@@ -96,7 +103,7 @@ within the running cluster. Application data and backup containers are disposabl
 [Azure Service Operator](packages/azure-service-operator/README.md) describes its
 namespace credentials, Azure ownership boundary and consumer lifecycle.
 
-Atlantis is an opt-in management package; see its [setup and operation guide](packages/atlantis/README.md). Its ASO-owned dependencies and configuration live in GitOps, with no Atlantis Terraform inputs or PostgreSQL dependency.
+Atlantis is an opt-in package on each cluster; see its [setup and operation guide](packages/atlantis/README.md). Its ASO-owned dependencies and configuration live in GitOps, with no Atlantis Terraform inputs or PostgreSQL dependency.
 
 ## Optional Backstage
 
@@ -115,6 +122,10 @@ and application migration systems.
 ConfigMap replication. Installation alone enables no copies; future sources must
 explicitly restrict destination namespaces.
 
+[HolmesGPT](packages/holmes/README.md) is staged as a private investigator on
+each cluster. Model, Kubernetes API and Entra egress stay denied until verified
+destinations are configured; the ASO provisioner credential is also pending.
+
 [Argo Rollouts](packages/argo-rollouts/README.md) supplies progressive delivery
 and the Gateway API traffic plugin on every cluster. Application-owned analysis
 and testing integration are separate from installing its controller. See the
@@ -122,8 +133,8 @@ and testing integration are separate from installing its controller. See the
 
 [Standalone Testkube](packages/testkube/README.md) documents the one-command dependency gates, Azure storage, private access and later Atlas permission handover. [Testing review](testing-review.md) records scope and limits.
 
-[DevLake](packages/devlake/README.md) adds free management-only DORA analytics,
-sharing CNPG and Grafana. Crossplane owns Entra; the stable release uses an Envoy
+[DevLake](packages/devlake/README.md) adds free DORA analytics on each cluster,
+sharing its local CNPG and Grafana. Crossplane owns Entra; the stable release uses an Envoy
 SSO overlay with retained backend Basic authentication. Credentials at wave 40
 move management Grafana to wave 45; configuration and policy/collection run at
 70/75, before routes and the final policy/certificate readiness Job. No production

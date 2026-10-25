@@ -1,0 +1,149 @@
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: holmes-api-token
+  namespace: holmes
+spec:
+  length: 64
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: holmes-api-token
+  namespace: holmes
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: holmes-api-token
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      data:
+        HOLMES_API_KEY: {{ "{{ .password }}" | quote }}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: holmes-api-token
+---
+# The service account can inspect workloads and telemetry, but cannot change them.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: holmes
+  namespace: holmes
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: holmes-read
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "nodes", "pods", "pods/log", "services", "events", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "applicationsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: holmes-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: holmes-read
+subjects:
+  - kind: ServiceAccount
+    name: holmes
+    namespace: holmes
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: holmes-ingress
+  namespace: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: holmes
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5050
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: holmes-egress
+  namespace: holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: holmes
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: lgtm
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 3200
+
+{{- range .Values.holmes.apiCidrs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
+
+{{- range .Values.holmes.modelCidrs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
+
+{{- range .Values.holmes.entraCidrs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
