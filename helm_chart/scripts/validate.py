@@ -712,6 +712,9 @@ def main():
                     assert repo['repo_locks']['mode'] == 'on_plan'
                 if name == 'sonarqube':
                     assert not any(d['kind'] == 'Job' and 'change-admin-password' in d['metadata']['name'] for d in docs)
+                    statefulset = next(d for d in docs if d['kind'] == 'StatefulSet' and d['metadata']['name'] == 'sonarqube')
+                    sonar = next(c for c in statefulset['spec']['template']['spec']['containers'] if c['name'] == 'sonarqube')
+                    assert sonar['resources']['requests']['cpu'] == '200m'
                 second = command('helm', 'template', name, *args, '--version', source['targetRevision'],
                     '--namespace', app['spec']['destination']['namespace'], '--include-crds',
                     '--kube-version', '1.34.1', '-f', str(values))

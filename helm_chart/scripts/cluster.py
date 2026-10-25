@@ -25,10 +25,23 @@ def run(*args, capture=False):
                           stdout=subprocess.PIPE if capture else None).stdout
 
 
-def wait_for(check, description, timeout=3600):
+def wait_for(check, description, timeout=3600, retry_command_errors=False):
     print(description, flush=True)
     deadline = time.monotonic() + timeout
-    while not check():
+    command_failures = 0
+    while True:
+        try:
+            if check():
+                return
+            command_failures = 0
+        except subprocess.CalledProcessError:
+            if not retry_command_errors:
+                raise
+            # A busy AKS API can briefly return 503 while Argo installs CRDs.
+            # Keep the health wait bounded, but fail on a persistent command error.
+            command_failures += 1
+            if command_failures >= 6:
+                raise
         if time.monotonic() >= deadline:
             raise TimeoutError(description)
         time.sleep(10)
@@ -178,7 +191,8 @@ class Cluster:
             state = (latest or {}).get('status', {}).get('operationState', {})
             return state.get('syncResult', {}).get('revision') != active_revision or state.get('phase') not in {'Running', 'Terminating'}
 
-        wait_for(old_operation_finished, 'Waiting for stale platform sync to stop', timeout=120)
+        wait_for(old_operation_finished, 'Waiting for stale platform sync to stop', timeout=120,
+                 retry_command_errors=True)
 
     def ready(self):
         def current(app):
@@ -201,7 +215,8 @@ class Cluster:
             found = {a['metadata']['name']: a for a in apps}
             return bool(expected) and expected <= found.keys() and all(
                 current(a) for a in [root, *(found[n] for n in expected)])
-        wait_for(reconciled, 'Waiting for every platform Application to be Synced and Healthy')
+        wait_for(reconciled, 'Waiting for every platform Application to be Synced and Healthy',
+                 retry_command_errors=True)
 
     def check_dns(self, runtime):
         """Refuse to adopt an existing exact record owned by another deployment."""
@@ -259,7 +274,8 @@ class Cluster:
             except (OSError, urllib.error.URLError):
                 return False
 
-        wait_for(available, 'Waiting for Argo CD certificate, DNS and verified HTTPS')
+        wait_for(available, 'Waiting for Argo CD certificate, DNS and verified HTTPS',
+                 retry_command_errors=True)
         print('Argo CD: https://' + hostname, flush=True)
 
     def cleanup(self):
