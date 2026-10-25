@@ -5,6 +5,11 @@ import onboard
 
 
 class HealthGateTests(unittest.TestCase):
+    def test_arm_oidc_issuer_uses_arm_field_name(self):
+        aks = {'properties': {'oidcIssuerProfile': {
+            'enabled': True, 'issuerURL': 'https://issuer.example.test/'}}}
+        self.assertEqual(onboard.aks_oidc_issuer(aks), 'https://issuer.example.test/')
+
     def test_stale_argo_comparison_and_azure_generation_do_not_pass(self):
         app = {'spec': {'source': {'targetRevision': 'main', 'path': 'platform'}},
                'status': {'sync': {'status': 'Synced', 'comparedTo': {

@@ -64,6 +64,11 @@ def app_ready(app):
             and (not spec.get("sources") or compared.get("sources") == spec["sources"]))
 
 
+def aks_oidc_issuer(aks):
+    # AKS ARM uses issuerURL; Azure CLI's displayed model uses issuerUrl.
+    return aks["properties"].get("oidcIssuerProfile", {}).get("issuerURL", "")
+
+
 class Kube:
     def __init__(self, api_client):
         self.core = client.CoreV1Api(api_client)
@@ -180,7 +185,7 @@ def foundation_values(name, profile, aks, hub_runtime, settings, hub_config):
     vault_uri = hub_runtime["AZURE_KEY_VAULT_URI"]
     return {"cluster": {"name": name, "resourceGroup": profile["cluster"]["resourceGroup"],
                         "location": profile["cluster"]["location"],
-                        "aksId": aks["id"], "oidcIssuer": aks["properties"]["oidcIssuerProfile"]["issuerUrl"]},
+                        "aksId": aks["id"], "oidcIssuer": aks_oidc_issuer(aks)},
             "shared": {"subscriptionId": hub_runtime["AZURE_SUBSCRIPTION_ID"],
                        "tenantId": hub_runtime["AZURE_TENANT_ID"],
                        "storageAccount": hub_runtime["AZURE_STORAGE_ACCOUNT"],
@@ -228,7 +233,7 @@ def runtime_for(name, profile, aks, hub_runtime, hub):
     result["CLUSTER_RESOURCE_GROUP"] = profile["cluster"]["resourceGroup"]
     result["DNS_ZONE"] = name + "." + hub_runtime["AZURE_DNS_ZONE"]
     result["ARGOCD_HOSTNAME"] = "argocd." + result["DNS_ZONE"]
-    result["AKS_OIDC_ISSUER_URL"] = aks["properties"]["oidcIssuerProfile"]["issuerUrl"]
+    result["AKS_OIDC_ISSUER_URL"] = aks_oidc_issuer(aks)
     for identity, key in (("platform", "AZURE_CLIENT_ID"), ("postgres", "POSTGRES_AZURE_CLIENT_ID"),
                           ("aso", "ASO_CLIENT_ID")):
         result[key] = hub.object("configmap", f"foundation-{name}-{identity}", FOUNDATION_NAMESPACE)["data"]["clientId"]
@@ -375,7 +380,7 @@ def process(hub, credential, request, platform, hub_config, argocd_config):
     properties = aks["properties"]
     if not (properties.get("disableLocalAccounts") is True
             and properties.get("aadProfile", {}).get("enableAzureRBAC") is True
-            and properties.get("oidcIssuerProfile", {}).get("issuerUrl", "").startswith("https://")):
+            and aks_oidc_issuer(aks).startswith("https://")):
         raise RuntimeError("AKS must disable local accounts and enable Entra Azure RBAC and OIDC")
     git = platform["git"]
     settings = platform["settings"]
