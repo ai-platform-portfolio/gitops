@@ -15,7 +15,7 @@ sonarqubeReady: false
 
 clusterOnboarding:
   enabled: true
-  image: localacrk8s.azurecr.io/portfolio/cluster-onboarding@sha256:b4a489417000a27b3bcbaac234de04831e1055ae562096eaa7f466784e46a4d3
+  image: localacrk8s.azurecr.io/portfolio/cluster-onboarding@sha256:45fae1c039983cd446e5fd61a84cf1043dad97473052a9ad2052ad4c74aa22e9
   vaultResourceGroup: kubernetes
 
 # Empty egress lists deny these destinations until each cluster's addresses are verified.
