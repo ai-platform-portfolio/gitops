@@ -105,3 +105,39 @@ including Gateway API route matches and backend/certificate references, without
 copying those defaults into every manifest. This setting controls comparison;
 normal synchronization still uses server-side apply. The chart rolls the
 application controller when command parameters change.
+
+## Azure Kubernetes Fleet Manager
+
+This root creates the shared **hubless** fleet named by `fleet.name` and enrolls
+management through the AKS library module. Its member name is
+`platform.cluster_name`; `fleet.update_group` assigns an update ring. Applying
+this root creates membership automatically; no CLI join or Entra application is
+needed. No update run or automatic-upgrade policy is enabled by this change.
+
+For subsequent workload roots, pass the same fleet's ARM resource ID to the AKS
+module's `fleet_membership` object with a unique `name` and the intended `group`.
+Each root owns its own membership, so Terraform detaches it before deleting its
+AKS cluster. The deployment identity needs Azure RBAC on the fleet and the AKS
+resource, including the documented membership operations. Sharing an Entra tenant
+is required; sharing a region or subscription is not. Do not create a separate
+fleet per workload, and do not declare those memberships again in this root.
+
+The fleet is shared infrastructure owned by this management root. Destroy all
+workload roots (and detach their memberships) before destroying this root. Deleting
+the fleet is not workload-cluster teardown. State storage remains external and
+persistent. No existing fleet or membership is adopted automatically.
+
+Fleet is an Azure inventory/update service, while Argo enrollment installs the
+package graph. Fleet membership does not register the cluster with Argo or make a
+new cluster application-ready. The separate workload-root/provisioning path still
+needs completion and a live end-to-end test; this is not a one-click factory.
+
+Crossplane remains the service Entra management layer. Its Graph authority is
+bootstrapped before the provider starts; it cannot consent its own permissions.
+Fleet enrollment uses Azure management-plane RBAC rather than Microsoft Graph,
+so this change adds no Graph permissions and transfers no directory ownership.
+ASO continues owning GitOps service identities/roles in Azure ARM. Bootstrap-owned
+Argo and controller identities remain Terraform-owned.
+
+See [Fleet options](https://learn.microsoft.com/en-us/azure/kubernetes-fleet/concepts-choosing-fleet)
+and [enrollment permissions](https://learn.microsoft.com/en-us/azure/kubernetes-fleet/quickstart-create-fleet-and-members-portal).

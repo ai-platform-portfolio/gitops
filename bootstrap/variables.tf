@@ -190,3 +190,11 @@ variable "platform" {
     error_message = "Define the PostgreSQL and observability containers."
   }
 }
+
+variable "fleet" {
+  description = "Shared hubless Fleet Manager foundation and this cluster's update group."
+  type = object({
+    name         = string
+    update_group = string
+  })
+}
