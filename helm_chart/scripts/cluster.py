@@ -114,7 +114,10 @@ class Cluster:
     def root(self, runtime, sonar_ready):
         settings = self.settings
         return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
-                'metadata': {'name': 'platform', 'namespace': 'argocd'},
+                'metadata': {'name': 'platform', 'namespace': 'argocd',
+                    'labels': {'platform.ai-platform-portfolio/overview': 'cluster',
+                               'platform.ai-platform-portfolio/cluster': settings['cluster']['name']},
+                    'annotations': {'argocd.argoproj.io/managed-by-url': 'https://' + runtime['ARGOCD_HOSTNAME']}},
                 'spec': {'project': 'default',
                     'destination': {'server': 'https://kubernetes.default.svc', 'namespace': 'argocd'},
                     'source': {'repoURL': settings['git']['repository'],
@@ -236,6 +239,10 @@ class Cluster:
 
         wait_for(available, 'Waiting for Argo CD certificate, DNS and verified HTTPS')
         print('Argo CD: https://' + hostname, flush=True)
+        print('Cluster overview: https://' + hostname +
+              '/applications?labels=platform.ai-platform-portfolio%2Foverview%3Dcluster&view=tiles'
+              '&proj=&sync=&autoSync=&operation=&health=&namespace=&targetRevision=&cluster='
+              '&showFavorites=false&annotations=&repo=', flush=True)
 
     def cleanup(self):
         # Detach hub onboarding before suspending the local root. Workload packages

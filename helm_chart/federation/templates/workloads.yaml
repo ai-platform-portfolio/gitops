@@ -19,6 +19,10 @@ spec:
       name: 'onboard-{{ "{{ .name }}" }}'
       labels:
         platform.ai-platform-portfolio/managed: "true"
+        platform.ai-platform-portfolio/overview: cluster
+        platform.ai-platform-portfolio/cluster: '{{ "{{ .name }}" }}'
+      annotations:
+        link.argocd.argoproj.io/external-link: 'https://{{ "{{ (fromJson (index .metadata.annotations \"platform.ai-platform-portfolio/root\")).spec.source.helm.valuesObject.runtime.ARGOCD_HOSTNAME }}" }}'
     spec:
       project: default
       destination:

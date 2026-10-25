@@ -68,7 +68,12 @@ class PlatformInputTests(unittest.TestCase):
         cluster.settings = {'cluster': {'name': 'management', 'role': 'management'},
                             'git': {'repository': 'https://example.test/gitops', 'revision': 'main'},
                             'atlantis': {'enabled': True, 'github_app_id': 'legacy-output'}}
-        values = cluster.root({}, False)['spec']['source']['helm']['valuesObject']
+        root = cluster.root({'ARGOCD_HOSTNAME': 'argocd.example.test'}, False)
+        values = root['spec']['source']['helm']['valuesObject']
+        self.assertEqual(root['metadata']['labels']['platform.ai-platform-portfolio/overview'], 'cluster')
+        self.assertEqual(root['metadata']['annotations']['argocd.argoproj.io/managed-by-url'], 'https://argocd.example.test')
+        # The root must remain outside the package teardown inventory.
+        self.assertNotIn('platform.ai-platform-portfolio/managed', root['metadata']['labels'])
         self.assertNotIn('atlantis', values)
 
 

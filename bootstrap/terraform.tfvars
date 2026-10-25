@@ -140,7 +140,7 @@ dns = {
 argocd = {
   # Use a fresh label; existing Azure DNS records are not adopted or overwritten.
   dns_label      = "argocd-management"
-  chart_version  = "10.10.5"
+  chart_version  = "10.11.1"
   values_file    = "argocd-values.yaml"
   configmap_file = "argocd-configmap.yaml"
 }

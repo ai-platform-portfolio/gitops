@@ -17,6 +17,13 @@ data:
   admin.enabled: "true"
   users.anonymous.enabled: "false"
 
+  # A native banner provides a persistent route back to cluster parents. The
+  # Applications page itself remains available with all package Applications.
+  # Clear saved filters so they cannot silently hide a cluster from the overview.
+  ui.bannercontent: "Cluster overview"
+  ui.bannerpermanent: "true"
+  ui.bannerurl: ${jsonencode("${argocd_url}/applications?labels=platform.ai-platform-portfolio%2Foverview%3Dcluster&view=tiles&proj=&sync=&autoSync=&operation=&health=&namespace=&targetRevision=&cluster=&showFavorites=false&annotations=&repo=")}
+
   # The template inputs come from authenticated context and the Entra module.
   # jsonencode keeps injected strings valid YAML. No client secret is created.
   url: ${jsonencode(argocd_url)}
