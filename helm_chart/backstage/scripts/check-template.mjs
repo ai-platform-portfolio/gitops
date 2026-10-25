@@ -80,6 +80,9 @@ try {
       registryName: 'exampleacr',
       registryResourceGroup: 'rg-registry',
       fleetId: '',
+      systemVmSize: 'Standard_D4s_v4',
+      platformVmSize: 'Standard_D4ds_v4',
+      servicesVmSize: 'Standard_D4ds_v6',
     },
   });
   renderTree('templates/cluster/skeleton', clusterOutput, clusterContext);
@@ -107,6 +110,10 @@ try {
   assert.match(
     readFileSync(join(clusterOutput, 'terraform.tfvars'), 'utf8'),
     /fleet_id\s*= ""/,
+  );
+  assert.match(
+    readFileSync(join(clusterOutput, 'terraform.tfvars'), 'utf8'),
+    /services\s*=\s*\{\s*vm_size\s*= "Standard_D4ds_v6"/,
   );
   assert.match(
     readFileSync(join(clusterOutput, 'gitops-profile/profile.yaml'), 'utf8'),

@@ -7,6 +7,23 @@ cluster = {
   application_subnet_cidr = "${{ values.applicationSubnetCidr }}"
   admin_group_object_id   = "${{ values.adminGroupObjectId }}"
   fleet_id                = "${{ values.fleetId }}"
+
+  node_pools = {
+    system = {
+      vm_size    = "${{ values.systemVmSize }}"
+      node_count = 1
+    }
+
+    platform = {
+      vm_size    = "${{ values.platformVmSize }}"
+      node_count = 1
+    }
+
+    services = {
+      vm_size    = "${{ values.servicesVmSize }}"
+      node_count = 1
+    }
+  }
 }
 
 api_allowlist_vault = {

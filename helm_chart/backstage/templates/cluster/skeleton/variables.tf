@@ -9,11 +9,20 @@ variable "cluster" {
     application_subnet_cidr = string
     admin_group_object_id   = string
     fleet_id                = optional(string, "")
+    node_pools = map(object({
+      vm_size    = string
+      node_count = number
+    }))
   })
 
   validation {
     condition     = can(regex("^aks-[a-z0-9]+(?:-[a-z0-9]+)*$", var.cluster.name)) && length(var.cluster.name) <= 40
     error_message = "Cluster name must be a unique lowercase aks- name of at most 40 characters."
+  }
+
+  validation {
+    condition     = toset(keys(var.cluster.node_pools)) == toset(["system", "platform", "services"])
+    error_message = "Provide exactly one system and two application pools."
   }
 }
 
