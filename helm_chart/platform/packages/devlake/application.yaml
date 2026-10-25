@@ -97,12 +97,8 @@ spec:
               valueFrom:
                 secretKeyRef: {name: devlake-encryption, key: secret}
             - {name: MODE, value: release}
-            - {name: GIN_MODE, value: release}
             - {name: FORCE_MIGRATION, value: "true"}
-            - {name: LOGGING_LEVEL, value: warn}
-            - {name: DB_LOGGING_LEVEL, value: Error}
             - {name: PIPELINE_MAX_PARALLEL, value: "1"}
-            - {name: REMOTE_PLUGIN_DIR, value: ""}
             - {name: DISABLED_REMOTE_PLUGINS, value: "true"}
             - {name: PLUGIN_DIR, value: /tmp/plugins}
           startupProbe:
