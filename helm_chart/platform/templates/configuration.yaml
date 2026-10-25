@@ -37,6 +37,10 @@ spec:
 {{ tpl (.Files.Get "packages/lgtm/service-account.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/lgtm/grafana-secret.yaml") . | indent 10 }}
+{{ if .Values.holmes.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/holmes/access.yaml") . | indent 10 }}
+{{ end }}
 {{ if eq .Values.cluster.role "management" }}
           ---
 {{ tpl (.Files.Get "packages/azure-service-operator/network-policy.yaml") . | indent 10 }}

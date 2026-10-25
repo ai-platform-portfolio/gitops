@@ -13,6 +13,16 @@ runtime: {}
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
+# Enable after an approved model endpoint and API credential are available.
+holmes:
+  enabled: false
+  model: ""
+  modelEndpoint: ""
+  modelApiVersion: ""
+  modelKeyVaultSecret: ""
+  modelCidrs: []
+  apiCidrs: []
+
 # Management-only package choices live in GitOps, not Terraform/tfvars.
 # Enable through a reviewed values change after supplying Key Vault credentials.
 atlantis:

@@ -54,6 +54,10 @@ spec:
 {{ tpl (.Files.Get "packages/lgtm/namespace.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/k8s-monitoring/namespace.yaml") . | indent 10 }}
+{{ if .Values.holmes.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/holmes/namespace.yaml") . | indent 10 }}
+{{ end }}
 {{ if eq .Values.cluster.role "management" }}
           ---
 {{ tpl (.Files.Get "packages/azure-service-operator/namespace.yaml") . | indent 10 }}

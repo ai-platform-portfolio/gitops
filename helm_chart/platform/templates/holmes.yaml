@@ -1,0 +1,38 @@
+{{- if .Values.holmes.enabled }}
+{{- $_ := required "holmes.model must name the approved model deployment" .Values.holmes.model }}
+{{- $_ := required "holmes.modelEndpoint must be an approved HTTPS endpoint" .Values.holmes.modelEndpoint }}
+{{- $_ := required "holmes.modelKeyVaultSecret must name the approved Key Vault API credential" .Values.holmes.modelKeyVaultSecret }}
+{{- $_ := required "holmes.modelCidrs must allow only the model endpoint" .Values.holmes.modelCidrs }}
+{{- $_ := required "holmes.apiCidrs must allow only the Kubernetes API endpoint" .Values.holmes.apiCidrs }}
+{{- if not (hasPrefix "https://" .Values.holmes.modelEndpoint) }}
+{{- fail "holmes.modelEndpoint must use HTTPS" }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: holmes
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "50"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: holmes
+
+  source:
+    repoURL: https://robusta-charts.storage.googleapis.com
+    chart: holmes
+    targetRevision: "0.45.0"
+    helm:
+      releaseName: holmes
+      valuesObject:
+{{ tpl (.Files.Get "packages/holmes/values.yaml") . | indent 8 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

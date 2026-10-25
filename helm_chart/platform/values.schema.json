@@ -2,6 +2,34 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "holmes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "model", "modelEndpoint", "modelApiVersion", "modelKeyVaultSecret", "modelCidrs", "apiCidrs"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "model": {"type": "string"},
+        "modelEndpoint": {"type": "string"},
+        "modelApiVersion": {"type": "string"},
+        "modelKeyVaultSecret": {"type": "string"},
+        "modelCidrs": {"$ref": "#/definitions/cidrList"},
+        "apiCidrs": {"$ref": "#/definitions/cidrList"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"enabled": {"const": true}}},
+          "then": {
+            "properties": {
+              "model": {"minLength": 1},
+              "modelEndpoint": {"pattern": "^https://[^\\s]+$"},
+              "modelKeyVaultSecret": {"minLength": 1},
+              "modelCidrs": {"minItems": 1},
+              "apiCidrs": {"minItems": 1}
+            }
+          }
+        }
+      ]
+    },
     "backstage": {
       "type": "object",
       "required": [
@@ -156,6 +184,17 @@
           }
         }
       ]
+    }
+  },
+  "definitions": {
+    "cidrList": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$"
+      }
     }
   }
 }
