@@ -37,25 +37,10 @@ global:
 mongodb:
   enabled: false
 
-postgresql:
-  enabled: false
-
-cloudnative-pg:
-  enabled: false
-
-postgresqlOperatorCluster:
-  enabled: false
-
-testkube-operator:
-  enabled: false
-  installCRD: true
-
 testkube-api:
-  replicaCount: 1
   multinamespace:
     enabled: true
   analyticsEnabled: false
-  enableSecretsEndpoint: false
   disableSecretCreation: true
   skipDBCreation: true
 
@@ -68,7 +53,6 @@ testkube-api:
     enabled: false
   postgresql:
     enabled: true
-    dsn: ''
     secretName: testkube-database
     secretKey: dsn
   minio:
@@ -76,11 +60,9 @@ testkube-api:
 
   nats:
     enabled: false
-    embedded: false
     uri: tls://testkube-nats.testkube.svc.cluster.local:4222
     tls:
       enabled: true
-      skipVerify: false
       mountCACertificate: true
       certSecret:
         enabled: true
@@ -88,7 +70,6 @@ testkube-api:
         baseMountPath: /etc/client-certs/nats
         certFile: tls.crt
         keyFile: tls.key
-        caFile: ca.crt
 
   storage:
     endpoint: testkube-s3.testkube.svc.cluster.local:8443
@@ -97,9 +78,7 @@ testkube-api:
     secretNameSecretAccessKey: testkube-storage
     secretKeySecretAccessKey: secretKey
     bucket: '{{ .Values.cluster.name }}-testkube-artifacts'
-    expiration: 0
     SSL: true
-    skipVerify: false
     cacheExpiration: 0
     mountCACertificate: true
     certSecret:
@@ -107,7 +86,6 @@ testkube-api:
       name: testkube-s3
       certFile: tls.crt
       keyFile: tls.key
-      caFile: ca.crt
 
   extraEnvVars:
   - name: SSL_CERT_FILE
@@ -131,19 +109,15 @@ testkube-api:
 
   resources:
     requests:
-      cpu: 200m
       memory: 256Mi
     limits:
       memory: 1Gi
 
   next:
-    cloudStorage: false
     gitops:
-      enabled: false
       syncKubernetesToCloud: false
     legacyTests:
       enabled: false
 
   logs:
-    storage: minio
     bucket: '{{ .Values.cluster.name }}-testkube-logs'

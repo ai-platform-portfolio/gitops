@@ -1,10 +1,8 @@
-fullnameOverride: testkube-nats
 config:
   jetstream:
     enabled: true
     fileStore:
       pvc:
-        enabled: true
         size: 1Gi
         storageClassName: managed-csi
   merge:
