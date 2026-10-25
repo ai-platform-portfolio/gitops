@@ -40,7 +40,7 @@ const operatorPermissions = new Set([
 export class PlatformPolicy implements PermissionPolicy {
   constructor(
     private readonly operatorGroups: string[],
-    private readonly repoUrl = '',
+    private readonly repoUrls: [string, ...string[]],
   ) {}
 
   async handle(
@@ -65,6 +65,7 @@ export class PlatformPolicy implements PermissionPolicy {
     }
     if (isPermission(request.permission, actionExecutePermission)) {
       if (!operator) return { result: AuthorizeResult.DENY };
+      const [firstRepoUrl, ...otherRepoUrls] = this.repoUrls;
       return createScaffolderActionConditionalDecision(request.permission, {
         anyOf: [
           scaffolderActionConditions.hasActionId({
@@ -75,10 +76,20 @@ export class PlatformPolicy implements PermissionPolicy {
               scaffolderActionConditions.hasActionId({
                 actionId: 'publish:github:pull-request',
               }),
-              scaffolderActionConditions.hasStringProperty({
-                key: 'repoUrl',
-                value: this.repoUrl,
-              }),
+              {
+                anyOf: [
+                  scaffolderActionConditions.hasStringProperty({
+                    key: 'repoUrl',
+                    value: firstRepoUrl,
+                  }),
+                  ...otherRepoUrls.map(value =>
+                    scaffolderActionConditions.hasStringProperty({
+                      key: 'repoUrl',
+                      value,
+                    }),
+                  ),
+                ],
+              },
             ],
           },
         ],
@@ -101,10 +112,17 @@ export const permissionModule = createBackendModule({
     reg.registerInit({
       deps: { policy: policyExtensionPoint, config: coreServices.rootConfig },
       async init({ policy, config }) {
+        const repoUrls: [string, ...string[]] = [
+          config.getString('platform.gitopsRepoUrl'),
+        ];
+        const clusterRepoUrl = config.getOptionalString(
+          'platform.clusterRepoUrl',
+        );
+        if (clusterRepoUrl) repoUrls.push(clusterRepoUrl);
         policy.setPolicy(
           new PlatformPolicy(
             config.getStringArray('platform.operatorGroups'),
-            config.getOptionalString('platform.gitopsRepoUrl') ?? '',
+            repoUrls,
           ),
         );
       },

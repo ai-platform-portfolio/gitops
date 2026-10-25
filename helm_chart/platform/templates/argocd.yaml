@@ -1,4 +1,5 @@
-# Expose Argo before enabling application packages.
+{{- if eq .Values.cluster.role "management" }}
+# Management Argo is the authenticated UI for all workload clusters.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -27,3 +28,4 @@ spec:
 {{ tpl (.Files.Get "packages/argocd/networking.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

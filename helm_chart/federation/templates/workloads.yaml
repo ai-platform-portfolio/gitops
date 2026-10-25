@@ -11,6 +11,7 @@ spec:
         selector:
           matchLabels:
             platform.ai-platform-portfolio/role: workload
+            platform.ai-platform-portfolio/stage: ready
   # Removing a registration must never cascade-delete a workload platform.
   syncPolicy:
     preserveResourcesOnDeletion: true

@@ -1,0 +1,10 @@
+# GitOps-owned workload profile. Terraform owns AKS; management Argo owns
+# service identities, containers and application reconciliation.
+cluster:
+  name: ${{ values.name }}
+  role: workload
+  location: ${{ values.location }}
+  resourceGroup: rg-${{ values.name }}
+
+request:
+  issue: ${{ values.issue }}

@@ -1,0 +1,118 @@
+{{- $c := .Values.cluster -}}
+{{- $s := .Values.shared -}}
+{{- $o := .Values.onboarding -}}
+{{- $name := required "cluster.name is required" $c.name -}}
+{{- $issuer := required "cluster.oidcIssuer is required" $c.oidcIssuer -}}
+{{- $sub := required "shared.subscriptionId is required" $s.subscriptionId -}}
+{{- $rg := printf "/subscriptions/%s/resourceGroups/%s" $sub (required "cluster.resourceGroup is required" $c.resourceGroup) -}}
+{{- $aks := required "cluster.aksId is required" $c.aksId -}}
+{{- $storage := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s" $sub (required "shared.storageResourceGroup is required" $s.storageResourceGroup) (required "shared.storageAccount is required" $s.storageAccount) -}}
+{{- $dns := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/dnszones/%s" $sub (required "shared.dnsResourceGroup is required" $s.dnsResourceGroup) (required "shared.dnsZone is required" $s.dnsZone) -}}
+{{- $vault := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s" $sub (required "shared.vaultResourceGroup is required" $s.vaultResourceGroup) (required "shared.vaultName is required" $s.vaultName) -}}
+{{- $foundry := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s" $sub (required "shared.foundryResourceGroup is required" $s.foundryResourceGroup) (required "shared.foundryName is required" $s.foundryName) -}}
+{{- $identities := dict
+  "platform" (list "system:serviceaccount:cert-manager:cert-manager" "system:serviceaccount:external-dns:external-dns" "system:serviceaccount:external-secrets:eso-akv-wi" "system:serviceaccount:lgtm:lgtm")
+  "postgres" (list "system:serviceaccount:postgres:platform")
+  "aso" (list "system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default")
+-}}
+{{- range $identity, $subjects := $identities }}
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: {{ $name }}-{{ $identity }}
+  namespace: cluster-onboarding
+spec:
+  azureName: id-{{ $name }}-{{ $identity }}
+  location: {{ required "cluster.location is required" $c.location | quote }}
+  owner:
+    armId: {{ $rg | quote }}
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: foundation-{{ $name }}-{{ $identity }}
+        key: clientId
+      principalId:
+        name: foundation-{{ $name }}-{{ $identity }}
+        key: principalId
+{{- range $subject := $subjects }}
+{{- $hash := sha256sum (printf "%s/%s/%s" $name $identity $subject) | trunc 32 }}
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: fic-{{ $hash }}
+  namespace: cluster-onboarding
+spec:
+  owner:
+    name: {{ $name }}-{{ $identity }}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ $issuer | quote }}
+  subject: {{ $subject | quote }}
+{{- end }}
+{{- end }}
+{{- $roles := dict
+  "platform-dns" (dict "identity" "platform" "scope" $dns "role" "DNS Zone Contributor")
+  "platform-vault" (dict "identity" "platform" "scope" $vault "role" "Key Vault Secrets User")
+  "platform-storage" (dict "identity" "platform" "scope" $storage "role" "Storage Blob Data Contributor")
+  "postgres-storage" (dict "identity" "postgres" "scope" $storage "role" "Storage Blob Data Contributor")
+  "aso-resources" (dict "identity" "aso" "scope" $rg "role" "Contributor")
+  "aso-resource-roles" (dict "identity" "aso" "scope" $rg "role" "Role Based Access Control Administrator")
+  "aso-storage" (dict "identity" "aso" "scope" $storage "role" "Storage Account Contributor")
+  "aso-storage-roles" (dict "identity" "aso" "scope" $storage "role" "Role Based Access Control Administrator")
+  "aso-foundry-roles" (dict "identity" "aso" "scope" $foundry "role" "Role Based Access Control Administrator")
+-}}
+{{- range $key, $role := $roles }}
+{{- $hash := sha256sum (printf "%s/%s/%s/%s" $name $key $role.scope $role.role) | trunc 32 }}
+---
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: ra-{{ $hash }}
+  namespace: cluster-onboarding
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner:
+    armId: {{ $role.scope | quote }}
+  principalIdFromConfig:
+    name: foundation-{{ $name }}-{{ $role.identity }}
+    key: principalId
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    wellKnownName: {{ $role.role | quote }}
+{{- end }}
+{{- $access := dict
+  "worker-user" (dict "principal" (required "onboarding.workerPrincipalId is required" $o.workerPrincipalId) "role" "Azure Kubernetes Service Cluster User Role")
+  "worker-admin" (dict "principal" $o.workerPrincipalId "role" "Azure Kubernetes Service RBAC Cluster Admin")
+  "argocd-admin" (dict "principal" (required "onboarding.managementArgoPrincipalId is required" $o.managementArgoPrincipalId) "role" "Azure Kubernetes Service RBAC Cluster Admin")
+-}}
+{{- range $key, $access := $access }}
+{{- $hash := sha256sum (printf "%s/%s/%s" $aks $key $access.principal) | trunc 32 }}
+---
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: ra-{{ $hash }}
+  namespace: cluster-onboarding
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner:
+    armId: {{ $aks | quote }}
+  principalId: {{ $access.principal | quote }}
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    wellKnownName: {{ $access.role | quote }}
+{{- end }}
+{{- range $suffix := list "postgres-backups" "loki-chunks" "loki-ruler" "mimir-blocks" "mimir-ruler" "mimir-alertmanager" "tempo-traces" }}
+---
+apiVersion: storage.azure.com/v20230101
+kind: StorageAccountsBlobServicesContainer
+metadata:
+  name: {{ $name }}-{{ $suffix }}
+  namespace: cluster-onboarding
+spec:
+  azureName: {{ $name }}-{{ $suffix }}
+  owner:
+    armId: {{ printf "%s/blobServices/default" $storage | quote }}
+  publicAccess: None
+{{- end }}

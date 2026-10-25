@@ -60,14 +60,24 @@ syncPolicy:
 {{- end -}}
 {{- if not $allow.positive -}}{{- fail "Atlantis requires a positive repository pattern" -}}{{- end -}}
 {{- if eq (len $a.azure.role_assignments) 0 -}}{{- fail "atlantis.azure.role_assignments must not be empty" -}}{{- end -}}
+{{- if not (hasKey $a.azure.role_assignments "state") -}}{{- fail "atlantis.azure.role_assignments.state must scope the persistent backend account" -}}{{- end -}}
 {{- range $name, $role := $a.azure.role_assignments -}}
 {{- if or (gt (len $name) 54) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name)) -}}
 {{- fail "Atlantis role keys must be DNS labels of at most 54 characters" -}}
 {{- end -}}
+{{- $scope := default (ternary "storage_account" "resource_group" (not (empty $role.storage_account_name))) $role.scope -}}
+{{- if not (has $scope (list "subscription" "resource_group" "storage_account" "key_vault")) -}}
+{{- fail "Atlantis role scope must be subscription, resource_group, storage_account or key_vault" -}}
+{{- end -}}
+{{- if ne $scope "subscription" -}}
 {{- $_ := required "Atlantis role target resource_group_name is required" $role.resource_group_name -}}
+{{- end -}}
 {{- $_ := required "Atlantis role_definition_name is required" $role.role_definition_name -}}
-{{- if and $role.storage_account_name (not (regexMatch "^[a-z0-9]{3,24}$" $role.storage_account_name)) -}}
+{{- if and (eq $scope "storage_account") (not (regexMatch "^[a-z0-9]{3,24}$" (default "" $role.storage_account_name))) -}}
 {{- fail "Atlantis storage account names must be 3-24 lowercase alphanumeric characters" -}}
+{{- end -}}
+{{- if and (eq $scope "key_vault") (not (regexMatch "^[a-zA-Z0-9-]{3,24}$" (default "" $role.key_vault_name))) -}}
+{{- fail "Atlantis key vault names must be 3-24 alphanumeric or hyphen characters" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

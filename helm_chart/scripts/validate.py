@@ -15,7 +15,10 @@ HELM_CHART = ROOT / 'helm_chart'
 
 
 def command(*args):
-    return subprocess.run(args, check=True, text=True, capture_output=True).stdout
+    result = subprocess.run(args, text=True, capture_output=True)
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
+    return result.stdout
 
 
 def main():
@@ -85,7 +88,10 @@ def main():
             'https://argoproj.github.io/argo-helm', '--version', version, '--namespace', 'argocd', '-f', str(argo_values))))
         maps = [d for d in argo if d and d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'argocd-cm']
         assert len(maps) == 1 and maps[0]['data'] == configmap['data'], 'Helm must install exactly the file-defined Argo ConfigMap'
-        applications = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+        rendered = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
+        settings_map = next(d for d in rendered if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'workload-onboarding-settings')
+        assert 'clusterOnboarding' in json.loads(settings_map['data']['values.json'])
+        applications = [d for d in rendered if d['kind'] == 'Application']
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
@@ -197,8 +203,8 @@ def main():
                     assert federation['spec']['subject'] == 'system:serviceaccount:atlantis:atlantis'
                     assert federation['spec']['issuer'] == runtime['AKS_OIDC_ISSUER_URL']
                     roles = [d for d in documents if d['kind'] == 'RoleAssignment']
-                    assert len(roles) == 2
-                    assert {r['spec']['roleDefinitionReference']['wellKnownName'] for r in roles} == {'Contributor', 'Storage Blob Data Contributor'}
+                    assert len(roles) == 4
+                    assert {r['spec']['roleDefinitionReference']['wellKnownName'] for r in roles} == {'Contributor', 'Storage Blob Data Contributor', 'Role Based Access Control Administrator', 'Key Vault Secrets User'}
                     assert all(r['spec']['principalIdFromConfig'] == {'name': 'atlantis-identity', 'key': 'principalId'} for r in roles)
                     assert all(re.fullmatch(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', r['spec']['azureName']) for r in roles)
                     state_role = next(r for r in roles if r['metadata']['name'] == 'atlantis-state')
@@ -303,11 +309,13 @@ def main():
 
         values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}, 'atlantis': atlantis}))
         workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+        workload = [d for d in workload if d and d['kind'] == 'Application']
         workload_names = {a['metadata']['name'] for a in workload}
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
-                                              'sonarqube', 'sonarqube-configure'}, 'Workload must install every ready package except Backstage'
+                                              'sonarqube', 'sonarqube-configure', 'crossplane',
+                                              'crossplane-packages', 'crossplane-identity-api', 'argocd-route'}, 'Workload must install every ready package except management services'
         assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
-                'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities',
+                'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
         assert not {'backstage', 'backstage-credentials', 'backstage-reloader'} & workload_names
         assert waves['configuration'] < waves['atlantis-azure'] < waves['atlantis'] < waves['routes']
@@ -330,7 +338,7 @@ def main():
         initial_routes = [d for d in yaml.safe_load_all(routes['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert not any(d['metadata']['namespace'] == 'sonarqube' for d in initial_routes), 'Initial routes must not block on a Sonar backend that has not been installed'
         assert waves['configuration'] < waves['postgres'] < waves['devlake-credentials'] < waves['grafana'] < waves['devlake'] < waves['devlake-configure'] < waves['devlake-collection'] < waves['routes']
-        assert waves['crossplane-identity-api'] < waves['service-identities'] < waves['devlake']
+        assert waves['service-identities'] < waves['devlake']
         assert waves['routes'] > waves['sonarqube'], 'Activate routes after backend health'
         assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
         assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
@@ -356,6 +364,7 @@ def main():
                                          'sonarqubeReady': True, 'backstage': portal, 'atlantis': atlantis}))
             enabled_apps = list(yaml.safe_load_all(command('helm', 'template', 'platform',
                                 str(HELM_CHART / 'platform'), '-f', str(values))))
+            enabled_apps = [a for a in enabled_apps if a and a['kind'] == 'Application']
             by_name = {a['metadata']['name']: a for a in enabled_apps}
             assert ('backstage' in by_name) == (role == 'management')
             assert ('backstage-credentials' in by_name) == (role == 'management')
@@ -450,6 +459,7 @@ def main():
         assert access['metadata']['annotations']['argocd.argoproj.io/sync-wave'] == '1'
         values.write_text(json.dumps({'runtime': runtime, 'devlake': {'enabled': False}}))
         without = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+        without = [a for a in without if a and a['kind'] == 'Application']
         assert not any('devlake' in json.dumps(a) for a in without), 'Disabling DevLake must remove every package dependency'
         assert next(a for a in without if a['metadata']['name'] == 'grafana')['metadata']['annotations']['argocd.argoproj.io/sync-wave'] == '30'
         print('DevLake: stable images, deferred ESO templates, PostgreSQL reuse, SSO/API isolation and access gates verified.')
@@ -583,7 +593,7 @@ def main():
                     settings = next(d for d in docs if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-controller-settings')['data']
                     assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
                     assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
-                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,testkube,holmes,atlantis'
+                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,cluster-onboarding,testkube,holmes,atlantis'
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
                 if name in {'langfuse-reloader', 'backstage-reloader', 'testkube-reloader', 'devlake-reloader'}:

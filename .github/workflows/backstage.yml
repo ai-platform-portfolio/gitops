@@ -51,6 +51,10 @@ jobs:
 
       - run: yarn test --watch=false --maxWorkers=2
 
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.17.0'
+
       - run: node scripts/check-template.mjs
 
       - run: yarn lint:all

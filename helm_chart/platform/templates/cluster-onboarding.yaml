@@ -1,0 +1,78 @@
+{{- if eq .Values.cluster.role "management" }}
+---
+# The worker reads effective GitOps choices from this management-owned snapshot.
+# It never reads Terraform state or forwards secrets to Atlantis.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workload-onboarding-settings
+  namespace: argocd
+data:
+  values.json: {{ dict "clusterOnboarding" .Values.clusterOnboarding "holmes" .Values.holmes "atlantis" .Values.atlantis "backstage" .Values.backstage "langfuse" .Values.langfuse "devlake" .Values.devlake "testkube" .Values.testkube "entraPrefixes" (.Files.Get "packages/backstage/entra-prefixes.yaml" | fromYamlArray) | toJson | quote }}
+{{- if .Values.clusterOnboarding.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-onboarding
+  namespace: cluster-onboarding
+  annotations:
+    azure.workload.identity/client-id: {{ required "runtime.ONBOARDING_CLIENT_ID is required" .Values.runtime.ONBOARDING_CLIENT_ID | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cluster-onboarding
+  namespace: argocd
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    verbs: [get, list, create, patch, update]
+
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, create, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cluster-onboarding
+  namespace: argocd
+subjects:
+  - kind: ServiceAccount
+    name: cluster-onboarding
+    namespace: cluster-onboarding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cluster-onboarding
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cluster-onboarding
+  namespace: cluster-onboarding
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    verbs: [get, list]
+
+  - apiGroups: [applications.azuread.m.upbound.io]
+    resources: [applications]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cluster-onboarding
+  namespace: cluster-onboarding
+subjects:
+  - kind: ServiceAccount
+    name: cluster-onboarding
+    namespace: cluster-onboarding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cluster-onboarding
+{{- end }}
+{{- end }}

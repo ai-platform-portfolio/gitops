@@ -64,10 +64,12 @@ spec:
   publicAccess: None
 {{- end }}
 
+{{- if eq .Values.cluster.role "management" }}
+
 ---
 
-# This is the account's canonical policy; its absence was verified before adoption.
-# Add future rules here rather than creating a second owner of the singleton.
+# The management cluster is the single owner of the storage-account policy.
+# Workload profiles add prefixes here without creating a second policy object.
 apiVersion: storage.azure.com/v20230101
 kind: StorageAccountsManagementPolicy
 metadata:
@@ -87,7 +89,17 @@ spec:
             prefixMatch:
               - {{ .Values.cluster.name }}-testkube-artifacts/
               - {{ .Values.cluster.name }}-testkube-logs/
+{{- range $path, $contents := .Files.Glob "clusters/*/profile.yaml" }}
+{{- $profile := fromYaml (toString $contents) }}
+{{- $name := required (printf "%s must declare cluster.name" $path) (dig "cluster" "name" "" $profile) }}
+{{- if not (regexMatch "^aks-[a-z0-9]+(?:-[a-z0-9]+)*$" $name) }}
+{{- fail (printf "%s has an invalid cluster name" $path) }}
+{{- end }}
+              - {{ $name }}-testkube-artifacts/
+              - {{ $name }}-testkube-logs/
+{{- end }}
           actions:
             baseBlob:
               delete:
                 daysAfterModificationGreaterThan: {{ .Values.testkube.retentionDays }}
+{{- end }}

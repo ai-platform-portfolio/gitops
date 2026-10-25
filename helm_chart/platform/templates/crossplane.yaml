@@ -1,4 +1,5 @@
-# Core, packages and identity API remain separate Argo health gates.
+{{- if eq .Values.cluster.role "management" }}
+# The management provider owns Entra applications for all clusters.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -85,3 +86,4 @@ spec:
 {{ tpl (.Files.Get "packages/crossplane/identity-api.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

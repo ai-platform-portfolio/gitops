@@ -8,3 +8,4 @@ provider:
     - passwords.applications.azuread.m.upbound.io
     - principals.serviceprincipals.azuread.m.upbound.io
     - roleassignments.app.azuread.m.upbound.io
+    - tokensigningcertificates.serviceprincipals.azuread.m.upbound.io

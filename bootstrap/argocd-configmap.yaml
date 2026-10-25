@@ -158,4 +158,17 @@ data:
     end
     if ready and synced then return {status = "Healthy", message = "Identity reconciled"} end
     return {status = "Progressing", message = "Waiting for identity reconciliation"}
+  # Direct Entra resources in workload foundations must be current before
+  # onboarding reads client IDs or exposes SAML applications.
+  resource.customizations.health.applications.azuread.m.upbound.io_Application: *identityHealth
+  resource.customizations.health.serviceprincipals.azuread.m.upbound.io_Principal: *identityHealth
+  resource.customizations.health.serviceprincipals.azuread.m.upbound.io_TokenSigningCertificate: *identityHealth
+  resource.customizations.health.app.azuread.m.upbound.io_RoleAssignment: *identityHealth
+  resource.customizations.health.external-secrets.io_PushSecret: |
+    for _, c in ipairs((obj.status or {}).conditions or {}) do
+      if c.type == "Ready" and c.status == "True" then
+        return {status = "Healthy", message = "Credential published"}
+      end
+    end
+    return {status = "Progressing", message = "Waiting for credential publication"}
   resource.customizations.health.app.azuread.m.upbound.io_RoleAssignment: *identityHealth

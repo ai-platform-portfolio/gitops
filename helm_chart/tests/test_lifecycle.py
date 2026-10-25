@@ -134,6 +134,7 @@ class PlatformInputTests(unittest.TestCase):
     def test_health_wait_ends_old_operation_after_later_revision_comparison(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
+        cluster.settings = {'cluster': {'role': 'management'}}
         resources = [{'kind': 'Application', 'name': name}
                      for name in ('sonarqube', 'sonarqube-configure', 'argocd-route')]
         def root(compared, active, healthy=False):
@@ -180,7 +181,7 @@ class TeardownTests(unittest.TestCase):
         self.assertEqual(cluster.objects.call_args.args, ('rollouts.argoproj.io',))
 
     def test_tracked_package_azure_resources_delete_before_operator(self):
-        for package, extra in [(package, extra) for package in ["atlantis", "testkube"] for extra in [False, True]]:
+        for package, extra in [(package, extra) for package in ["atlantis", "holmes", "testkube"] for extra in [False, True]]:
             with self.subTest(package=package, untracked_resource=extra):
                 cluster = Cluster.__new__(Cluster)
                 cluster.kube = ['kubectl']

@@ -1,0 +1,54 @@
+name: Cluster onboarding worker
+
+on:
+  pull_request:
+    paths:
+      - 'helm_chart/cluster-onboarding/**'
+      - 'helm_chart/scripts/credentials.py'
+      - '.github/workflows/cluster-onboarding.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'helm_chart/cluster-onboarding/**'
+      - 'helm_chart/scripts/credentials.py'
+      - '.github/workflows/cluster-onboarding.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - run: docker build --tag cluster-onboarding:ci --file helm_chart/cluster-onboarding/Dockerfile helm_chart
+
+      - run: docker run --rm --volume "$PWD/helm_chart/cluster-onboarding/test_onboard.py:/app/test_onboard.py:ro" --entrypoint python cluster-onboarding:ci -m unittest -v test_onboard
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - run: docker build --tag "ghcr.io/${GITHUB_REPOSITORY}/cluster-onboarding:${GITHUB_SHA}" --file helm_chart/cluster-onboarding/Dockerfile helm_chart
+
+      - name: Publish image for reviewed GitOps promotion
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker push "ghcr.io/${GITHUB_REPOSITORY}/cluster-onboarding:${GITHUB_SHA}"

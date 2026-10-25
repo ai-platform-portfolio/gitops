@@ -1,0 +1,83 @@
+{{- if eq .Values.cluster.role "management" }}
+{{- range $path, $contents := .Files.Glob "clusters/*/profile.yaml" }}
+{{- $profile := fromYaml (toString $contents) }}
+{{- $name := required (printf "%s must declare cluster.name" $path) (dig "cluster" "name" "" $profile) }}
+{{- if not (regexMatch "^aks-[a-z0-9]+(?:-[a-z0-9]+)*$" $name) }}
+{{- fail (printf "%s has an invalid cluster name" $path) }}
+{{- end }}
+{{- if ne (base (dir $path)) $name }}
+{{- fail (printf "%s directory must equal cluster.name" $path) }}
+{{- end }}
+{{- if ne (dig "cluster" "role" "" $profile) "workload" }}
+{{- fail (printf "%s must set cluster.role=workload" $path) }}
+{{- end }}
+{{- if ne (dig "cluster" "resourceGroup" "" $profile) (printf "rg-%s" $name) }}
+{{- fail (printf "%s resource group must derive from cluster.name" $path) }}
+{{- end }}
+{{- if not (regexMatch "^AI-[0-9]+$" (dig "request" "issue" "" $profile)) }}
+{{- fail (printf "%s must link a Linear AI issue" $path) }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workload-request-{{ $name }}
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/workload-request: "true"
+    platform.ai-platform-portfolio/cluster: {{ $name }}
+data:
+  profile.yaml: |
+{{ toYaml $profile | indent 4 }}
+{{- if $.Values.clusterOnboarding.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: onboard-{{ $name }}
+  namespace: cluster-onboarding
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 28800
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            azure.workload.identity/use: "true"
+        spec:
+          serviceAccountName: cluster-onboarding
+          restartPolicy: Never
+          nodeSelector:
+            agentpool: platform
+          containers:
+            - name: worker
+              image: {{ required "clusterOnboarding.image is required" $.Values.clusterOnboarding.image | quote }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: CLUSTER_NAME
+                  value: {{ $name | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests: {cpu: 100m, memory: 256Mi}
+                limits: {memory: 768Mi}
+          volumes:
+            - name: tmp
+              emptyDir: {}
+{{- end }}
+{{- end }}
+{{- end }}

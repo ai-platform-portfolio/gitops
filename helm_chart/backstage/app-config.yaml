@@ -73,6 +73,10 @@ catalog:
       target: /app/templates/service/template.yaml
       rules:
         - allow: [Template]
+    - type: file
+      target: /app/templates/cluster/template.yaml
+      rules:
+        - allow: [Template]
 
 # Documentation is built in CI and bundled into the immutable image. The portal
 # only serves files; no on-demand builds, Docker socket or cloud storage keys.

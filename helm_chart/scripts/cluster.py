@@ -213,7 +213,10 @@ class Cluster:
             if not root or not root.get('status', {}).get('resources'):
                 return False
             expected = {r['name'] for r in root['status']['resources'] if r['kind'] == 'Application'}
-            if not {'sonarqube', 'sonarqube-configure', 'argocd-route'} <= expected:
+            required = {'sonarqube', 'sonarqube-configure'}
+            if self.settings['cluster']['role'] == 'management':
+                required.add('argocd-route')
+            if not required <= expected:
                 return False
             found = {a['metadata']['name']: a for a in apps}
             return bool(expected) and expected <= found.keys() and all(
@@ -300,7 +303,7 @@ class Cluster:
             # resources tracked by platform-owned consumer Applications may
             # remain: reverse waves delete them before ASO and its credential.
             owned = {(r.get('group'), r.get('kind'), r.get('namespace'), r.get('name'))
-                     for app in apps if app['metadata']['name'] in {'atlantis-azure', 'testkube-azure'}
+                     for app in apps if app['metadata']['name'] in {'atlantis-azure', 'holmes-azure', 'testkube-azure'}
                      and app['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true'
                      for r in app.get('status', {}).get('resources', [])}
             # Use ASO's own reserved CRD ownership label. Native AKS ACN APIs

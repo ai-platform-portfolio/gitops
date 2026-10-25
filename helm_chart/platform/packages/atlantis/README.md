@@ -22,9 +22,7 @@ atlantis:
   github_app_slug: platform-atlantis
   github_team: platform
   repositories:
-    - github.com/ai-platform-portfolio/*
-    - "!github.com/ai-platform-portfolio/gitops"
-    - "!github.com/ai-platform-portfolio/terraform"
+    - github.com/ai-platform-portfolio/cluster-deployments
 
   aso_client_id_secret: aso-provisioner-client-id
 
@@ -34,16 +32,32 @@ atlantis:
     identity_resource_group_name: rg-{{ .Values.cluster.name }}-atlantis
     role_assignments:
       state:
+        scope: storage_account
         resource_group_name: rg-developer-state
         storage_account_name: REPLACE_WITH_EXISTING_STATE_ACCOUNT
         role_definition_name: Storage Blob Data Contributor
       deployment:
-        resource_group_name: rg-service-dev
+        scope: subscription
         role_definition_name: Contributor
+      delegation:
+        scope: subscription
+        role_definition_name: Role Based Access Control Administrator
+      api-allowlist:
+        scope: key_vault
+        resource_group_name: kubernetes
+        key_vault_name: localdevenv
+        role_definition_name: Key Vault Secrets User
 ```
 
-The existing target state account/deployment group must be approved for developer
-runs. Roles use resource-group or storage-account scope, never per-container
+The existing target state account, API allowlist vault and deployment scope must be approved for cluster
+creation. The generated Terraform root creates its own resource group and AKS
+network role assignments, so it needs subscription-scoped resource creation and
+role-assignment authority. These are powerful privileges: keep this dedicated
+runner limited to the `cluster-deployments` repository, require trusted approval
+before **plan** as well as apply, enforce branch protection/CODEOWNERS and review
+the identity's Azure scope before enabling it. A custom Azure role and/or policy
+can narrow the built-in roles after proving the required actions. Roles may use
+subscription, resource-group or storage-account scope; never use per-container
 assignments. Account-level Blob access covers all blobs in that account; sharing
 management/developer state in one account shares that trust boundary. Repository
 exclusions do not isolate state. All targets use the existing cluster runtime's
@@ -138,45 +152,23 @@ including Members read for trusted-team checks. Configure the App webhook at
 secret. Subscribe to pull requests, issue comments, pull-request reviews and pushes.
 Use one App installation and avoid duplicate repository webhooks.
 
-Organisation patterns cover new Backstage-created repositories without per-repo
-server edits. Install the App on all repos in the approved organisation, or automate
-installation access during onboarding: a wildcard does not grant GitHub App access.
-Fixed exclusions keep bootstrap and the Terraform module library outside execution.
-The App may still read private modules without accepting their repository for runs.
+Install the App on `cluster-deployments` and give it read access to the shared
+module library. The server allowlist accepts only the dedicated consumer repo;
+management bootstrap and the module library remain outside Atlantis execution.
 
-Backstage can generate catalog metadata, consumer deployment configuration and an
-explicit `atlantis.yaml` in an organisation-owned repository. Actual template/task
-integration belongs to the separate Backstage work. This PR supplies the execution
-path; developers should not need platform tfvars or Azure credentials.
-
-```yaml
-version: 3
-
-automerge: false
-autodiscover:
-  mode: disabled
-
-projects:
-  - name: service-dev
-    dir: environments/service-dev
-    workspace: default
-    terraform_version: v1.17.0
-    autoplan:
-      enabled: false
-```
-
-Consumer roots compose pinned modules, a tested provider lock file and existing
-backend configuration available to the runner. The `terraform` repo is a module
-library; do not apply it directly or add hosting `gitops/bootstrap` as a project.
+The Backstage cluster template opens a PR containing `clusters/<name>` with a
+pinned module, backend key and reviewed tfvars. Explicit `-d` commands select its
+directory; the server disables autoplan. The `terraform` repo is a module
+library, and `gitops/bootstrap` remains outside Atlantis execution.
 
 1. Backstage or an engineer opens a consumer PR.
-2. A trusted team member comments `atlantis plan -p service-dev`.
-3. Review the plan/checks and approve the PR.
-4. A trusted team member comments `atlantis apply -p service-dev`.
+2. A trusted team member reviews and approves it, then comments `atlantis plan -d clusters/<name>`.
+3. Review the plan/checks and reconfirm the approval is current.
+4. A trusted team member comments `atlantis apply -d clusters/<name>`.
 5. Merge after successful apply; inspect application readiness through Argo.
 
 Autoplan, fork/draft handling, custom repository workflows and requirement overrides
-are disabled. Applies require approval, mergeability and an undiverged base; bulk
+are disabled. Plans and applies require approval, mergeability and an undiverged base; bulk
 apply without project selection is disabled. Configure branch protection/owner
 reviews and stale-review dismissal separately. Do not require the apply status
 before apply, which creates a mergeability cycle. The shared runner is for trusted

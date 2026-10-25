@@ -13,6 +13,12 @@ runtime: {}
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
+clusterOnboarding:
+  enabled: false
+  # Promote the immutable worker image after its branch build succeeds.
+  image: ""
+  vaultResourceGroup: kubernetes
+
 # Empty egress lists deny these destinations until each cluster's addresses are verified.
 holmes:
   enabled: true
@@ -37,9 +43,7 @@ atlantis:
   github_app_slug: ""
   github_team: ""
   repositories:
-    - github.com/ai-platform-portfolio/*
-    - "!github.com/ai-platform-portfolio/gitops"
-    - "!github.com/ai-platform-portfolio/terraform"
+    - github.com/ai-platform-portfolio/cluster-deployments
 
   # Existing ASO provisioner's client ID in the same platform Key Vault.
   # Its Azure permissions and controller federation are platform prerequisites.
@@ -51,11 +55,28 @@ atlantis:
     identity_resource_group_name: rg-{{ .Values.cluster.name }}-atlantis
     # Map approved existing state/deployment targets to built-in Azure role names.
     # Example entries are documented in packages/atlantis/README.md.
-    role_assignments: {}
+    role_assignments:
+      deployment:
+        scope: subscription
+        role_definition_name: Contributor
+
+      delegation:
+        scope: subscription
+        role_definition_name: Role Based Access Control Administrator
+
+      api-allowlist:
+        scope: key_vault
+        resource_group_name: kubernetes
+        key_vault_name: localdevenv
+        role_definition_name: Key Vault Secrets User
+
+      # Add the persistent state account's Blob Data Contributor role before enabling.
 
 # Portfolio portal: native Entra identity and an immutable image are required.
 backstage:
   enabled: true
+  clusterRequests:
+    enabled: false
   image: localacrk8s.azurecr.io/portfolio/backstage@sha256:727c30621cf71b903e635aff785952933c913dac4a7ff862f5a1b1fec495b03f
   imagePullSecrets: []
   credentialValidityDays: 180
