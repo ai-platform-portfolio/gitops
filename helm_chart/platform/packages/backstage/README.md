@@ -92,9 +92,10 @@ Key Vault secret and are stored in encrypted Terraform state.
 an organisation-owned GitHub App on both `gitops` and `cluster-deployments` with
 repository Contents and Pull requests write access. Supply its app ID, private
 key, client ID, client secret and webhook secret to the existing platform Key
-Vault under `backstage-github-app-id`, `backstage-github-app-key`,
-`backstage-github-client-id`, `backstage-github-client-secret` and
-`backstage-github-webhook-secret`. ESO projects them to the portal; no key is
+Vault under `backstage-github-app-id`, `ai-platform-clusters-pem-key`,
+`backstage-github-client-id`, `ai-platform-clusters-client-secret` and
+`cluster-github-webhook-secret`. The key and webhook secret are shared with
+Atlantis through separate namespace Secrets. ESO projects them to the portal; no key is
 checked into Git. Add approved GitHub API CIDRs to `backstage.egress` with TCP
 443. The values schema requires an explicit egress entry when cluster requests
 are enabled. Confirm the App can read the target repo and open a PR before

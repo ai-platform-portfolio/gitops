@@ -88,17 +88,15 @@ module "aks" {
   container_registries   = { platform = data.azurerm_container_registry.platform.id }
   vnet_subnet_id         = module.network.subnet_ids["system"]
 
-  system_node_pool = {
-    vm_size    = "Standard_D4as_v4"
-    node_count = 1
-  }
+  system_node_pool = var.cluster.node_pools["system"]
 
   user_node_pools = {
-    platform = {
-      vm_size        = "Standard_D4as_v4"
-      node_count     = 2
+    for name, pool in var.cluster.node_pools : name => {
+      vm_size        = pool.vm_size
+      node_count     = pool.node_count
       vnet_subnet_id = module.network.subnet_ids["platform"]
     }
+    if name != "system"
   }
 
   fleet_membership = var.cluster.fleet_id == "" ? null : {
@@ -109,4 +107,3 @@ module "aks" {
 
   tags = azurerm_resource_group.cluster.tags
 }
-

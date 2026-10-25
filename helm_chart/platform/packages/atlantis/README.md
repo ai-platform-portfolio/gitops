@@ -131,8 +131,8 @@ Manually add the GitHub/UI secrets to that same vault:
 
 | Key Vault secret | Purpose |
 | --- | --- |
-| `atlantis-github-app-key` | GitHub App private key, preserving PEM line breaks |
-| `atlantis-github-webhook-secret` | Random webhook signing secret |
+| `ai-platform-clusters-pem-key` | Shared GitHub App private key, preserving PEM line breaks |
+| `cluster-github-webhook-secret` | Shared random webhook signing secret |
 | `atlantis-web-username` | UI basic-auth username |
 | `atlantis-web-password` | Independent strong UI password |
 

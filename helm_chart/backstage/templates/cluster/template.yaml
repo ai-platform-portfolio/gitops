@@ -101,6 +101,25 @@ spec:
           pattern: '^(/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[a-zA-Z0-9_.()-]+/providers/Microsoft.ContainerService/fleets/[a-zA-Z0-9-]+)?$'
           description: Leave blank until the management Fleet PR is deployed.
 
+    - title: Node pool sizing
+      required: [systemVmSize, platformVmSize, servicesVmSize]
+      properties:
+        systemVmSize:
+          title: System node VM size
+          type: string
+          pattern: '^Standard_D4[a-z]*_v[0-9]+$'
+          description: One node; allow one more node of this VM family for upgrade surge.
+        platformVmSize:
+          title: Platform application node VM size
+          type: string
+          pattern: '^Standard_D4[a-z]*_v[0-9]+$'
+          description: One node; hosts workloads pinned to agentpool=platform.
+        servicesVmSize:
+          title: Services application node VM size
+          type: string
+          pattern: '^Standard_D4[a-z]*_v[0-9]+$'
+          description: One node; check its family quota and upgrade surge independently.
+
   steps:
     - id: fetch
       name: Generate pinned cluster root
@@ -126,6 +145,9 @@ spec:
           registryName: ${{ parameters.registryName }}
           registryResourceGroup: ${{ parameters.registryResourceGroup }}
           fleetId: ${{ parameters.fleetId }}
+          systemVmSize: ${{ parameters.systemVmSize }}
+          platformVmSize: ${{ parameters.platformVmSize }}
+          servicesVmSize: ${{ parameters.servicesVmSize }}
         targetPath: infrastructure
 
     - id: profile
