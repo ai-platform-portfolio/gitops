@@ -131,6 +131,35 @@ class PlatformInputTests(unittest.TestCase):
             cluster.resume_stale_root_sync()
         run.assert_not_called()
 
+    def test_health_wait_ends_old_operation_after_later_revision_comparison(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        resources = [{'kind': 'Application', 'name': name}
+                     for name in ('sonarqube', 'sonarqube-configure', 'argocd-route')]
+        def root(compared, active, healthy=False):
+            return {'metadata': {'name': 'platform'}, 'spec': {}, 'status': {
+                'resources': resources, 'sync': {'revision': compared,
+                    'status': 'Synced' if healthy else 'OutOfSync'},
+                'health': {'status': 'Healthy' if healthy else 'Progressing'},
+                'operationState': {'phase': 'Succeeded' if healthy else 'Running',
+                    'syncResult': {'revision': active}}}}
+        children = [{'metadata': {'name': name}, 'spec': {}, 'status': {
+            'sync': {'status': 'Synced'}, 'health': {'status': 'Healthy'}}}
+            for name in ('sonarqube', 'sonarqube-configure', 'argocd-route')]
+        cluster.objects = Mock(side_effect=[
+            [root('old', 'old'), *children],
+            [root('new', 'old'), *children],
+            [root('new', 'new', healthy=True), *children],
+        ])
+        cluster.object = Mock(return_value={'status': {'operationState': {'phase': 'Terminated',
+            'syncResult': {'revision': 'old'}}}})
+        with patch('helm_chart.scripts.cluster.run') as run, patch('helm_chart.scripts.cluster.time.sleep'):
+            cluster.ready()
+        self.assertEqual(cluster.objects.call_count, 3)
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(json.loads(run.call_args.args[-1]),
+                         {'status': {'operationState': {'phase': 'Terminating'}}})
+
 
 class TeardownTests(unittest.TestCase):
     def test_application_rollouts_block_controller_teardown(self):

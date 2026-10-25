@@ -93,7 +93,8 @@ applications are included. Packages configured as disabled remain disabled.
 On a repeated `make up`, the lifecycle ends a still-running root sync only when
 Argo has already compared a newer Git revision. This lets Argo restart at the
 current revision if an older package wave was blocked by a manifest since fixed
-on `main`.
+on `main`. The health wait repeats this check because Argo may compare the new
+revision after the lifecycle starts waiting.
 During readiness checks, brief Kubernetes command failures are retried. Six
 consecutive failures still stop the deployment; teardown checks remain fail-closed.
 
