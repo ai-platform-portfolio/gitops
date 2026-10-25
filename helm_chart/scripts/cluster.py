@@ -213,7 +213,10 @@ class Cluster:
             if not root or not root.get('status', {}).get('resources'):
                 return False
             expected = {r['name'] for r in root['status']['resources'] if r['kind'] == 'Application'}
-            if not {'sonarqube', 'sonarqube-configure', 'argocd-route'} <= expected:
+            required = {'sonarqube', 'sonarqube-configure'}
+            if self.settings['cluster']['role'] == 'management':
+                required.add('argocd-route')
+            if not required <= expected:
                 return False
             found = {a['metadata']['name']: a for a in apps}
             return bool(expected) and expected <= found.keys() and all(

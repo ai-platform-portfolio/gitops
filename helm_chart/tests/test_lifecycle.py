@@ -134,6 +134,7 @@ class PlatformInputTests(unittest.TestCase):
     def test_health_wait_ends_old_operation_after_later_revision_comparison(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
+        cluster.settings = {'cluster': {'role': 'management'}}
         resources = [{'kind': 'Application', 'name': name}
                      for name in ('sonarqube', 'sonarqube-configure', 'argocd-route')]
         def root(compared, active, healthy=False):
