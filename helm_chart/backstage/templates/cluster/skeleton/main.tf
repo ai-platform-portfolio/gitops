@@ -107,4 +107,3 @@ module "aks" {
 
   tags = azurerm_resource_group.cluster.tags
 }
-
