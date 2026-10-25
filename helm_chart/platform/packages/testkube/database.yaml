@@ -1,0 +1,12 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: testkube
+  namespace: postgres
+
+spec:
+  name: testkube
+  owner: testkube
+  cluster:
+    name: platform
+  databaseReclaimPolicy: retain

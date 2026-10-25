@@ -230,3 +230,9 @@ Validation covers lifecycle tests, rendered Kubernetes resources and pinned
 upstream charts. Live installation and multi-cluster failure behavior have not
 yet been validated in this workspace; passing CI does not establish deployment
 readiness.
+
+The full root includes [free standalone Testkube](helm_chart/platform/packages/testkube/README.md)
+on management and [Argo Rollouts](helm_chart/platform/packages/argo-rollouts/README.md)
+on every cluster. `make up` gates their dependencies and runs migration, artifact
+and failure checks. Standalone has private Kubernetes-authorized CLI access;
+its application SSO/RBAC and cross-cluster gate limits are documented in the guide.

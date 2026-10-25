@@ -126,8 +126,8 @@ variable "identities" {
   }))
 
   validation {
-    condition     = alltrue([for key in ["platform", "postgres", "argocd"] : contains(keys(var.identities), key)])
-    error_message = "Define platform, postgres and argocd identities."
+    condition     = alltrue([for key in ["platform", "postgres", "argocd", "aso"] : contains(keys(var.identities), key)])
+    error_message = "Define platform, postgres, argocd and aso bootstrap identities."
   }
 }
 

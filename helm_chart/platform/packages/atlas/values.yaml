@@ -8,12 +8,11 @@ rbac:
   clusterWideSecretAccess: false
 watchSecrets: false
 
-# The chart otherwise renders only fsGroup and omits podSecurityContext.
+# Keep security on the container: Argo removes null Helm values before rendering.
 persistence:
   enabled: false
-  fsGroup: null
 
-podSecurityContext:
+containerSecurityContext:
   runAsNonRoot: true
   seccompProfile:
     type: RuntimeDefault

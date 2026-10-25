@@ -79,6 +79,18 @@ data:
       if condition.type == "Ready" and condition.status == "True" then hs.status = "Healthy" end
     end
     return hs
+  # ARM resources must be Ready for the current generation before clients start.
+  resource.customizations.health.managedidentity.azure.com_UserAssignedIdentity: &asoHealth |
+    for _, c in ipairs((obj.status or {}).conditions or {}) do
+      if c.type == "Ready" and c.status == "True" and c.observedGeneration == obj.metadata.generation then
+        return {status = "Healthy"}
+      end
+    end
+    return {status = "Progressing", message = "Waiting for Azure resource reconciliation"}
+  resource.customizations.health.managedidentity.azure.com_FederatedIdentityCredential: *asoHealth
+  resource.customizations.health.authorization.azure.com_RoleAssignment: *asoHealth
+  resource.customizations.health.storage.azure.com_StorageAccountsBlobServicesContainer: *asoHealth
+  resource.customizations.health.storage.azure.com_StorageAccountsManagementPolicy: *asoHealth
   # Webhook controllers/cert-manager inject their serving CA into these bundles.
   # Ignore only that injected value; keep the rest of each webhook under GitOps.
   resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration: |

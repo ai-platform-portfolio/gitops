@@ -1,0 +1,174 @@
+{{- $hash := sha256sum (printf "%s%s%s" (.Files.Glob "packages/testkube/*").AsConfig (.Values.testkube | toJson) (.Values.cluster | toJson)) | trunc 12 -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: testkube-check-schema
+  namespace: testkube
+
+data:
+  check-schema.sh: |
+{{ .Files.Get "packages/testkube/check-schema.sh" | indent 4 }}
+
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: testkube-check-schema-{{ $hash }}
+  namespace: testkube
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+
+spec:
+  activeDeadlineSeconds: 1200
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: testkube-schema-check
+    spec:
+      serviceAccountName: testkube-tests
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: schema
+        image: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+        command:
+        - /bin/sh
+        - /checks/check-schema.sh
+
+        env:
+        - name: HOME
+          value: /tmp
+        - name: PGHOST
+          value: platform-rw.postgres.svc.cluster.local
+        - name: PGDATABASE
+          value: testkube
+        - name: PGUSER
+          value: testkube
+        - name: PGSSLMODE
+          value: verify-full
+        - name: PGSSLROOTCERT
+          value: /etc/postgres/ca.crt
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: testkube-database
+              key: password
+
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+
+        volumeMounts:
+        - name: script
+          mountPath: /checks
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        - name: postgres
+          mountPath: /etc/postgres
+          readOnly: true
+      volumes:
+      - name: script
+        configMap:
+          name: testkube-check-schema
+      - name: tmp
+        emptyDir:
+          sizeLimit: 128Mi
+      - name: postgres
+        secret:
+          secretName: testkube-database
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: testkube-check-execution
+  namespace: testkube
+
+data:
+  check-execution.sh: |
+{{ .Files.Get "packages/testkube/check-execution.sh" | indent 4 }}
+
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: testkube-check-execution-{{ $hash }}
+  namespace: testkube
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+
+spec:
+  activeDeadlineSeconds: 1200
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: testkube-tests
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: execution
+        image: docker.io/kubeshop/testkube-cli:2.14.2@sha256:1ee9228907b31d6fb901b0683237797aa107ed73915504ac8a547de01681f9b7
+        command:
+        - /bin/sh
+        - /checks/check-execution.sh
+
+        env:
+        - name: HOME
+          value: /tmp
+
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+
+        volumeMounts:
+        - name: script
+          mountPath: /checks
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: script
+        configMap:
+          name: testkube-check-execution
+      - name: tmp
+        emptyDir:
+          sizeLimit: 128Mi

@@ -1,0 +1,93 @@
+{{- $sub := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $account := required "runtime.AZURE_STORAGE_ACCOUNT is required" .Values.runtime.AZURE_STORAGE_ACCOUNT -}}
+{{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s" $sub .Values.testkube.azure.storageResourceGroup $account -}}
+{{- $identityGroup := printf "/subscriptions/%s/resourceGroups/%s" $sub (required "runtime.CLUSTER_RESOURCE_GROUP is required" .Values.runtime.CLUSTER_RESOURCE_GROUP) -}}
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: testkube-storage
+  namespace: testkube
+
+spec:
+  azureName: id-{{ .Values.cluster.name }}-testkube-storage
+  location: {{ .Values.testkube.azure.location }}
+  owner:
+    armId: {{ $identityGroup }}
+  operatorSpec:
+    configMaps:
+      clientId: {name: testkube-identity, key: clientId}
+      principalId: {name: testkube-identity, key: principalId}
+
+---
+
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: testkube-storage
+  namespace: testkube
+
+spec:
+  owner: {name: testkube-storage}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:testkube:testkube-storage
+
+---
+
+{{- $hash := sha256sum (printf "%s/%s/testkube-storage" $scope .Values.cluster.name) | trunc 32 }}
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: testkube-storage
+  namespace: testkube
+
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner: {armId: {{ $scope }}}
+  principalIdFromConfig: {name: testkube-identity, key: principalId}
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    wellKnownName: Storage Blob Data Contributor
+{{- range $suffix := list "artifacts" "logs" }}
+
+---
+
+apiVersion: storage.azure.com/v20230101
+kind: StorageAccountsBlobServicesContainer
+metadata:
+  name: testkube-{{ $suffix }}
+  namespace: testkube
+
+spec:
+  azureName: {{ $.Values.cluster.name }}-testkube-{{ $suffix }}
+  owner: {armId: {{ $scope }}/blobServices/default}
+  publicAccess: None
+{{- end }}
+
+---
+
+# This is the account's canonical policy; its absence was verified before adoption.
+# Add future rules here rather than creating a second owner of the singleton.
+apiVersion: storage.azure.com/v20230101
+kind: StorageAccountsManagementPolicy
+metadata:
+  name: platform-blob-retention
+  namespace: testkube
+
+spec:
+  owner: {armId: {{ $scope }}}
+  policy:
+    rules:
+      - name: testkube-artifacts-and-logs
+        enabled: true
+        type: Lifecycle
+        definition:
+          filters:
+            blobTypes: [blockBlob]
+            prefixMatch:
+              - {{ .Values.cluster.name }}-testkube-artifacts/
+              - {{ .Values.cluster.name }}-testkube-logs/
+          actions:
+            baseBlob:
+              delete:
+                daysAfterModificationGreaterThan: {{ .Values.testkube.retentionDays }}

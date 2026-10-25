@@ -43,6 +43,7 @@ locals {
   }))
 
   role_scopes = {
+    bootstrap_group = azurerm_resource_group.this.id
     dns_zone        = data.azurerm_dns_zone.existing.id
     key_vault       = data.azurerm_key_vault.platform.id
     storage_account = data.azurerm_storage_account.platform.id

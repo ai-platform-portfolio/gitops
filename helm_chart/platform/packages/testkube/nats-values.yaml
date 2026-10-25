@@ -1,0 +1,61 @@
+fullnameOverride: testkube-nats
+config:
+  jetstream:
+    enabled: true
+    fileStore:
+      pvc:
+        enabled: true
+        size: 1Gi
+        storageClassName: managed-csi
+  merge:
+    max_payload: << 8MB >>
+
+  nats:
+    tls:
+      enabled: true
+      secretName: testkube-nats
+      merge:
+        verify: true
+        ca_file: /etc/nats-certs/nats/ca.crt
+
+container:
+  merge:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+
+podTemplate:
+  merge:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      automountServiceAccountToken: false
+
+reloader:
+  enabled: false
+
+natsBox:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+statefulSet:
+  merge:
+    metadata:
+      annotations:
+        secret.reloader.stakater.com/reload: testkube-nats

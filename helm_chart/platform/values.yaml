@@ -62,3 +62,10 @@ langfuse:
       portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575
     credentialValidityDays: 180
     allowAccountLinking: true
+
+# Central testing service. Cloud dependencies are ASO-owned, not bootstrap inputs.
+testkube:
+  azure:
+    location: uksouth
+    storageResourceGroup: kubernetes
+  retentionDays: 14

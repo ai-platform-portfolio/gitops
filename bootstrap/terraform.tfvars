@@ -187,6 +187,33 @@ platform = {
 }
 
 identities = {
+  # Initial ASO authority is a cluster foundation. Service resources stay in GitOps.
+  aso = {
+    name = "id-management-aso"
+
+    federated_credentials = {
+      controller = {
+        namespace       = "azureserviceoperator-system"
+        service_account = "azureserviceoperator-default"
+      }
+    }
+
+    role_assignments = {
+      identities = {
+        scope                = "bootstrap_group"
+        role_definition_name = "Managed Identity Contributor"
+      }
+      storage = {
+        scope                = "storage_account"
+        role_definition_name = "Storage Account Contributor"
+      }
+      storage_roles = {
+        scope                = "storage_account"
+        role_definition_name = "Role Based Access Control Administrator"
+      }
+    }
+  }
+
   platform = {
     name = "id-management-platform"
 

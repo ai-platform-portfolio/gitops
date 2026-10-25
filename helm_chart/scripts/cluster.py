@@ -248,19 +248,24 @@ class Cluster:
             wait_for(lambda: self.object('applications.argoproj.io', 'onboard-' + name, 'argocd', self.hub) is None,
                      'Waiting for hub onboarding to detach')
         apps = self.objects('applications.argoproj.io', 'argocd')
+        if any(a['metadata']['name'] == 'argo-rollouts' for a in apps):
+            if self.objects('rollouts.argoproj.io'):
+                raise RuntimeError('Remove application Rollouts before tearing down their controller and traffic-routing dependencies')
         if any(a['metadata']['name'] == 'azure-service-operator' for a in apps):
             # External consumer CRs must finish deletion first. Only exact Azure
-            # resources tracked by the platform-owned Atlantis Application may
+            # resources tracked by platform-owned consumer Applications may
             # remain: reverse waves delete them before ASO and its credential.
             owned = {(r.get('group'), r.get('kind'), r.get('namespace'), r.get('name'))
-                     for app in apps if app['metadata']['name'] == 'atlantis-azure'
+                     for app in apps if app['metadata']['name'] in {'atlantis-azure', 'testkube-azure'}
                      and app['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true'
                      for r in app.get('status', {}).get('resources', [])}
-            resources = run(*self.kube, 'api-resources', '--namespaced=true',
-                            '--verbs=list', '-o', 'name', capture=True).splitlines()
+            # Use ASO's own reserved CRD ownership label. Native AKS ACN APIs
+            # also end in .azure.com and must not be treated as ASO resources.
+            resources = run(*self.kube, 'get', 'customresourcedefinitions.apiextensions.k8s.io',
+                            '-l', 'app.kubernetes.io/name=azure-service-operator',
+                            '-o', 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
+                            capture=True).splitlines()
             for resource in resources:
-                if not resource.endswith('.azure.com'):
-                    continue
                 for obj in self.objects(resource):
                     key = (obj.get('apiVersion', '').split('/')[0], obj.get('kind'),
                            obj['metadata'].get('namespace'), obj['metadata']['name'])
