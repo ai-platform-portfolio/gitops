@@ -24,8 +24,6 @@ atlantis:
   repositories:
     - github.com/ai-platform-portfolio/cluster-deployments
 
-  aso_client_id_secret: aso-provisioner-client-id
-
   azure:
     location: uksouth
     # ASO owns and deletes this group. Use a fresh package-only name.
@@ -78,7 +76,7 @@ platform without Terraform apply. Later package changes are ordinary GitOps PRs.
 | Stage | Owner/resources |
 | --- | --- |
 | Namespace, wave -10 | Package namespace |
-| Configuration, wave 10 | Key Vault-backed App/UI/ASO ExternalSecrets, NetworkPolicy and scoped readiness RBAC |
+| Configuration, wave 10 | Key Vault-backed App/UI ExternalSecrets, runtime ASO credential, NetworkPolicy and scoped readiness RBAC |
 | ASO, wave 10 | Existing operator, watching Atlantis only when enabled |
 | atlantis-azure, wave 20 | New package ResourceGroup, UserAssignedIdentity, FederatedIdentityCredential and configured RoleAssignments |
 | Atlantis, wave 40 | Runner, service account, disk, Service and read-only readiness init container |
@@ -122,11 +120,10 @@ on the specified state/deployment scopes. Resource-group creation requires paren
 subscription authority; review that authority and policy before use. The actual
 permission model and live permission checks are not established by this package.
 
-Put the existing provisioner's client ID in the **same Key Vault selected by
-bootstrap `platform.key_vault`**, using `aso-provisioner-client-id` or an existing
-key selected by `aso_client_id_secret`. ESO reads that ID through
-`ClusterSecretStore/azure-kv` and creates a namespace `aso-credential`, combining it
-with existing runtime account context. The ASO global credential stays empty.
+The existing provisioner's client ID comes from the management root runtime
+context. GitOps creates the namespace `aso-credential` with that ID and the
+runtime tenant/subscription context; the operator uses its projected token.
+The ASO global credential stays empty.
 Only trusted platform operators should write this namespace/credential; the pinned
 ASO release does not provide strict per-namespace token isolation.
 
