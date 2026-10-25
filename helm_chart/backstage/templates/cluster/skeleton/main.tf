@@ -7,6 +7,8 @@ data "azurerm_key_vault" "platform" {
 
 # CIDRs remain in Key Vault. They are redacted in normal plans but retained in
 # encrypted Terraform state by the provider; do not export raw plan JSON.
+# TODO: Reconcile management AKS effectiveOutboundIPs as /32 entries into this
+# secret automatically before child cluster plans, preserving operator CIDRs.
 data "azurerm_key_vault_secret" "api_ranges" {
   name         = var.api_allowlist_vault.secret_name
   key_vault_id = data.azurerm_key_vault.platform.id

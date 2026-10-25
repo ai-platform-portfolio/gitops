@@ -29,14 +29,15 @@ def main():
     assert configmap['kind'] == 'ConfigMap' and configmap['metadata']['name'] == 'argocd-cm'
     outputs = (bootstrap / 'outputs.tf').read_text()
     assert 'data.azurerm_client_config' not in outputs and 'var.account' not in outputs and 'oidc_issuer_url' not in outputs, 'Account identifiers must not be Terraform outputs'
-    runtime = {name: 'example' for path in (HELM_CHART / 'platform/packages').rglob('*') if path.is_file()
+    runtime = {name: 'example' for path in (HELM_CHART / 'platform').rglob('*') if path.is_file()
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
     runtime.update(DNS_ZONE='example.test', ARGOCD_HOSTNAME='argocd-management.example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
                    SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
                    AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
     for key in ['AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_CLIENT_ID',
-                'POSTGRES_AZURE_CLIENT_ID', 'CROSSPLANE_CLIENT_ID', 'CROSSPLANE_PRINCIPAL_ID']:
+                'POSTGRES_AZURE_CLIENT_ID', 'CROSSPLANE_CLIENT_ID', 'CROSSPLANE_PRINCIPAL_ID',
+                'ONBOARDING_CLIENT_ID', 'ONBOARDING_PRINCIPAL_ID']:
         runtime[key] = '00000000-0000-0000-0000-000000000001'
     with tempfile.TemporaryDirectory(prefix='platform-render-') as directory:
         tmp = Path(directory)
@@ -54,7 +55,10 @@ def main():
                 },
             },
         }
-        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True}))
+        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True,
+                                      'atlantis': {'enabled': False},
+                                      'clusterOnboarding': {'enabled': False},
+                                      'backstage': {'clusterRequests': {'enabled': False}}}))
         disabled = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'atlantis' not in {app['metadata']['name'] for app in disabled}, 'Atlantis must be opt-in'
         assert bootstrap_values['configs']['params']['server.insecure'] is True
@@ -66,7 +70,7 @@ def main():
             'global-repo': {'repositories': ['*']},
             'owner-wildcard': {'repositories': ['github.com/*/repo']},
             'exclusions-only': {'repositories': ['!github.com/example/repo']},
-            'missing-roles': {'azure': {'role_assignments': {}}},
+            'missing-roles': {'azure': {'role_assignments': None}},
             'identity-group': {'azure': {'identity_resource_group_name': ''}},
             'location': {'azure': {'location': ''}},
             'role-key': {'azure': {'role_assignments': {'Bad_Role': {'resource_group_name': 'rg', 'role_definition_name': 'Reader'}}}},
