@@ -66,6 +66,39 @@ variable "network" {
   })
 }
 
+variable "private_dns" {
+  description = "Private DNS zones owned by bootstrap; optionally link each zone to the management VNet."
+  type = map(object({
+    name      = string
+    vnet_link = optional(bool, false)
+  }))
+}
+
+variable "foundry" {
+  description = "Private management Foundry account and regional model deployment choices."
+
+  type = object({
+    name                        = string
+    location                    = string
+    private_endpoint_subnet_key = string
+    private_dns_zone_keys       = set(string)
+
+    projects = map(object({
+      display_name = optional(string)
+      description  = optional(string)
+    }))
+
+    deployments = map(object({
+      model_name             = string
+      model_version          = string
+      capacity               = number
+      sku_name               = optional(string, "Standard")
+      version_upgrade_option = optional(string, "NoAutoUpgrade")
+    }))
+  })
+
+}
+
 variable "aks" {
   description = "Management cluster settings and node pools keyed by pool name."
 

@@ -11,6 +11,9 @@ SSO controls deployment management. Atlas Cloud is a separate hosted product;
 Entra SSO there is a paid Pro add-on or Enterprise feature, not a local gateway.
 
 Development-database prewarming and custom project configuration are disabled.
+Non-root and seccomp settings live on the container because the upstream chart
+defaults fsGroup and skips podSecurityContext; null overrides are lost through
+Argo valuesObject.
 The controller watches Atlas resources only in atlas-system. This watch setting
 is not an RBAC boundary: upstream ClusterRole permissions for pods, deployments,
 ConfigMaps and Atlas resources remain cluster-wide. Cluster-wide Secret access

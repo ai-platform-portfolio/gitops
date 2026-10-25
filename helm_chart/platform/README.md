@@ -121,3 +121,10 @@ and testing integration are separate from installing its controller. See the
 [production testing review](testing-review.md) for remaining dependencies.
 
 [Standalone Testkube](packages/testkube/README.md) documents the one-command dependency gates, Azure storage, private access and later Atlas permission handover. [Testing review](testing-review.md) records scope and limits.
+
+[DevLake](packages/devlake/README.md) adds free management-only DORA analytics,
+sharing CNPG and Grafana. Crossplane owns Entra; the stable release uses an Envoy
+SSO overlay with retained backend Basic authentication. Credentials at wave 40
+move management Grafana to wave 45; configuration and policy/collection run at
+70/75, before routes and the final policy/certificate readiness Job. No production
+service is inferred from management syncs. Configure service projects in GitOps.

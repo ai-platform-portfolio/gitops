@@ -49,6 +49,26 @@ spec:
       passwordSecret:
         name: backstage-role
 {{- end }}
+{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+    - name: devlake
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      passwordSecret:
+        name: devlake-role
+    - name: devlake_grafana
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      passwordSecret:
+        name: devlake-grafana-role
+{{- end }}
 {{- end }}
   primaryUpdateStrategy: unsupervised
   primaryUpdateMethod: switchover
@@ -99,5 +119,9 @@ spec:
     - hostssl sonarqube sonarqube all scram-sha-256
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
     - hostssl backstage backstage all scram-sha-256
+{{- end }}
+{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+    - hostssl devlake devlake all scram-sha-256
+    - hostssl devlake devlake_grafana all scram-sha-256
 {{- end }}
     - host all all all reject

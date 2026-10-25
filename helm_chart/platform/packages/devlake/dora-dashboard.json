@@ -1,0 +1,371 @@
+{
+  "uid": "platform-dora",
+  "title": "DORA delivery performance",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "utc",
+  "tags": [
+    "dora",
+    "delivery"
+  ],
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "type": "query",
+        "label": "Service project",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "devlake-postgres-api"
+        },
+        "query": "SELECT name FROM projects ORDER BY name",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Measurement scope",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Select a service project with real **production** deployment and incident data. No management/bootstrap syncs are classified as production. Missing source commits mean unavailable lead time. Missing incident ingestion can make failure/recovery values misleading. Recovery covers deployment-related incidents; rework requires explicit incident-linked release classification. No developer rankings or fixed industry-tier thresholds."
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Production deployments",
+      "description": "Successful production service releases. Resyncs reuse release IDs.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "WITH deployments AS (\n  SELECT c.cicd_deployment_id AS id, max(c.finished_date) AS finished_at,\n         bool_or(c.display_title LIKE 'remediation:%') AS remediation\n  FROM cicd_deployment_commits c\n  JOIN project_mapping p ON p.row_id = c.cicd_scope_id AND p.\"table\" = 'cicd_scopes'\n  WHERE p.project_name IN (${project:sqlstring})\n    AND c.environment = 'PRODUCTION' AND c.result = 'SUCCESS'\n  GROUP BY c.cicd_deployment_id\n  HAVING $__timeFilter(max(c.finished_date))\n)\nSELECT count(*) AS \"Deployments\" FROM deployments"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Change lead time (deployed source commit)",
+      "description": "Median committed source SHA \u2192 first healthy production observation. Requires source commits collected by the GitHub connector; covers deployed SHAs, not every intermediate commit in a release batch.",
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "WITH deployments AS (\n  SELECT c.cicd_deployment_id AS id, max(c.finished_date) AS finished_at,\n         bool_or(c.display_title LIKE 'remediation:%') AS remediation\n  FROM cicd_deployment_commits c\n  JOIN project_mapping p ON p.row_id = c.cicd_scope_id AND p.\"table\" = 'cicd_scopes'\n  WHERE p.project_name IN (${project:sqlstring})\n    AND c.environment = 'PRODUCTION' AND c.result = 'SUCCESS'\n  GROUP BY c.cicd_deployment_id\n  HAVING $__timeFilter(max(c.finished_date))\n)\nSELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (d.finished_at - c.committed_date))) AS \"Seconds\"\nFROM deployments d\nJOIN cicd_deployment_commits dc ON dc.cicd_deployment_id = d.id\nJOIN commits c ON c.sha = dc.commit_sha\nWHERE c.committed_date <= d.finished_at"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Change fail rate (incident attribution)",
+      "description": "Distinct deployments with a matched incident / deployments. DevLake temporal matching needs review; missing incident ingestion is not proof of a zero failure rate.",
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "WITH deployments AS (\n  SELECT c.cicd_deployment_id AS id, max(c.finished_date) AS finished_at,\n         bool_or(c.display_title LIKE 'remediation:%') AS remediation\n  FROM cicd_deployment_commits c\n  JOIN project_mapping p ON p.row_id = c.cicd_scope_id AND p.\"table\" = 'cicd_scopes'\n  WHERE p.project_name IN (${project:sqlstring})\n    AND c.environment = 'PRODUCTION' AND c.result = 'SUCCESS'\n  GROUP BY c.cicd_deployment_id\n  HAVING $__timeFilter(max(c.finished_date))\n)\nSELECT count(DISTINCT r.deployment_id)::double precision / NULLIF(count(DISTINCT d.id), 0) AS \"Failure rate\"\nFROM deployments d\nLEFT JOIN project_incident_deployment_relationships r ON r.deployment_id = d.id\n  AND r.project_name IN (${project:sqlstring})"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Failed deployment recovery time",
+      "description": "Median production deployment completion \u2192 resolution of a matched incident. Unresolved incidents are excluded and shown separately.",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "WITH deployments AS (\n  SELECT c.cicd_deployment_id AS id, max(c.finished_date) AS finished_at,\n         bool_or(c.display_title LIKE 'remediation:%') AS remediation\n  FROM cicd_deployment_commits c\n  JOIN project_mapping p ON p.row_id = c.cicd_scope_id AND p.\"table\" = 'cicd_scopes'\n  WHERE p.project_name IN (${project:sqlstring})\n    AND c.environment = 'PRODUCTION' AND c.result = 'SUCCESS'\n  GROUP BY c.cicd_deployment_id\n  HAVING $__timeFilter(max(c.finished_date))\n)\nSELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (i.resolution_date - d.finished_at))) AS \"Seconds\"\nFROM deployments d\nJOIN project_incident_deployment_relationships r ON r.deployment_id = d.id\n  AND r.project_name IN (${project:sqlstring})\nJOIN incidents i ON i.id = r.id\nWHERE i.resolution_date >= d.finished_at"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Deployment rework rate",
+      "description": "Explicit remediation releases / production deployments. Requires delivery.purpose=remediation and an incidentId.",
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "WITH deployments AS (\n  SELECT c.cicd_deployment_id AS id, max(c.finished_date) AS finished_at,\n         bool_or(c.display_title LIKE 'remediation:%') AS remediation\n  FROM cicd_deployment_commits c\n  JOIN project_mapping p ON p.row_id = c.cicd_scope_id AND p.\"table\" = 'cicd_scopes'\n  WHERE p.project_name IN (${project:sqlstring})\n    AND c.environment = 'PRODUCTION' AND c.result = 'SUCCESS'\n  GROUP BY c.cicd_deployment_id\n  HAVING $__timeFilter(max(c.finished_date))\n)\nSELECT count(*) FILTER (WHERE remediation)::double precision / NULLIF(count(*), 0) AS \"Rework rate\"\nFROM deployments"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Open production incidents",
+      "description": "Open incidents in selected service projects. These must not disappear behind a low recovery-time statistic.",
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(DISTINCT i.id) AS \"Open incidents\"\nFROM incidents i\nJOIN project_mapping p ON p.row_id = i.scope_id AND p.\"table\" = i.\"table\"\nWHERE p.project_name IN (${project:sqlstring}) AND i.resolution_date IS NULL"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Source provenance coverage",
+      "description": "Fraction of deployment commit records with a known source timestamp; a missing lead-time sample is not zero.",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "WITH deployments AS (\n  SELECT c.cicd_deployment_id AS id, max(c.finished_date) AS finished_at,\n         bool_or(c.display_title LIKE 'remediation:%') AS remediation\n  FROM cicd_deployment_commits c\n  JOIN project_mapping p ON p.row_id = c.cicd_scope_id AND p.\"table\" = 'cicd_scopes'\n  WHERE p.project_name IN (${project:sqlstring})\n    AND c.environment = 'PRODUCTION' AND c.result = 'SUCCESS'\n  GROUP BY c.cicd_deployment_id\n  HAVING $__timeFilter(max(c.finished_date))\n)\nSELECT count(c.sha)::double precision / NULLIF(count(dc.id), 0) AS \"Coverage\"\nFROM deployments d\nJOIN cicd_deployment_commits dc ON dc.cicd_deployment_id = d.id\nLEFT JOIN commits c ON c.sha = dc.commit_sha AND c.committed_date <= d.finished_at"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Deployment trend",
+      "description": "Distinct production service releases per day.",
+      "gridPos": {
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "devlake-postgres-api"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "WITH deployments AS (\n  SELECT c.cicd_deployment_id AS id, max(c.finished_date) AS finished_at,\n         bool_or(c.display_title LIKE 'remediation:%') AS remediation\n  FROM cicd_deployment_commits c\n  JOIN project_mapping p ON p.row_id = c.cicd_scope_id AND p.\"table\" = 'cicd_scopes'\n  WHERE p.project_name IN (${project:sqlstring})\n    AND c.environment = 'PRODUCTION' AND c.result = 'SUCCESS'\n  GROUP BY c.cicd_deployment_id\n  HAVING $__timeFilter(max(c.finished_date))\n)\nSELECT date_trunc('day', finished_at) AS time, count(*) AS \"Deployments\"\nFROM deployments GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

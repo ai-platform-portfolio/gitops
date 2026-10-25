@@ -8,10 +8,8 @@ rbac:
   clusterWideSecretAccess: false
 watchSecrets: false
 
-# Keep security on the container: Argo removes null Helm values before rendering.
-persistence:
-  enabled: false
-
+# Set security on the container: the chart defaults fsGroup and skips pod settings.
+# Argo valuesObject omits null values, so a null fsGroup override is unreliable.
 containerSecurityContext:
   runAsNonRoot: true
   seccompProfile:

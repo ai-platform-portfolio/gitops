@@ -103,6 +103,34 @@ network = {
   }
 }
 
+private_dns = {
+  openai            = { name = "privatelink.openai.azure.com", vnet_link = true }
+  cognitiveservices = { name = "privatelink.cognitiveservices.azure.com", vnet_link = true }
+  services_ai       = { name = "privatelink.services.ai.azure.com", vnet_link = true }
+}
+
+foundry = {
+  name                        = "foundry-management-portfolio"
+  location                    = "uksouth"
+  private_endpoint_subnet_key = "snet-pe-management"
+  private_dns_zone_keys       = ["openai", "cognitiveservices", "services_ai"]
+
+  projects = {
+    management = {
+      display_name = "Management"
+      description  = "Private management platform inference"
+    }
+  }
+
+  deployments = {
+    chat = {
+      model_name    = "gpt-4.1-mini"
+      model_version = "2025-04-14"
+      capacity      = 10
+    }
+  }
+}
+
 aks = {
   name               = "aks-management"
   kubernetes_version = "1.36.5"
@@ -212,6 +240,11 @@ identities = {
         role_definition_name = "Role Based Access Control Administrator"
       }
     }
+  }
+
+  foundry = {
+    name                  = "id-management-foundry"
+    federated_credentials = {}
   }
 
   platform = {

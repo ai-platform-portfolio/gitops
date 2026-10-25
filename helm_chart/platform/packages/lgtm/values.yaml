@@ -52,6 +52,23 @@ grafana:
     type: Recreate
   envFromSecrets:
   - name: grafana-azuread-app
+{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+  - name: devlake-grafana-database
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: devlake
+          orgId: 1
+          folder: Delivery
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/devlake
+  dashboardsConfigMaps:
+    devlake: devlake-dashboards
+{{- end }}
   grafana.ini:
     server:
       root_url: https://grafana.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
@@ -81,6 +98,23 @@ grafana:
       - name: Tempo
         type: tempo
         url: http://tempo.lgtm.svc.cluster.local:3200
+{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+      - name: DevLake
+        uid: devlake-postgres-api
+        type: grafana-postgresql-datasource
+        url: platform-rw.postgres.svc.cluster.local:5432
+        user: devlake_grafana
+        jsonData:
+          database: devlake
+          sslmode: verify-full
+          tlsConfigurationMethod: file-content
+          tlsAuthWithCACert: true
+          postgresVersion: 1800
+          maxOpenConns: 5
+        secureJsonData:
+          password: $DEVLAKE_POSTGRES_PASSWORD
+          tlsCACert: $DEVLAKE_POSTGRES_CA
+{{- end }}
   serviceAccount:
     create: false
     name: lgtm
