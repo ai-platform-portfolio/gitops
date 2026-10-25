@@ -1,14 +1,10 @@
-{{- if .Values.holmes.enabled }}
+{{- if and .Values.holmes.enabled (eq .Values.cluster.role "management") }}
 {{- $_ := required "holmes.model must name the approved model deployment" .Values.holmes.model }}
 {{- $_ := required "holmes.modelEndpoint must be an approved HTTPS endpoint" .Values.holmes.modelEndpoint }}
-{{- if ne .Values.cluster.role "management" }}{{- fail "holmes currently requires management ASO ownership" }}{{- end }}
 {{- if not (hasPrefix "azure/" .Values.holmes.model) }}{{- fail "holmes.model must use the azure/ provider for Entra workload identity" }}{{- end }}
 {{- $_ := required "holmes.modelApiVersion is required for Azure Foundry" .Values.holmes.modelApiVersion }}
 {{- $_ := required "holmes.azure.foundryResourceGroupName is required" .Values.holmes.azure.foundryResourceGroupName }}
 {{- $_ := required "holmes.azure.foundryResourceName is required" .Values.holmes.azure.foundryResourceName }}
-{{- $_ := required "holmes.modelCidrs must allow only the model endpoint" .Values.holmes.modelCidrs }}
-{{- $_ := required "holmes.apiCidrs must allow only the Kubernetes API endpoint" .Values.holmes.apiCidrs }}
-{{- $_ := required "holmes.entraCidrs must allow Entra workload identity token exchange" .Values.holmes.entraCidrs }}
 {{- $_ := required "holmes.azure.identityResourceGroupName is required" .Values.holmes.azure.identityResourceGroupName }}
 {{- $_ := required "holmes.azure.location is required" .Values.holmes.azure.location }}
 {{- $_ := required "holmes.azure.asoClientIdSecret is required" .Values.holmes.azure.asoClientIdSecret }}

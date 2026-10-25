@@ -35,9 +35,6 @@
               "model": {"pattern": "^azure/[^\\s]+$"},
               "modelEndpoint": {"pattern": "^https://[^\\s]+$"},
               "modelApiVersion": {"minLength": 1},
-              "modelCidrs": {"minItems": 1},
-              "apiCidrs": {"minItems": 1},
-              "entraCidrs": {"minItems": 1},
               "azure": {
                 "properties": {
                   "foundryResourceGroupName": {"minLength": 1},

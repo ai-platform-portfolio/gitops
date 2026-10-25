@@ -60,7 +60,7 @@ files easier to find.
 | 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
 | 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials | Backend services are ready |
-| 50 | optional holmes | LGTM and Kubernetes telemetry are available; approved model endpoint is required |
+| 50 | holmes | LGTM and Kubernetes telemetry are available; live model and identity validation still required |
 | 60 | sonarqube, optional backstage | PostgreSQL roles, databases and consumer credentials are ready |
 | 70 | sonarqube-configure | SonarQube is healthy before its configuration job runs |
 | 80 | routes | Application backends are ready before public routes are attached |
@@ -115,5 +115,6 @@ and application migration systems.
 ConfigMap replication. Installation alone enables no copies; future sources must
 explicitly restrict destination namespaces.
 
-[HolmesGPT](packages/holmes/README.md) is an optional private investigator. It
-stays disabled until an approved model endpoint and network destinations are set.
+[HolmesGPT](packages/holmes/README.md) is staged as a private investigator on
+management. Model, Kubernetes API and Entra egress stay denied until verified
+destinations are configured; the ASO provisioner credential is also pending.

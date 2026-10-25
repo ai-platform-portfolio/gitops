@@ -13,9 +13,9 @@ runtime: {}
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
-# Enable after an approved Azure Foundry deployment and private route are available.
+# Staged for management; empty egress lists deny these destinations until live addresses are verified.
 holmes:
-  enabled: false
+  enabled: true
   model: azure/chat
   modelEndpoint: https://foundry-management-portfolio.cognitiveservices.azure.com/
   modelApiVersion: "2025-04-01-preview"

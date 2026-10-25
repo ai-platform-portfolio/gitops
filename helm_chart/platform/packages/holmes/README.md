@@ -5,9 +5,11 @@ chart at wave 50, after the LGTM backends and Kubernetes collector. It is one
 private API Deployment and Service in the `holmes` namespace. Its operator,
 Robusta platform, GitHub MCP server and Kubernetes remediation MCP server are
 disabled. No database, persistent disk or public route is added. The package
-is initially disabled. [Bootstrap PR #48](https://github.com/ai-platform-portfolio/gitops/pull/48)
+is enabled in GitOps for the next management deployment.
+[Bootstrap PR #48](https://github.com/ai-platform-portfolio/gitops/pull/48)
 has merged, but its private management Foundry account and model have not been
-applied, and the AKS cluster is torn down.
+applied, and the AKS cluster is torn down. Do not expect a healthy investigation
+service until the dependencies below are established.
 
 ## Enablement requirements
 
@@ -21,17 +23,24 @@ itself is not Azure-specific: its incident toolsets work with other cloud and
 Kubernetes data sources. This installation is restricted to management because
 ASO currently runs there.
 
-After applying bootstrap and validating the model, set `holmes.enabled: true`
-and complete these remaining GitOps platform values:
+This instance investigates the management cluster only. Its Kubernetes tools
+use the local API, and its LGTM URLs are local services. Workload clusters have
+their own local backends; this configuration does not aggregate or query them.
+HolmesGPT's built-in cross-cluster tool dispatch requires the Robusta platform,
+which this installation does not use. Wider coverage needs a separate private
+design for per-cluster investigators or authenticated cross-cluster data access.
+
+`holmes.enabled` is already `true`. Complete these remaining GitOps values and
+validate the deployed model before using the service:
 
 | Value | Requirement |
 | --- | --- |
 | `model` | Preconfigured as `azure/chat`; verify the deployed name. |
 | `modelEndpoint` | Preconfigured HTTPS Foundry endpoint; verify private DNS resolution. |
 | `modelApiVersion` | Preconfigured from current Holmes documentation; confirm with a live model request. |
-| `modelCidrs` | Private endpoint address range. |
-| `apiCidrs` | AKS Kubernetes API endpoint address range. |
-| `entraCidrs` | Entra token endpoint ranges, or a tested private/proxy route. Maintain them as Microsoft changes them. |
+| `modelCidrs` | Private endpoint address range. Empty until the endpoint exists; egress remains denied. |
+| `apiCidrs` | AKS Kubernetes API endpoint address range. Empty until verified; egress remains denied. |
+| `entraCidrs` | Entra token endpoint ranges, or a tested private/proxy route. Empty until verified; egress remains denied. Maintain ranges as Microsoft changes them. |
 | `azure.foundryResourceGroupName` / `foundryResourceName` | Preconfigured new management account; verify it exists before enabling. |
 | `azure.identityResourceGroupName` | New package-owned group; do not point at a shared group. |
 | `azure.asoClientIdSecret` | Key Vault secret for a scoped ASO provisioner client ID. It is not present yet; establish and verify its federation and Azure permissions before enabling. |
@@ -71,7 +80,7 @@ The toolsets query existing Mimir, Loki and Tempo directly. Those backends have
 no native tenant authentication in this portfolio, so namespace/network
 controls are part of access control. The AKS cluster is currently torn down;
 no model call, cluster API call or alert delivery has been tested. The values
-request 1 GiB and limit memory to 2 GiB. Measure real use before enabling it
+request 1 GiB and limit memory to 2 GiB. Measure real use before relying on it
 on the small portfolio node pool.
 
 ## Alert-to-PR progression

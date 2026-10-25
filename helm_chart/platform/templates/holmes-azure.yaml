@@ -1,4 +1,4 @@
-{{- if .Values.holmes.enabled }}
+{{- if and .Values.holmes.enabled (eq .Values.cluster.role "management") }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

@@ -37,7 +37,7 @@ spec:
 {{ tpl (.Files.Get "packages/lgtm/service-account.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/lgtm/grafana-secret.yaml") . | indent 10 }}
-{{ if .Values.holmes.enabled }}
+{{ if and .Values.holmes.enabled (eq .Values.cluster.role "management") }}
           ---
 {{ tpl (.Files.Get "packages/holmes/access.yaml") . | indent 10 }}
           ---

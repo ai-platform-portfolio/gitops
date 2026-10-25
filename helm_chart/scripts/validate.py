@@ -94,11 +94,15 @@ def main():
             'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
-            'azure-service-operator', 'atlantis', 'atlantis-azure',
+            'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
             'backstage', 'backstage-credentials', 'backstage-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
+        staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
+        staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
+        staged_egress = next(doc for doc in staged_resources if doc['kind'] == 'NetworkPolicy' and doc['metadata']['name'] == 'holmes-egress')
+        assert not any('ipBlock' in peer for rule in staged_egress['spec']['egress'] for peer in rule['to']), 'Unknown Holmes egress destinations must stay denied'
         values.write_text(json.dumps({
             'runtime': runtime,
             'holmes': {
@@ -268,6 +272,7 @@ def main():
         values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}, 'atlantis': atlantis}))
         workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         assert 'atlantis' not in {a['metadata']['name'] for a in workload}, 'Workload must not install Atlantis even when enabled'
+        assert not {'holmes', 'holmes-azure'} & {a['metadata']['name'] for a in workload}, 'Workload must not install management Holmes'
         assert not any('namespace: atlantis' in json.dumps(a) for a in workload), 'Workload must not create Atlantis prerequisites or routes'
         assert waves['configuration'] < waves['atlantis-azure'] < waves['atlantis'] < waves['routes']
         assert waves['azure-service-operator'] < waves['atlantis-azure']
@@ -430,7 +435,7 @@ def main():
                     settings = next(d for d in docs if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-controller-settings')['data']
                     assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
                     assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
-                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,atlantis'
+                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,holmes,atlantis'
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
                 if name in {'langfuse-reloader', 'backstage-reloader'}:
