@@ -81,21 +81,6 @@ spec:
   roleDefinitionReference:
     wellKnownName: {{ $role.role | quote }}
 {{- end }}
-{{- $writerHash := sha256sum (printf "%s/%s/onboarding-vault-writer" $name $vault) | trunc 32 }}
----
-apiVersion: authorization.azure.com/v1api20220401
-kind: RoleAssignment
-metadata:
-  name: ra-{{ $writerHash }}
-  namespace: cluster-onboarding
-spec:
-  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $writerHash) (substr 8 12 $writerHash) (substr 12 16 $writerHash) (substr 16 20 $writerHash) (substr 20 32 $writerHash) }}
-  owner:
-    armId: {{ $vault | quote }}
-  principalId: {{ required "onboarding.workerPrincipalId is required" $o.workerPrincipalId | quote }}
-  principalType: ServicePrincipal
-  roleDefinitionReference:
-    wellKnownName: Key Vault Secrets Officer
 {{- $access := dict
   "worker-user" (dict "principal" (required "onboarding.workerPrincipalId is required" $o.workerPrincipalId) "role" "Azure Kubernetes Service Cluster User Role")
   "worker-admin" (dict "principal" $o.workerPrincipalId "role" "Azure Kubernetes Service RBAC Cluster Admin")

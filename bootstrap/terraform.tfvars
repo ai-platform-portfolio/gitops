@@ -230,6 +230,10 @@ identities = {
         scope                = "subscription"
         role_definition_name = "Reader"
       }
+      credential_publication = {
+        scope                = "key_vault"
+        role_definition_name = "Key Vault Secrets Officer"
+      }
     }
   }
 
