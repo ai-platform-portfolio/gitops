@@ -92,7 +92,7 @@ Key Vault secret and are stored in encrypted Terraform state.
 an organisation-owned GitHub App on both `gitops` and `cluster-deployments` with
 repository Contents and Pull requests write access. Supply its app ID, private
 key, client ID, client secret and webhook secret to the existing platform Key
-Vault under `backstage-github-app-id`, `cluster-github-app-key`,
+Vault under `backstage-github-app-id`, `ai-platform-clusters-pem-key`,
 `backstage-github-client-id`, `ai-platform-clusters-client-secret` and
 `cluster-github-webhook-secret`. The key and webhook secret are shared with
 Atlantis through separate namespace Secrets. ESO projects them to the portal; no key is
