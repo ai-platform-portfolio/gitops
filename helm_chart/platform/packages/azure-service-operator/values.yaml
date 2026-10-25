@@ -1,3 +1,15 @@
+{{- $targetNamespaces := list "azure-resources" }}
+{{- if eq .Values.cluster.role "management" }}
+{{- $targetNamespaces = append $targetNamespaces "cluster-onboarding" }}
+{{- end }}
+{{- $targetNamespaces = append $targetNamespaces "testkube" }}
+{{- if .Values.holmes.enabled }}
+{{- $targetNamespaces = append $targetNamespaces "holmes" }}
+{{- end }}
+{{- if .Values.atlantis.enabled }}
+{{- $targetNamespaces = append $targetNamespaces "atlantis" }}
+{{- end }}
+
 # One controller fits the initial non-HA portfolio; retain upstream resource limits.
 replicaCount: 1
 
@@ -17,17 +29,14 @@ crdPattern:
   - storage.azure.com/*
 
 azureTargetNamespaces:
-  - azure-resources
-{{- if eq .Values.cluster.role "management" }}
-  - cluster-onboarding
+{{- range $targetNamespaces }}
+  - {{ . }}
 {{- end }}
-  - testkube
-{{- if .Values.holmes.enabled }}
-  - holmes
-{{- end }}
-{{- if .Values.atlantis.enabled }}
-  - atlantis
-{{- end }}
+
+# The controller reads this list from an environment variable at startup.
+# Roll it when GitOps changes the watched namespace set.
+podAnnotations:
+  gitops.platform/watch-namespaces: {{ $targetNamespaces | toJson | sha256sum | quote }}
 
 # The settings Secret is required even without a global Azure credential.
 # Namespace-scoped aso-credential Secrets supply private account/identity values.
