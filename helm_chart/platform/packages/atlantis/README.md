@@ -51,8 +51,10 @@ The existing target state account, API allowlist vault and deployment scope must
 creation. The generated Terraform root creates its own resource group and AKS
 network role assignments, so it needs subscription-scoped resource creation and
 role-assignment authority. These are powerful privileges: keep this dedicated
-runner limited to the `cluster-deployments` repository, require trusted approval
-before **plan** as well as apply, enforce branch protection/CODEOWNERS and review
+runner limited to the `cluster-deployments` repository and trusted `platform`
+team. This one-account portfolio cannot self-approve PRs, so Atlantis requires
+mergeability and an undiverged base but not GitHub approval. Add enforceable
+approval and branch protection before granting a broader team access. Review
 the identity's Azure scope before enabling it. A custom Azure role and/or policy
 can narrow the built-in roles after proving the required actions. Roles may use
 subscription, resource-group or storage-account scope; never use per-container
@@ -159,16 +161,17 @@ directory; the server disables autoplan. The `terraform` repo is a module
 library, and `gitops/bootstrap` remains outside Atlantis execution.
 
 1. Backstage or an engineer opens a consumer PR.
-2. A trusted team member reviews and approves it, then comments `atlantis plan -d clusters/<name>`.
-3. Review the plan/checks and reconfirm the approval is current.
-4. A trusted team member comments `atlantis apply -d clusters/<name>`.
+2. A `platform` team member comments `atlantis plan -d clusters/<name>` on the open PR.
+3. Review the saved plan and CI checks before applying.
+4. A `platform` team member comments `atlantis apply -d clusters/<name>`.
 5. Merge after successful apply; inspect application readiness through Argo.
 
 Autoplan, fork/draft handling, custom repository workflows and requirement overrides
-are disabled. Plans and applies require approval, mergeability and an undiverged base; bulk
-apply without project selection is disabled. Configure branch protection/owner
-reviews and stale-review dismissal separately. Do not require the apply status
-before apply, which creates a mergeability cycle. The shared runner is for trusted
+are disabled. Plans and applies require mergeability and an undiverged base; bulk
+apply without project selection is disabled. For a multi-user team, add enforced
+team review and stale-review dismissal before allowing others to run plans. Do
+not require the apply status before apply, which creates a mergeability cycle.
+The shared runner is for trusted
 teams: even plan access permits code execution. Reverting Git alone does not undo
 an apply; execute another reviewed plan.
 
@@ -194,6 +197,6 @@ the existing state backend or externally provisioned developer infrastructure.
 
 Offline validation covers GitOps inputs, resource graph, stable names, credential
 sources, readiness/token/RBAC scope, teardown and all pinned charts. It does not
-prove live Azure permissions, propagation or finalizers. Exercise approved/denied
-commands, stale reviews, concurrent PRs, create/update/delete, restart between
+prove live Azure permissions, propagation or finalizers. Exercise permitted/denied
+commands, stale PR bases, concurrent PRs, create/update/delete, restart between
 plan/apply, token/secret rotation, partial failure and complete teardown before use.

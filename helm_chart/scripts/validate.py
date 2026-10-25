@@ -723,7 +723,8 @@ def main():
                     assert pvc['spec']['resources']['requests']['storage'] == '5Gi'
                     config = next(d for d in docs if d['kind'] == 'ConfigMap' and 'repos.yaml' in d.get('data', {}))
                     repo = yaml.safe_load(config['data']['repos.yaml'])['repos'][0]
-                    assert repo['apply_requirements'] == ['approved', 'mergeable', 'undiverged']
+                    assert repo['plan_requirements'] == ['mergeable', 'undiverged']
+                    assert repo['apply_requirements'] == ['mergeable', 'undiverged']
                     assert repo['allowed_overrides'] == [] and repo['allow_custom_workflows'] is False
                     assert repo['repo_locks']['mode'] == 'on_plan'
                 if name == 'sonarqube':

@@ -10,8 +10,9 @@ githubApp:
 vcsSecretName: atlantis-github
 basicAuthSecretName: atlantis-web
 
-# Terraform plan can execute repository code. Require review before both plan and
-# apply; no workflow/requirements overrides from a PR.
+# The one-account portfolio cannot self-approve GitHub PRs. Restrict commands to
+# the platform team and this private repository; require a current, mergeable PR.
+# Terraform plan can execute repository code, so add approval before team access.
 allowForkPRs: false
 allowDraftPRs: false
 disableApplyAll: true
@@ -20,8 +21,8 @@ defaultTFVersion: "1.17.0"
 repoConfig: |
   repos:
   - id: github.com/ai-platform-portfolio/cluster-deployments
-    plan_requirements: [approved, mergeable, undiverged]
-    apply_requirements: [approved, mergeable, undiverged]
+    plan_requirements: [mergeable, undiverged]
+    apply_requirements: [mergeable, undiverged]
     allowed_overrides: []
     allow_custom_workflows: false
     repo_locks:
