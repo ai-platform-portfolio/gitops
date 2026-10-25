@@ -62,6 +62,23 @@ resource "azurerm_storage_container" "platform" {
   container_access_type = "private"
 }
 
+resource "azurerm_private_dns_zone" "foundry" {
+  for_each            = var.foundry.private_dns_zones
+  name                = each.value
+  resource_group_name = azurerm_resource_group.this.name
+  tags                = var.azure.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "foundry" {
+  for_each              = azurerm_private_dns_zone.foundry
+  name                  = var.foundry.dns_link_name
+  resource_group_name   = azurerm_resource_group.this.name
+  private_dns_zone_name = each.value.name
+  virtual_network_id    = module.network.vnet_id
+  registration_enabled  = false
+  tags                  = var.azure.tags
+}
+
 module "network" {
   source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=94b337bc3eaaf50d4b0936a965970e78906b9e46"
   name                = var.network.name
@@ -136,6 +153,24 @@ module "identities" {
   }
 
   tags = var.azure.tags
+}
+
+# Holmes owns its inference identity and account role assignment through ASO.
+# This module owns only the new account, projects, deployments and private endpoint.
+module "foundry" {
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=2b2924ed663031a6ca5ca6d973dae3f9b8844c4a"
+  name                       = var.foundry.name
+  resource_group_name        = azurerm_resource_group.this.name
+  location                   = var.foundry.location
+  managed_identity_id        = module.identities["foundry"].identity_id
+  private_endpoint_location  = var.azure.location
+  private_endpoint_subnet_id = module.network.subnet_ids[var.foundry.private_endpoint_subnet_key]
+  private_dns_zone_ids       = [for zone in var.foundry.private_dns_zones : azurerm_private_dns_zone.foundry[zone].id]
+  projects                   = var.foundry.projects
+  deployments                = var.foundry.deployments
+  tags                       = var.azure.tags
+
+  depends_on = [azurerm_private_dns_zone_virtual_network_link.foundry]
 }
 
 # Bootstrap applications share one library call; their choices live in tfvars.

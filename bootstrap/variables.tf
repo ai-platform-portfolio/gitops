@@ -66,6 +66,36 @@ variable "network" {
   })
 }
 
+variable "foundry" {
+  description = "Private management Foundry account, DNS and regional model deployment choices."
+
+  type = object({
+    name                        = string
+    location                    = string
+    private_endpoint_subnet_key = string
+    dns_link_name               = string
+    private_dns_zones           = set(string)
+
+    projects = map(object({
+      display_name = optional(string)
+      description  = optional(string)
+    }))
+
+    deployments = map(object({
+      model_name             = string
+      model_version          = string
+      capacity               = number
+      sku_name               = optional(string, "Standard")
+      version_upgrade_option = optional(string, "NoAutoUpgrade")
+    }))
+  })
+
+  validation {
+    condition     = contains(keys(var.foundry.deployments), "holmes")
+    error_message = "Define a regional Holmes model deployment."
+  }
+}
+
 variable "aks" {
   description = "Management cluster settings and node pools keyed by pool name."
 

@@ -103,6 +103,34 @@ network = {
   }
 }
 
+foundry = {
+  name                        = "foundry-management-portfolio"
+  location                    = "uksouth"
+  private_endpoint_subnet_key = "snet-pe-management"
+  dns_link_name               = "management"
+
+  private_dns_zones = [
+    "privatelink.openai.azure.com",
+    "privatelink.cognitiveservices.azure.com",
+    "privatelink.services.ai.azure.com",
+  ]
+
+  projects = {
+    management = {
+      display_name = "Management"
+      description  = "Private management platform inference"
+    }
+  }
+
+  deployments = {
+    holmes = {
+      model_name    = "gpt-4.1-mini"
+      model_version = "2025-04-14"
+      capacity      = 10
+    }
+  }
+}
+
 aks = {
   name               = "aks-management"
   kubernetes_version = "1.36.5"
@@ -187,6 +215,11 @@ platform = {
 }
 
 identities = {
+  foundry = {
+    name                  = "id-management-foundry"
+    federated_credentials = {}
+  }
+
   platform = {
     name = "id-management-platform"
 

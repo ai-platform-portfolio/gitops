@@ -7,6 +7,24 @@ clusters have independent roots. Inputs belong in tfvars; declarations stay in
 `variables.tf`, resource lookups and scope aliases in `main.tf`, authentication
 in `provider.tf`.
 
+The management root also declares a new private Foundry account, one management
+project, a regional Standard chat deployment, three private DNS zones linked to
+the AKS VNet, and a private endpoint in the dedicated subnet. The account uses
+its own user-assigned identity. Public network access and local key authentication
+are disabled by the pinned module defaults. The existing public `foundry-portfolio`
+account is outside this root and is not adopted or changed. Model deployment
+capacity, version and region are explicit in `terraform.tfvars`; review quota,
+availability and processing requirements again before apply. Azure model usage
+is billed even though HolmesGPT itself is free.
+
+HolmesGPT's ASO-owned identity and inference role assignment remain in the
+Holmes GitOps package. The Foundry module's optional inference principal is
+unset here, avoiding a second owner for that grant. Merge the library change
+at Terraform PR #12 before this root's pinned revision is consumed. The Holmes
+package still needs its own reviewed model endpoint/API version, private endpoint
+CIDR, Kubernetes API and Entra egress ranges, scoped ASO credential, live DNS
+resolution and successful workload-identity inference test before enablement.
+
 `argocd-values.yaml` holds deployment settings and group RBAC.
 `argocd-configmap.yaml` is the actual commented Argo resource, including OIDC,
 installed by the same Helm release. Terraform renders both templates, supplying
