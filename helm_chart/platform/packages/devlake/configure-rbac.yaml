@@ -1,0 +1,80 @@
+# Only this Job receives the private automation credential. It can update one
+# predeclared ingestion Secret; it cannot list/read other application Secrets.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: devlake-configure
+  namespace: devlake
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devlake-configure
+  namespace: devlake
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [devlake-ingestion]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devlake-configure
+  namespace: devlake
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: devlake-configure
+subjects:
+  - kind: ServiceAccount
+    name: devlake-configure
+    namespace: devlake
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: devlake-ingestion
+  namespace: devlake
+type: Opaque
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devlake-delivery-checkpoints
+  namespace: devlake
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: devlake-access
+  namespace: devlake
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devlake-access
+  namespace: devlake
+rules:
+  - apiGroups: [gateway.envoyproxy.io]
+    resources: [securitypolicies]
+    resourceNames: [devlake-sso]
+    verbs: [get]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    resourceNames: [devlake-tls]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devlake-access
+  namespace: devlake
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: devlake-access
+subjects:
+  - kind: ServiceAccount
+    name: devlake-access
+    namespace: devlake

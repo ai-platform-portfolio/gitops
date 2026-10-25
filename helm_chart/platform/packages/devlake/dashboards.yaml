@@ -1,0 +1,9 @@
+# PostgreSQL queries for the pinned stable DevLake domain schema.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devlake-dashboards
+  namespace: lgtm
+data:
+  dora.json: |
+{{ .Files.Get "packages/devlake/dora-dashboard.json" | indent 4 }}

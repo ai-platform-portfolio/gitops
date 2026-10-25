@@ -1,0 +1,26 @@
+apiVersion: identity.platform.ai-platform-portfolio/v1alpha1
+kind: OIDCApplication
+metadata:
+  name: devlake-sso
+  namespace: devlake
+spec:
+  displayName: portfolio-{{ .Values.cluster.name }}-devlake
+  redirectUri: https://devlake.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}/oauth2/callback
+  tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  ownerId: {{ required "runtime.CROSSPLANE_PRINCIPAL_ID is required" .Values.runtime.CROSSPLANE_PRINCIPAL_ID | quote }}
+  credentialValidityDays: {{ .Values.devlake.credentialValidityDays }}
+{{- range $name, $id := .Values.devlake.users }}
+---
+apiVersion: app.azuread.m.upbound.io/v1beta1
+kind: RoleAssignment
+metadata:
+  name: devlake-{{ $name }}
+  namespace: devlake
+spec:
+  providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+  forProvider:
+    appRoleId: '00000000-0000-0000-0000-000000000000'
+    principalObjectId: {{ $id | quote }}
+    resourceObjectIdRef:
+      name: devlake-sso
+{{- end }}

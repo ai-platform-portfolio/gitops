@@ -1,0 +1,184 @@
+{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+# devlake-credentials: dependency health is a gate, not just apply order.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devlake-credentials
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: devlake
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/devlake/database-secret.yaml") . | indent 10 }}
+
+          ---
+{{ tpl (.Files.Get "packages/devlake/grafana-secret.yaml") . | indent 10 }}
+
+          ---
+{{ tpl (.Files.Get "packages/devlake/dashboards.yaml") . | indent 10 }}
+
+          ---
+{{ tpl (.Files.Get "packages/devlake/configure-rbac.yaml") . | indent 10 }}
+
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences (dict "group" "" "kind" "Secret" "name" "devlake-ingestion" "namespace" "devlake" "jsonPointers" (list "/data"))) }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences (dict "group" "" "kind" "ConfigMap" "name" "devlake-delivery-checkpoints" "namespace" "devlake" "jsonPointers" (list "/data"))) }}
+{{ toYaml $policy | indent 2 }}
+---
+# devlake: dependency health is a gate, not just apply order.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devlake
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "60"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: devlake
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/devlake/ui-config.yaml") . | indent 10 }}
+
+          ---
+{{ tpl (.Files.Get "packages/devlake/deployment.yaml") . | indent 10 }}
+
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- range $name := list "devlake" "devlake-ui" }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences (dict "group" "apps" "kind" "Deployment" "name" $name "namespace" "devlake" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from"))) }}
+{{- end }}
+{{ toYaml $policy | indent 2 }}
+---
+# devlake-configure: dependency health is a gate, not just apply order.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devlake-configure
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "70"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: devlake
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/devlake/configure-job.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+---
+# One local CronJob, no extra controller, API service, database or cloud broker.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devlake-collection
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "75"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: devlake
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/devlake/collection.yaml") . | indent 10 }}
+          ---
+{{ tpl (.Files.Get "packages/devlake/sso-policy.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+---
+# Scoped credential/configuration reloads, installed before the portal.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devlake-reloader
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: devlake
+
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: "2.2.18"
+    helm:
+      releaseName: devlake-reloader
+      valuesObject:
+        reloader:
+          watchGlobally: false
+          ignoreJobs: true
+          ignoreCronJobs: true
+          reloadStrategy: annotations
+          deployment:
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
+            resources:
+              requests: { cpu: 10m, memory: 32Mi }
+              limits: { memory: 128Mi }
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

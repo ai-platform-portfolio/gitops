@@ -108,6 +108,10 @@ spec:
       valuesObject:
         manifests: |
 {{ tpl (.Files.Get "packages/langfuse/identity.yaml") . | indent 10 }}
+{{- if .Values.devlake.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/devlake/identity.yaml") . | indent 10 }}
+{{- end }}
 {{- if .Values.backstage.enabled }}
           ---
 {{ tpl (.Files.Get "packages/backstage/identity.yaml") . | indent 10 }}

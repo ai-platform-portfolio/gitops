@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devlake-configure
+  namespace: devlake
+data:
+  projects.json: {{ .Values.devlake.projects | toJson | quote }}
+  configure.py: |
+{{ .Files.Get "packages/devlake/configure.py" | indent 4 }}
+  collect.py: |
+{{ .Files.Get "packages/devlake/collect.py" | indent 4 }}
+  verify-access.py: |
+{{ .Files.Get "packages/devlake/verify-access.py" | indent 4 }}
+  grants.sql: |
+{{ .Files.Get "packages/devlake/grants.sql" | indent 4 }}
+---
+# A normal tracked Job keeps this stage unhealthy until configuration succeeds.
+# Hash changes replace immutable Job specs without a hook-only readiness gap.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: devlake-configure-{{ printf "%s%s%s%s" (.Files.Get "packages/devlake/configure-job.yaml") (.Files.Get "packages/devlake/configure.py") (.Files.Get "packages/devlake/grants.sql") (toJson .Values.devlake) | sha256sum | trunc 12 }}
+  namespace: devlake
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: devlake-configure
+    spec:
+      serviceAccountName: devlake-configure
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1010
+        runAsGroup: 1010
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: grafana-grants
+          image: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+          command: [psql, -X, -v, ON_ERROR_STOP=1, -f, /config/grants.sql]
+          env:
+            - {name: PGHOST, value: platform-rw.postgres.svc.cluster.local}
+            - {name: PGDATABASE, value: devlake}
+            - {name: PGUSER, value: devlake}
+            - {name: PGSSLMODE, value: verify-full}
+            - {name: PGSSLROOTCERT, value: /etc/postgres/ca.crt}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: devlake-database, key: password}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: postgres, mountPath: /etc/postgres, readOnly: true}
+      containers:
+        - name: configure
+          image: apache/devlake:v1.0.2@sha256:bae4e753959584b152fd2d66b2b13c4bc6c5ce02b9bd7c4a000e3e1296b09343
+          command: [python3, /config/configure.py]
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - name: AUTOMATION_CREDENTIAL
+              valueFrom:
+                secretKeyRef: {name: devlake-automation, key: credential}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+      volumes:
+        - name: config
+          configMap:
+            name: devlake-configure
+        - name: postgres
+          secret:
+            secretName: devlake-database
+            items:
+              - {key: ca.crt, path: ca.crt}
