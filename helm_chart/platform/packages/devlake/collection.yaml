@@ -119,3 +119,35 @@ spec:
             - name: credential
               secret:
                 secretName: devlake-ingestion
+
+---
+
+# Install policy/filter before the public HTTPRoute. Entra authenticates assigned
+# administrators; retained Nginx Basic auth verifies the injected app credential.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: devlake-sso
+  namespace: devlake
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: devlake}
+  oidc:
+    provider:
+      issuer: https://login.microsoftonline.com/{{ .Values.runtime.AZURE_TENANT_ID }}/v2.0
+    clientIDRef: {name: devlake-sso}
+    clientSecret: {name: devlake-sso}
+    redirectURL: https://devlake.{{ .Values.runtime.DNS_ZONE }}/oauth2/callback
+    logoutPath: /logout
+    scopes: [openid, profile, email]
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: devlake-admin-credential
+  namespace: devlake
+spec:
+  credentialInjection:
+    overwrite: true
+    credential:
+      valueRef: {name: devlake-automation}

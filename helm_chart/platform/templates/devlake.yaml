@@ -25,16 +25,7 @@ spec:
     helm:
       valuesObject:
         manifests: |
-{{ tpl (.Files.Get "packages/devlake/database-secret.yaml") . | indent 10 }}
-
-          ---
-{{ tpl (.Files.Get "packages/devlake/grafana-secret.yaml") . | indent 10 }}
-
-          ---
-{{ tpl (.Files.Get "packages/devlake/dashboards.yaml") . | indent 10 }}
-
-          ---
-{{ tpl (.Files.Get "packages/devlake/configure-rbac.yaml") . | indent 10 }}
+{{ tpl (.Files.Get "packages/devlake/credentials.yaml") . | indent 10 }}
 
 {{- $policy := include "platform.syncPolicy" . | fromYaml }}
 {{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences (dict "group" "" "kind" "Secret" "name" "devlake-ingestion" "namespace" "devlake" "jsonPointers" (list "/data"))) }}
@@ -67,10 +58,7 @@ spec:
     helm:
       valuesObject:
         manifests: |
-{{ tpl (.Files.Get "packages/devlake/ui-config.yaml") . | indent 10 }}
-
-          ---
-{{ tpl (.Files.Get "packages/devlake/deployment.yaml") . | indent 10 }}
+{{ tpl (.Files.Get "packages/devlake/application.yaml") . | indent 10 }}
 
 {{- $policy := include "platform.syncPolicy" . | fromYaml }}
 {{- range $name := list "devlake" "devlake-ui" }}
@@ -134,8 +122,6 @@ spec:
       valuesObject:
         manifests: |
 {{ tpl (.Files.Get "packages/devlake/collection.yaml") . | indent 10 }}
-          ---
-{{ tpl (.Files.Get "packages/devlake/sso-policy.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
 ---

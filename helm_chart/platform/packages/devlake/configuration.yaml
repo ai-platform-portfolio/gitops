@@ -140,3 +140,59 @@ spec:
           apiVersion: generators.external-secrets.io/v1alpha1
           kind: Password
           name: devlake-automation
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devlake
+  namespace: devlake
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake-ui
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake-configure
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake-collection
+      ports:
+        - {protocol: TCP, port: 8080}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+      ports:
+        - {protocol: TCP, port: 4000}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: devlake
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: postgres
+          podSelector:
+            matchLabels:
+              cnpg.io/cluster: platform
+      ports:
+        - {protocol: TCP, port: 5432}
+    # Connectors and Entra use HTTPS. Kubernetes policies cannot restrict FQDNs.
+    - ports:
+        - {protocol: TCP, port: 443}

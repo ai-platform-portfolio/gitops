@@ -15,6 +15,13 @@ The existing Atlas admission fix [PR43](https://github.com/ai-platform-portfolio
 is a separate full-platform prerequisite on the current main branch. This package
 does not duplicate that fix or imply a successful live bootstrap.
 
+Related manifests are grouped by deployment stage: `configuration.yaml` holds
+generated secrets and network policy; `credentials.yaml` holds database/Grafana
+credential delivery, dashboards and configuration access; `application.yaml` holds
+the UI configuration and workloads; `collection.yaml` holds collection and SSO.
+Namespace, identity, database, configuration Job and public networking remain
+separate where they join independently ordered existing stages.
+
 ## Ownership and sequencing
 
 | Wave | Existing/new stage | Readiness dependency |
