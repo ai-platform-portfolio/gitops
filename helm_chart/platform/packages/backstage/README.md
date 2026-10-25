@@ -93,7 +93,7 @@ an organisation-owned GitHub App on both `gitops` and `cluster-deployments` with
 repository Contents and Pull requests write access. Supply its app ID, private
 key, client ID, client secret and webhook secret to the existing platform Key
 Vault under `backstage-github-app-id`, `cluster-github-app-key`,
-`backstage-github-client-id`, `backstage-github-client-secret` and
+`backstage-github-client-id`, `ai-platform-clusters-client-secret` and
 `cluster-github-webhook-secret`. The key and webhook secret are shared with
 Atlantis through separate namespace Secrets. ESO projects them to the portal; no key is
 checked into Git. Add approved GitHub API CIDRs to `backstage.egress` with TCP
