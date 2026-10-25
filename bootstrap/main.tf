@@ -215,6 +215,27 @@ moved {
   to   = module.entra_applications["crossplane"]
 }
 
+# Azure can report AKS and its API allowlist update as complete before clients
+# can reliably use the endpoint. Gate the first Helm request on real API access.
+resource "terraform_data" "aks_api_ready" {
+  triggers_replace = [
+    module.aks.cluster_id,
+    data.azurerm_key_vault_secret.aks_api_ranges.version,
+  ]
+
+  provisioner "local-exec" {
+    command     = "python3 scripts/wait_for_aks.py"
+    working_dir = path.module
+
+    environment = {
+      AKS_NAME           = module.aks.cluster_name
+      AKS_RESOURCE_GROUP = azurerm_resource_group.this.name
+    }
+  }
+
+  depends_on = [module.aks]
+}
+
 module "argocd" {
   source        = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/argocd-bootstrap?ref=8c1370a33f003c81d155027edaac4687aea9b3db"
   chart_version = var.argocd.chart_version
@@ -230,5 +251,5 @@ module "argocd" {
     ))
   ]
 
-  depends_on = [module.aks, module.entra_applications]
+  depends_on = [terraform_data.aks_api_ready, module.entra_applications]
 }

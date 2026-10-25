@@ -61,6 +61,24 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(doc['data'], {'jdbc-password': encoded('existing-password'), 'ca.crt': encoded('current-ca')})
         self.assertEqual(doc['metadata']['namespace'], 'sonarqube')
 
+    def test_sonar_waits_for_transient_cnpg_api_denial(self):
+        cluster = Mock()
+        cluster.kube = ['kubectl']
+        cluster.object.side_effect = [
+            subprocess.CalledProcessError(1, ['kubectl', 'get', 'clusters.postgresql.cnpg.io']),
+            {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}},
+            {'data': {'password': encoded('existing-password')}},
+            {'data': {'ca.crt': encoded('current-ca')}},
+        ]
+        run = Mock(return_value='clusters.postgresql.cnpg.io\n')
+
+        def wait(check, description, timeout):
+            self.assertFalse(check())
+            self.assertTrue(check())
+
+        prepare_sonarqube(cluster, run, wait)
+        self.assertEqual(cluster.manifest.call_args.args[0]['metadata']['name'], 'sonarqube-jdbc')
+
 
 class PlatformInputTests(unittest.TestCase):
     def test_package_configuration_is_not_taken_from_terraform(self):

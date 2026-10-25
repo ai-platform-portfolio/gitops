@@ -132,7 +132,7 @@ spec:
     template:
       engineVersion: v2
       data:
-        .htpasswd: {{ `{{ htpasswd "platform-admin" .password }}` | quote }}
+        .htpasswd: {{ `{{ htpasswd "platform-admin" .password "bcrypt" }}` | quote }}
         credential: {{ `Basic {{ printf "platform-admin:%s" .password | b64enc }}` | quote }}
   dataFrom:
     - sourceRef:
