@@ -213,11 +213,9 @@ def main():
                 if app['metadata']['name'] == 'configuration':
                     secrets = {d['metadata']['name']: d for d in documents if d['kind'] == 'ExternalSecret'}
                     assert {'atlantis-github', 'atlantis-web'} <= secrets.keys()
-                    credential = secrets['atlantis-aso-credential']
-                    assert credential['spec']['target']['name'] == 'aso-credential'
-                    assert credential['spec']['data'][0]['remoteRef']['key'] == 'aso-provisioner-client-id'
-                    assert credential['spec']['target']['template']['data']['AZURE_CLIENT_ID'] == '{{ .clientId }}'
-                    assert credential['spec']['target']['template']['data']['USE_WORKLOAD_IDENTITY_AUTH'] == 'true'
+                    credential = next(d for d in documents if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential' and d['metadata']['namespace'] == 'atlantis')
+                    assert base64.b64decode(credential['data']['AZURE_CLIENT_ID']).decode() == runtime['ASO_CLIENT_ID']
+                    assert base64.b64decode(credential['data']['USE_WORKLOAD_IDENTITY_AUTH']).decode() == 'true'
                     reader = next(d for d in documents if d['kind'] == 'Role' and d['metadata']['name'] == 'atlantis-azure-readiness')
                     assert all(set(r['verbs']) == {'get', 'list', 'watch'} and r['resourceNames'] for r in reader['rules'])
                     assert not any('secrets' in r['resources'] for r in reader['rules'])

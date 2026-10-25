@@ -45,10 +45,6 @@ atlantis:
   repositories:
     - github.com/ai-platform-portfolio/cluster-deployments
 
-  # Existing ASO provisioner's client ID in the same platform Key Vault.
-  # Its Azure permissions and controller federation are platform prerequisites.
-  aso_client_id_secret: aso-provisioner-client-id
-
   azure:
     location: uksouth
     # ASO creates this package-owned group; do not select an existing/shared RG.
