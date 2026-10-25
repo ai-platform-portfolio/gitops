@@ -19,6 +19,20 @@ metadata:
   annotations:
     azure.workload.identity/client-id: {{ required "runtime.ONBOARDING_CLIENT_ID is required" .Values.runtime.ONBOARDING_CLIENT_ID | quote }}
 ---
+# Foundation Azure CRs reconcile in this namespace before the child cluster
+# has its own ASO identity. Use the existing management ASO bootstrap identity.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aso-credential
+  namespace: cluster-onboarding
+type: Opaque
+data:
+  AZURE_CLIENT_ID: {{ required "runtime.ASO_CLIENT_ID is required" .Values.runtime.ASO_CLIENT_ID | b64enc | quote }}
+  AZURE_TENANT_ID: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | b64enc | quote }}
+  AZURE_SUBSCRIPTION_ID: {{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID | b64enc | quote }}
+  USE_WORKLOAD_IDENTITY_AUTH: {{ "true" | b64enc | quote }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

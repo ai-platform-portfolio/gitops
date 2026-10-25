@@ -96,6 +96,13 @@ def main():
         rendered = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
         settings_map = next(d for d in rendered if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'workload-onboarding-settings')
         assert 'clusterOnboarding' in json.loads(settings_map['data']['values.json'])
+        onboarding_aso = next(d for d in rendered if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential' and d['metadata']['namespace'] == 'cluster-onboarding')
+        assert {key: base64.b64decode(value).decode() for key, value in onboarding_aso['data'].items()} == {
+            'AZURE_CLIENT_ID': runtime['ASO_CLIENT_ID'],
+            'AZURE_TENANT_ID': runtime['AZURE_TENANT_ID'],
+            'AZURE_SUBSCRIPTION_ID': runtime['AZURE_SUBSCRIPTION_ID'],
+            'USE_WORKLOAD_IDENTITY_AUTH': 'true',
+        }
         applications = [d for d in rendered if d['kind'] == 'Application']
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
