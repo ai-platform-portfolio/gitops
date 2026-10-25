@@ -250,6 +250,9 @@ def main():
                 if app['metadata']['name'] == 'crossplane-packages':
                     provider = next(d for d in documents if d['kind'] == 'Provider')
                     assert provider['spec']['package'].endswith(':v2.5.0')
+                    activations = yaml.safe_load((HELM_CHART / 'platform/packages/crossplane/values.yaml').read_text())['provider']['defaultActivations']
+                    policy = next(d for d in documents if d['kind'] == 'ManagedResourceActivationPolicy')
+                    assert policy['metadata']['name'] == 'default' and policy['spec']['activate'] == activations
                     config = next(d for d in documents if d['kind'] == 'DeploymentRuntimeConfig')
                     assert config['spec']['serviceAccountTemplate']['metadata']['name'] == 'provider-azuread'
                     projection = config['spec']['deploymentTemplate']['spec']['template']['spec']['volumes'][0]['projected']['sources'][0]['serviceAccountToken']

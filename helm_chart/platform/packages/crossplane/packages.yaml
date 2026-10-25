@@ -48,3 +48,15 @@ metadata:
 spec:
   package: xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.11.1
   revisionHistoryLimit: 1
+---
+# Crossplane creates this policy on first install, but its Helm init step does
+# not update an existing policy when defaultActivations changes. Argo owns it
+# after bootstrap so newly required managed-resource CRDs become active.
+apiVersion: apiextensions.crossplane.io/v1alpha1
+kind: ManagedResourceActivationPolicy
+metadata:
+  name: default
+spec:
+  activate:
+{{- $crossplaneValues := tpl (.Files.Get "packages/crossplane/values.yaml") . | fromYaml }}
+{{ toYaml $crossplaneValues.provider.defaultActivations | indent 4 }}

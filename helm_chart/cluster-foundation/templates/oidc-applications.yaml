@@ -109,7 +109,7 @@ metadata:
 spec:
   providerConfigRef: {name: platform, kind: ClusterProviderConfig}
   forProvider:
-    displayName: GitOps SonarQube SAML
+    displayName: CN=GitOps SonarQube SAML
     servicePrincipalIdRef:
       name: {{ $name }}-sonarqube-saml
 {{- range $user, $objectId := $identity.sonarqubeUsers }}
