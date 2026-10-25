@@ -71,7 +71,7 @@ resource "azurerm_private_dns_zone" "private" {
 }
 
 module "network" {
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=3e9ad053553667fd5e35ae9f6e418309081c19c8"
   name                = var.network.name
   resource_group_name = azurerm_resource_group.this.name
   location            = var.azure.location
