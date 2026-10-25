@@ -2,6 +2,7 @@
 """Render the complete platform and pinned upstream charts without Azure access."""
 from concurrent.futures import ThreadPoolExecutor
 import base64
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -596,6 +597,9 @@ def main():
                     assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
                     assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
                     assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,cluster-onboarding,testkube,holmes,atlantis'
+                    namespaces = base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode().split(',')
+                    checksum = hashlib.sha256(json.dumps(namespaces, separators=(',', ':')).encode()).hexdigest()
+                    assert deployment['spec']['template']['metadata']['annotations']['gitops.platform/watch-namespaces'] == checksum
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
                 if name in {'langfuse-reloader', 'backstage-reloader', 'testkube-reloader', 'devlake-reloader'}:
