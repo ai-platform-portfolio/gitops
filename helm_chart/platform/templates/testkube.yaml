@@ -1,0 +1,232 @@
+{{- if eq .Values.cluster.role "management" }}
+# Central standalone testing service; execution gates remain local to this cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube-reloader
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: "2.2.18"
+    helm:
+      releaseName: testkube-reloader
+      valuesObject:
+        reloader:
+          watchGlobally: false
+          ignoreJobs: true
+          ignoreCronJobs: true
+          reloadStrategy: annotations
+          deployment:
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: [ALL]}
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {memory: 128Mi}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube-azure
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/testkube/azure-resources.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube-nats
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+
+  source:
+    repoURL: https://nats-io.github.io/k8s/helm/charts/
+    chart: nats
+    targetRevision: "2.15.1"
+    helm:
+      releaseName: testkube-nats
+      valuesObject:
+{{ tpl (.Files.Get "packages/testkube/nats-values.yaml") . | indent 8 }}
+
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- $reload := dict "group" "apps" "kind" "StatefulSet" "name" "testkube-nats" "namespace" "testkube" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
+{{ toYaml $policy | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube-storage
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/testkube/dependencies.yaml") . | indent 10 }}
+
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- $reload := dict "group" "apps" "kind" "Deployment" "name" "testkube-s3" "namespace" "testkube" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
+{{ toYaml $policy | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "60"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+
+  source:
+    repoURL: https://kubeshop.github.io/helm-charts
+    chart: testkube
+    targetRevision: "2.14.2"
+    helm:
+      releaseName: testkube
+      valuesObject:
+{{ tpl (.Files.Get "packages/testkube/values.yaml") . | indent 8 }}
+
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- $reload := dict "group" "apps" "kind" "Deployment" "name" "testkube-api-server" "namespace" "testkube" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
+{{ toYaml $policy | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube-checks
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "65"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/testkube/checks.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube-analysis
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "70"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/testkube/analysis.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

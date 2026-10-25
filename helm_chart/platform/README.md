@@ -54,15 +54,16 @@ files easier to find.
 | --- | --- | --- |
 | -10 | namespaces | Namespaces exist before resources and credentials are consumed |
 | 0 | reflector, envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation exists only on management |
-| 5 | cert-manager | Envoy has installed Gateway API and ListenerSet CRDs |
-| 10 | atlas-operator, cloudnative-pg, configuration, azure-service-operator (management only) | Foundation controllers can reconcile issuers, secret stores and external secrets |
-| 20 | plugin-barman-cloud, external-dns, gateway, optional atlantis-azure | Operators/configuration are available |
+| 5 | cert-manager, testkube-reloader (management) | Envoy has installed Gateway API and ListenerSet CRDs |
+| 10 | argo-rollouts, atlas-operator, cloudnative-pg, configuration, azure-service-operator (management only) | Gateway API exists for Rollouts; foundation controllers can reconcile issuers, secret stores and external secrets |
+| 20 | plugin-barman-cloud, external-dns, gateway, testkube-azure (management), optional atlantis-azure | Operators/configuration are available |
 | 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
-| 30 | postgres, clickhouse, loki, grafana, tempo, mimir | Database operators, backup plugin and shared secrets are ready |
-| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials | Backend services are ready |
-| 50 | holmes | LGTM and Kubernetes telemetry are available; live model and identity validation still required |
-| 60 | sonarqube, optional backstage | PostgreSQL roles, databases and consumer credentials are ready |
-| 70 | sonarqube-configure | SonarQube is healthy before its configuration job runs |
+| 30 | postgres, clickhouse, loki, grafana, tempo, mimir, testkube-nats (management) | Database operators, backup plugin and shared secrets are ready |
+| 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials, testkube-storage (management) | Backend services are ready |
+| 50 | holmes (management) | LGTM and Kubernetes telemetry are available; live model and identity validation still required |
+| 60 | sonarqube, optional backstage, testkube (management) | PostgreSQL roles, databases and consumer credentials are ready |
+| 65 | testkube-checks (management) | Schema version, artifact roundtrip and failure propagation must pass |
+| 70 | sonarqube-configure, testkube-analysis (management) | SonarQube is healthy before its configuration job runs |
 | 80 | routes | Application backends are ready before public routes are attached |
 
 Waves belong to child Applications in one local root. The custom Application
@@ -118,6 +119,13 @@ explicitly restrict destination namespaces.
 [HolmesGPT](packages/holmes/README.md) is staged as a private investigator on
 management. Model, Kubernetes API and Entra egress stay denied until verified
 destinations are configured; the ASO provisioner credential is also pending.
+
+[Argo Rollouts](packages/argo-rollouts/README.md) supplies progressive delivery
+and the Gateway API traffic plugin on every cluster. Application-owned analysis
+and testing integration are separate from installing its controller. See the
+[production testing review](testing-review.md) for remaining dependencies.
+
+[Standalone Testkube](packages/testkube/README.md) documents the one-command dependency gates, Azure storage, private access and later Atlas permission handover. [Testing review](testing-review.md) records scope and limits.
 
 [DevLake](packages/devlake/README.md) adds free management-only DORA analytics,
 sharing CNPG and Grafana. Crossplane owns Entra; the stable release uses an Envoy

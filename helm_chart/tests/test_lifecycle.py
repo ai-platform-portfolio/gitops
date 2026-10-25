@@ -73,9 +73,26 @@ class PlatformInputTests(unittest.TestCase):
 
 
 class TeardownTests(unittest.TestCase):
+    def test_application_rollouts_block_controller_teardown(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        cluster.objects = Mock(side_effect=[
+            [{'metadata': {'name': 'argo-rollouts'}}],
+            [{'metadata': {'name': 'application', 'namespace': 'team'}}],
+        ])
+        cluster.delete = Mock()
+        with patch('helm_chart.scripts.cluster.run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'Remove application Rollouts'):
+                cluster.cleanup()
+        cluster.delete.assert_not_called()
+        run.assert_not_called()
+        self.assertEqual(cluster.objects.call_args.args, ('rollouts.argoproj.io',))
+
     def test_tracked_package_azure_resources_delete_before_operator(self):
-        for extra in [False, True]:
-            with self.subTest(untracked_resource=extra):
+        for package, extra in [(package, extra) for package in ["atlantis", "testkube"] for extra in [False, True]]:
+            with self.subTest(package=package, untracked_resource=extra):
                 cluster = Cluster.__new__(Cluster)
                 cluster.kube = ['kubectl']
                 cluster.hub = None
@@ -83,11 +100,11 @@ class TeardownTests(unittest.TestCase):
                 def app(name, wave):
                     return {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
                                          'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
-                apps = [app('azure-service-operator', 10), app('atlantis-azure', 20), app('atlantis', 40)]
+                apps = [app('azure-service-operator', 10), app(package + '-azure', 20), app(package, 40)]
                 resource = {'apiVersion': 'managedidentity.azure.com/v1api20230131', 'kind': 'UserAssignedIdentity',
-                            'metadata': {'name': 'atlantis', 'namespace': 'atlantis'}}
+                            'metadata': {'name': package, 'namespace': package}}
                 apps[1]['status'] = {'resources': [{'group': 'managedidentity.azure.com', 'kind': 'UserAssignedIdentity',
-                                                  'namespace': 'atlantis', 'name': 'atlantis'}]}
+                                                  'namespace': package, 'name': package}]}
                 inventory = [resource]
                 if extra:
                     inventory.append({**resource, 'metadata': {'name': 'untracked', 'namespace': 'atlantis'}})
@@ -101,7 +118,7 @@ class TeardownTests(unittest.TestCase):
                     else:
                         cluster.cleanup()
                         self.assertEqual([c.args[1][0] for c in cluster.delete.call_args_list],
-                                         ['atlantis', 'atlantis-azure', 'azure-service-operator', 'platform'])
+                                         [package, package + '-azure', 'azure-service-operator', 'platform'])
 
     def test_azure_resources_block_teardown_before_operator_or_identity_removal(self):
         cluster = Cluster.__new__(Cluster)
@@ -118,7 +135,32 @@ class TeardownTests(unittest.TestCase):
                 cluster.cleanup()
         cluster.delete.assert_not_called()
         self.assertEqual(run.call_count, 1)
-        self.assertIn('api-resources', run.call_args.args)
+        self.assertIn('customresourcedefinitions.apiextensions.k8s.io', run.call_args.args)
+        self.assertIn('app.kubernetes.io/name=azure-service-operator', run.call_args.args)
+
+    def test_native_aks_network_objects_do_not_block_teardown(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        app = {'metadata': {'name': 'azure-service-operator',
+               'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
+        def objects(kind, namespace=None):
+            if kind == 'applications.argoproj.io':
+                return [app]
+            if kind == 'nodenetworkconfigs.acn.azure.com':
+                return [{'metadata': {'name': 'aks-node-network'}}]
+            return []
+        def discovery(*args, **kwargs):
+            if 'app.kubernetes.io/name=azure-service-operator' in args:
+                return 'resourcegroups.resources.azure.com\n'
+            return 'resourcegroups.resources.azure.com\nnodenetworkconfigs.acn.azure.com\n'
+        cluster.objects = Mock(side_effect=objects)
+        cluster.delete = Mock()
+        with patch('helm_chart.scripts.cluster.run', side_effect=discovery):
+            cluster.cleanup()
+        self.assertFalse(any(c.args[0] == 'nodenetworkconfigs.acn.azure.com' for c in cluster.objects.call_args_list))
+        self.assertEqual(cluster.delete.call_args_list[0].args[1], ['azure-service-operator'])
 
     def test_empty_azure_inventory_allows_teardown_and_read_errors_fail_closed(self):
         for inventory_error in [False, True]:

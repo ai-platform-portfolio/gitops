@@ -53,6 +53,8 @@ output "platform_settings" {
     }
 
     runtime = {
+      ASO_CLIENT_ID            = module.identities["aso"].client_id
+      CLUSTER_RESOURCE_GROUP   = azurerm_resource_group.this.name
       ARGOCD_HOSTNAME          = local.argocd_hostname
       AZURE_CLIENT_ID          = module.identities["platform"].client_id
       POSTGRES_AZURE_CLIENT_ID = module.identities["postgres"].client_id

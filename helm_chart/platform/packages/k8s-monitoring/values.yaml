@@ -9,6 +9,16 @@ destinations:
     url: http://loki-gateway.lgtm.svc.cluster.local/loki/api/v1/push
 clusterMetrics:
   enabled: true
+
+annotationAutodiscovery:
+  enabled: true
+  namespaces: [argo-rollouts, testkube]
+  destinations: [mimir]
+  services:
+    enabled: false
+  bearerToken:
+    enabled: false
+
 podLogsViaKubernetesApi:
   enabled: true
 collectors:

@@ -1,0 +1,261 @@
+# ESO assumes this service account via TokenRequest; it is not used by the
+# test pods and receives no Azure or cluster-wide secret-reading permissions.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: testkube-secret-reader
+  namespace: testkube
+
+automountServiceAccountToken: false
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: testkube-secret-reader
+  namespace: postgres
+
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [testkube-role, platform-ca]
+    verbs: [get]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: testkube-secret-reader
+  namespace: postgres
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: testkube-secret-reader
+
+subjects:
+  - kind: ServiceAccount
+    name: testkube-secret-reader
+    namespace: testkube
+
+---
+
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: testkube-postgres
+  namespace: testkube
+
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: postgres
+      server:
+        url: https://kubernetes.default.svc
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+      auth:
+
+        serviceAccount:
+          name: testkube-secret-reader
+
+---
+
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: testkube-database
+  namespace: testkube
+
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: testkube-postgres
+    kind: SecretStore
+  target:
+    name: testkube-database
+    deletionPolicy: Retain
+    template:
+      engineVersion: v2
+      data:
+        password: {{ "{{ .password }}" | quote }}
+        dsn: 'postgres://testkube:{{ "{{ .password }}" }}@platform-rw.postgres.svc.cluster.local:5432/testkube?sslmode=verify-full&sslrootcert=/etc/testkube-postgres/ca.crt'
+        ca.crt: {{ "{{ index . \"ca.crt\" }}" | quote }}
+  data:
+    - secretKey: password
+      remoteRef:
+        key: testkube-role
+        property: password
+    - secretKey: ca.crt
+      remoteRef:
+        key: platform-ca
+        property: ca.crt
+
+---
+
+# Stateless Azure Blob adapter; independently health-gated before the API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: testkube-storage
+  namespace: testkube
+
+automountServiceAccountToken: false
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: testkube-s3
+  namespace: testkube
+
+spec:
+  selector:
+    app: testkube-s3
+
+  ports:
+  - name: https
+    port: 8443
+    targetPort: https
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testkube-s3
+  namespace: testkube
+  annotations:
+    secret.reloader.stakater.com/reload: testkube-s3,testkube-storage
+    configmap.reloader.stakater.com/reload: testkube-identity
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testkube-s3
+  template:
+    metadata:
+      labels:
+        app: testkube-s3
+    spec:
+      serviceAccountName: testkube-storage
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: s3proxy
+        image: docker.io/andrewgaul/s3proxy:4.1.1@sha256:87662b2a5afcdfa5f478a1c61650bae4c87bbd15f6ff2823236bcfd66ef7fe04
+
+        env:
+        - name: S3PROXY_AUTHORIZATION
+          value: aws-v4
+        - name: S3PROXY_ENDPOINT
+          value: http://127.0.0.1:8080
+        - name: S3PROXY_SECURE_ENDPOINT
+          value: https://0.0.0.0:8443
+        - name: S3PROXY_KEYSTORE_PATH
+          value: /etc/s3proxy-tls/keystore.p12
+        - name: S3PROXY_IDENTITY
+          value: testkube
+        - name: S3PROXY_CREDENTIAL_FILE
+          value: /etc/s3proxy-auth/secretKey
+        - name: S3PROXY_KEYSTORE_PASSWORD_FILE
+          value: /etc/s3proxy-auth/secretKey
+        - name: JCLOUDS_PROVIDER
+          value: azureblob
+        - name: JCLOUDS_IDENTITY
+          value: ''
+        - name: JCLOUDS_CREDENTIAL
+          value: ''
+        - name: JCLOUDS_FILESYSTEM_BASEDIR
+          value: /tmp/unused
+        - name: JCLOUDS_ENDPOINT
+          value: https://{{ .Values.runtime.AZURE_STORAGE_ACCOUNT }}.blob.core.windows.net
+        - name: AZURE_TENANT_ID
+          value: '{{ .Values.runtime.AZURE_TENANT_ID }}'
+        - name: AZURE_FEDERATED_TOKEN_FILE
+          value: /var/run/secrets/azure/tokens/token
+        - name: AZURE_AUTHORITY_HOST
+          value: https://login.microsoftonline.com/
+        - name: S3PROXY_JAVA_OPTS
+          value: -XX:MaxRAMPercentage=65 -XX:-UsePerfData
+        - name: AZURE_CLIENT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: testkube-identity
+              key: clientId
+
+        ports:
+        - name: https
+          containerPort: 8443
+
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 30
+          periodSeconds: 15
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 512Mi
+
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+          readOnly: false
+        - name: auth
+          mountPath: /etc/s3proxy-auth
+          readOnly: true
+        - name: tls
+          mountPath: /etc/s3proxy-tls
+          readOnly: true
+        - name: azure-token
+          mountPath: /var/run/secrets/azure/tokens
+          readOnly: true
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 128Mi
+      - name: auth
+        secret:
+          secretName: testkube-storage
+      - name: tls
+        secret:
+          secretName: testkube-s3
+      - name: azure-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              audience: api://AzureADTokenExchange
+              expirationSeconds: 3600
+              path: token

@@ -89,7 +89,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'namespaces', 'reflector', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
+            'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -142,6 +142,9 @@ def main():
             resource['metadata']['name'] for resource in holmes_resources
         }
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis}))
+        for app_name, workload in [('testkube-storage', 'testkube-s3'), ('testkube', 'testkube-api-server'), ('testkube-nats', 'testkube-nats')]:
+            app = next(a for a in applications if a['metadata']['name'] == app_name)
+            assert any(rule.get('name') == workload and rule.get('jsonPointers') == ['/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from'] for rule in app['spec']['ignoreDifferences'])
         langfuse_app = next(a for a in applications if a['metadata']['name'] == 'langfuse')
         reload_rule = next(r for r in langfuse_app['spec']['ignoreDifferences'] if r.get('name') == 'langfuse-web')
         assert reload_rule == {'group': 'apps', 'kind': 'Deployment', 'name': 'langfuse-web', 'namespace': 'langfuse', 'jsonPointers': ['/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from']}
@@ -159,7 +162,7 @@ def main():
                     str(ROOT / source['path']), '-f', str(v))))
                 for doc in documents:
                     assert doc and 'fluxcd.io' not in doc['apiVersion'], 'Flux resource survived migration'
-                    assert doc['kind'] != 'Certificate' or all('*' not in host for host in doc['spec']['dnsNames']), 'Wildcard certificates are forbidden'
+                    assert doc['kind'] != 'Certificate' or all('*' not in host for host in doc['spec'].get('dnsNames', [])), 'Wildcard certificates are forbidden'
                 if app['metadata']['name'] == 'postgres':
                     postgres_documents = documents
                     cluster = next(d for d in documents if d['kind'] == 'Cluster')
@@ -174,6 +177,10 @@ def main():
                     assert role['login'] and not any(role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
                     database = next(d for d in documents if d['kind'] == 'Database')
                     assert database['spec']['owner'] == 'sonarqube' and database['spec']['databaseReclaimPolicy'] == 'retain'
+                    testing_role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'testkube')
+                    assert testing_role['passwordSecret']['name'] == 'testkube-role'
+                    assert not any(testing_role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
+                    assert 'hostssl testkube testkube all scram-sha-256' in cluster['spec']['postgresql']['pg_hba']
                 if app['metadata']['name'] == 'atlantis-azure':
                     assert {d['kind'] for d in documents} == {'ResourceGroup', 'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
                     group = next(d for d in documents if d['kind'] == 'ResourceGroup')
@@ -207,6 +214,27 @@ def main():
                     assert not any('secrets' in r['resources'] for r in reader['rules'])
                     assert {d['secretKey'] for d in secrets['atlantis-github']['spec']['data']} == {'key.pem', 'github_secret'}
                     assert {d['secretKey'] for d in secrets['atlantis-web']['spec']['data']} == {'username', 'password'}
+                    assert {'testkube-role', 'testkube-storage'} <= secrets.keys()
+                    for name in ['testkube-role', 'testkube-storage']:
+                        assert secrets[name]['spec']['refreshPolicy'] == 'CreatedOnce'
+                        assert secrets[name]['spec']['target']['immutable'] is True
+                        assert '{{ .password }}' in json.dumps(secrets[name]['spec']['target']['template']['data'])
+                if app['metadata']['name'] == 'testkube-storage':
+                    reader = next(d for d in documents if d['kind'] == 'Role')
+                    assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['testkube-role', 'platform-ca'], 'verbs': ['get']}]
+                    secret = next(d for d in documents if d['kind'] == 'ExternalSecret')
+                    data = secret['spec']['target']['template']['data']
+                    assert 'sslmode=verify-full' in data['dsn'] and 'sslrootcert=' in data['dsn']
+                    assert '{{ .password }}' in data['dsn']
+                if app['metadata']['name'] == 'testkube-analysis':
+                    template = next(d for d in documents if d['kind'] == 'ClusterAnalysisTemplate')
+                    metric = template['spec']['metrics'][0]
+                    job = metric['provider']['job']['spec']
+                    assert metric['failureLimit'] == 0 and job['backoffLimit'] == 0 and job['activeDeadlineSeconds'] == 900
+                    assert job['template']['spec']['automountServiceAccountToken'] is False
+                    container = job['template']['spec']['containers'][0]
+                    assert '--watch' in container['args'] and '--client=direct' in container['args']
+                    assert '{{args.workflow}}' in container['args'] and '@sha256:' in container['image']
                 if app['metadata']['name'] == 'crossplane-packages':
                     provider = next(d for d in documents if d['kind'] == 'Provider')
                     assert provider['spec']['package'].endswith(':v2.5.0')
@@ -286,7 +314,7 @@ def main():
         assert not any(a['metadata']['name'].startswith('sonarqube') for a in workload), 'Sonar must wait for cluster credential preparation'
         initial_postgres = next(a for a in workload if a['metadata']['name'] == 'postgres')
         initial_database_docs = [d for d in yaml.safe_load_all(initial_postgres['spec']['source']['helm']['valuesObject']['manifests']) if d]
-        assert not any(d['kind'] == 'Database' for d in initial_database_docs), 'Sonar database waits for credentials'
+        assert not any(d['kind'] == 'Database' for d in initial_database_docs), 'Workload databases wait for their consumer credentials'
         assert 'managed' not in next(d for d in initial_database_docs if d['kind'] == 'Cluster')['spec']
         routes = next(a for a in workload if a['metadata']['name'] == 'routes')
         initial_routes = [d for d in yaml.safe_load_all(routes['spec']['source']['helm']['valuesObject']['manifests']) if d]
@@ -298,6 +326,14 @@ def main():
         assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
         assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
         assert waves['cert-manager'] < waves['clickhouse-operator'] < waves['clickhouse'], 'ClickHouse webhook certificates require cert-manager before the operator and database'
+        assert waves['external-secrets'] < waves['configuration'] < waves['postgres'] < waves['testkube-storage'] < waves['testkube']
+        assert waves['configuration'] < waves['testkube-azure'] < waves['testkube-storage'] < waves['testkube']
+        assert waves['testkube'] < waves['testkube-checks'] < waves['testkube-analysis']
+        assert not any(a['metadata']['name'].startswith('testkube') for a in workload), 'Central Testkube must not be duplicated on workloads'
+        assert waves['configuration'] < waves['testkube-nats'] < waves['testkube']
+        assert waves['argo-rollouts'] < waves['testkube-analysis'] and waves['testkube'] < waves['testkube-analysis']
+        assert waves['envoy-gateway'] < waves['argo-rollouts'] < waves['routes'], 'Gateway API must exist before Rollouts starts'
+        assert 'argo-rollouts' in {a['metadata']['name'] for a in workload}, 'Each cluster needs its own Rollouts controller'
 
 
         # Exercise the opt-in package separately so default package ownership
@@ -430,6 +466,70 @@ def main():
                     '--kube-version', '1.34.1', '-f', str(values))
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
+                if name == 'testkube':
+                    assert not any(d['kind'] in {'StatefulSet', 'Ingress', 'HTTPRoute', 'PersistentVolumeClaim', 'Job'} for d in docs)
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    pod = deployment['spec']['template']['spec']
+                    assert pod['serviceAccountName'] == 'testkube-api'
+                    container = pod['containers'][0]
+                    env = {e['name']: e for e in container['env']}
+                    assert 'API_MONGO_DSN' not in env
+                    assert env['API_POSTGRES_DSN']['valueFrom']['secretKeyRef'] == {'name': 'testkube-database', 'key': 'dsn'}
+                    assert env['NATS_URI']['value'] == 'tls://testkube-nats.testkube.svc.cluster.local:4222'
+                    assert env['NATS_SECURE']['value'] == 'true' and env.get('NATS_SKIP_VERIFY', {'value': 'false'})['value'] == 'false'
+                    assert env['STORAGE_SSL']['value'] == 'true'
+                    for prefix, directory in [('NATS', 'nats'), ('STORAGE', 'storage')]:
+                        for suffix, filename in [('CERT_FILE', 'tls.crt'), ('KEY_FILE', 'tls.key'), ('CA_FILE', 'ca.crt')]:
+                            assert env[prefix + '_' + suffix]['value'] == f'/etc/client-certs/{directory}/{filename}'
+                    assert env['SSL_CERT_FILE']['value'] == '/etc/client-certs/storage/ca.crt'
+                    assert env['STORAGE_SECRETACCESSKEY']['valueFrom']['secretKeyRef'] == {'name': 'testkube-storage', 'key': 'secretKey'}
+                    assert env['FEATURE_CLOUD_STORAGE']['value'] == 'false' and env['SKIP_DB_CREATION']['value'] == 'true'
+                    assert env['ENABLE_SECRETS_ENDPOINT']['value'] == 'false'
+                    workflow = json.loads(env['TESTKUBE_GLOBAL_WORKFLOW_TEMPLATE_INLINE']['value'])
+                    assert workflow['pod']['serviceAccountName'] == 'testkube-tests' and workflow['pod']['automountServiceAccountToken'] is False
+                    assert pod['securityContext']['runAsNonRoot'] and container['securityContext']['readOnlyRootFilesystem']
+                    cluster_roles = [d for d in docs if d['kind'] == 'ClusterRole']
+                    assert len(cluster_roles) == 1 and cluster_roles[0]['rules'] == [{'apiGroups': ['apiextensions.k8s.io'], 'resources': ['customresourcedefinitions'], 'verbs': ['get', 'list', 'watch']}]
+                    assert {'TestWorkflow', 'TestWorkflowTemplate'} <= {d['spec']['names']['kind'] for d in docs if d['kind'] == 'CustomResourceDefinition'}
+                if name == 'testkube-nats':
+                    statefulset = next(d for d in docs if d['kind'] == 'StatefulSet')
+                    assert statefulset['spec']['replicas'] == 1
+                    assert statefulset['spec']['template']['spec']['automountServiceAccountToken'] is False
+                    config = next(d for d in docs if d['kind'] == 'ConfigMap')['data']['nats.conf']
+                    assert 'jetstream' in config and 'verify' in config and 'ca_file' in config
+                    assert '$NATS_AUTH_TOKEN' not in config
+                    assert statefulset['spec']['volumeClaimTemplates'][0]['spec']['storageClassName'] == 'managed-csi'
+                if name == 'argo-rollouts':
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    pod = deployment['spec']['template']['spec']
+                    container = pod['containers'][0]
+                    assert deployment['spec']['replicas'] == 2 and '--leader-elect' in container['args']
+                    assert pod['securityContext']['runAsNonRoot'] and pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+                    for c in [container, *pod['initContainers']]:
+                        security = c['securityContext']
+                        assert security['allowPrivilegeEscalation'] is False and security['readOnlyRootFilesystem']
+                        assert security['capabilities']['drop'] == ['ALL']
+                        assert c['resources']['requests'] and c['resources']['limits']['memory']
+                    assert '@sha256:' in pod['initContainers'][0]['image']
+                    assert container['readinessProbe']['httpGet']['path'] == '/healthz'
+                    assert {'plugin-bin', 'tmp', 'gateway-plugin'} <= {v['name'] for v in pod['volumes']}
+                    config = next(d for d in docs if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'argo-rollouts-config')
+                    plugin = yaml.safe_load(config['data']['trafficRouterPlugins'])[0]
+                    assert plugin['name'] == 'argoproj-labs/gatewayAPI' and plugin['location'] == 'file:///plugins/gateway-api'
+                    role = next(d for d in docs if d['kind'] == 'ClusterRole')
+                    routes = [r for r in role['rules'] if 'gateway.networking.k8s.io' in r['apiGroups']]
+                    assert routes == [{'apiGroups': ['gateway.networking.k8s.io'], 'resources': ['httproutes', 'grpcroutes'], 'verbs': ['get', 'list', 'watch', 'update', 'patch']}]
+                    assert all(set(r['verbs']) <= {'get', 'list', 'watch'} for r in role['rules'] if 'configmaps' in r['resources'])
+                    assert not any('aggregationRule' in d or d['kind'] in {'Ingress', 'HTTPRoute'} for d in docs)
+                    assert {d['spec']['names']['kind'] for d in docs if d['kind'] == 'CustomResourceDefinition'} == {'Rollout', 'AnalysisTemplate', 'ClusterAnalysisTemplate', 'AnalysisRun', 'Experiment'}
+                    assert next(d for d in docs if d['kind'] == 'PodDisruptionBudget')['spec']['minAvailable'] == 1
+                    policy = next(d for d in docs if d['kind'] == 'NetworkPolicy')
+                    assert policy['metadata']['namespace'] == 'argo-rollouts'
+                    assert policy['spec']['ingress'][0]['from'][0]['namespaceSelector']['matchLabels']['kubernetes.io/metadata.name'] == 'monitoring'
+                    monitoring = next(a for a in applications if a['metadata']['name'] == 'k8s-monitoring')['spec']['source']['helm']['valuesObject']
+                    discovery = monitoring['annotationAutodiscovery']
+                    assert discovery['enabled'] and 'argo-rollouts' in discovery['namespaces'] and not discovery['bearerToken']['enabled']
+                    assert pod['serviceAccountName'] == 'argo-rollouts'
                 if name == 'reflector':
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')
                     assert deployment['spec']['replicas'] == 1
@@ -474,10 +574,10 @@ def main():
                     settings = next(d for d in docs if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-controller-settings')['data']
                     assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
                     assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
-                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,holmes,atlantis'
+                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,testkube,holmes,atlantis'
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
-                if name in {'langfuse-reloader', 'backstage-reloader', 'devlake-reloader'}:
+                if name in {'langfuse-reloader', 'backstage-reloader', 'testkube-reloader', 'devlake-reloader'}:
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')
                     pod = deployment['spec']['template']['spec']
                     assert pod['securityContext']['runAsNonRoot'] is True
