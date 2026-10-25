@@ -31,18 +31,17 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/sonarqube/networking.yaml") . | indent 10 }}
 
-{{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
+{{- if .Values.atlantis.enabled }}
           ---
 {{ tpl (.Files.Get "packages/atlantis/networking.yaml") . | indent 10 }}
 {{- end }}
-
 
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
           ---
 {{ tpl (.Files.Get "packages/backstage/networking.yaml") . | indent 10 }}
 {{- end }}
 
-{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+{{- if .Values.devlake.enabled }}
           ---
 {{ tpl (.Files.Get "packages/devlake/networking.yaml") . | indent 10 }}
 {{- end }}

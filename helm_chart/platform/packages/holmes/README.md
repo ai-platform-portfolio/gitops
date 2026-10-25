@@ -5,7 +5,7 @@ chart at wave 50, after the LGTM backends and Kubernetes collector. It is one
 private API Deployment and Service in the `holmes` namespace. Its operator,
 Robusta platform, GitHub MCP server and Kubernetes remediation MCP server are
 disabled. No database, persistent disk or public route is added. The package
-is enabled in GitOps for the next management deployment.
+is enabled in GitOps for each cluster's next deployment.
 [Bootstrap PR #48](https://github.com/ai-platform-portfolio/gitops/pull/48)
 has merged, but its private management Foundry account and model have not been
 applied, and the AKS cluster is torn down. Do not expect a healthy investigation
@@ -20,15 +20,12 @@ preconfigured in platform values, but must be verified against the actual
 deployed account before enablement. A global deployment is not an equivalent
 choice for the company boundary. HolmesGPT
 itself is not Azure-specific: its incident toolsets work with other cloud and
-Kubernetes data sources. This installation is restricted to management because
-ASO currently runs there.
+Kubernetes data sources. ASO and Holmes install on each cluster.
 
-This instance investigates the management cluster only. Its Kubernetes tools
-use the local API, and its LGTM URLs are local services. Workload clusters have
-their own local backends; this configuration does not aggregate or query them.
-HolmesGPT's built-in cross-cluster tool dispatch requires the Robusta platform,
-which this installation does not use. Wider coverage needs a separate private
-design for per-cluster investigators or authenticated cross-cluster data access.
+Each instance investigates its own cluster. Its Kubernetes tools use the local
+API, and its LGTM URLs are local services. The instances do not aggregate data
+across clusters. Each cluster needs its own ASO authority, private Foundry route,
+OIDC issuer and verified egress destinations before Holmes can operate there.
 
 `holmes.enabled` is already `true`. Complete these remaining GitOps values and
 validate the deployed model before using the service:

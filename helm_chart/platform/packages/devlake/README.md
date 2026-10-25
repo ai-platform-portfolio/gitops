@@ -1,7 +1,7 @@
 # DevLake delivery analytics
 
 Free, self-hosted Apache DevLake **v1.0.2**, with digest-pinned core and
-Config UI images. Management only, enabled by default. Reuses the existing CNPG
+Config UI images. Installed on each cluster and enabled by default. Reuses its local CNPG
 PostgreSQL 18 cluster and Grafana. Adds no MySQL, PostgreSQL server, Grafana,
 Redis, queue service, PVC, Azure resource, Terraform input or bootstrap handoff.
 
@@ -154,9 +154,8 @@ devlake:
 When present, it names a **local, single-source leaf Application in argocd**;
 collection RBAC grants GET only on those exact names. Do not point it at a root,
 onboarding, credentials, route or configuration Application. The current package
-collects on management only; it does not pretend to collect independent workload
-clusters. Workload/fleet onboarding requires credential delivery and a local producer
-per cluster, and is future work rather than an implicit central cluster-admin token.
+collects locally on each cluster; it does not aggregate independent clusters.
+Each cluster needs credential delivery and a local producer for its services.
 
 Put immutable provenance in that leaf's **source values**, so Argo retains it in
 the reconciled source snapshot:
@@ -238,7 +237,7 @@ or use these measurements to rank individual developers.
 
 ## Validation and sources
 
-Validation covers management-only and disabled-package rendering, dependency gates,
+Validation covers both cluster roles and disabled-package rendering, dependency gates,
 restricted pod specifications, narrow roles, deferred ESO template expressions,
 source/environment attribution, no-op deduplication, configuration idempotency and
 all pinned upstream Helm renders. Disposable runtime checks cover the unmodified

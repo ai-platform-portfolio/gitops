@@ -336,8 +336,7 @@ def main():
         runtime.update(cluster.sso())
         runtime.update({'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()})
         # Generic context for GitOps-owned service federation.
-        if cluster.settings['cluster']['role'] == 'management':
-            runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
+        runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
         prepare_credentials(cluster)
         sonar_ready = bool(existing and existing['spec']['source']['helm']['valuesObject'].get('sonarqubeReady'))
         cluster.seed(cluster.root(runtime, sonar_ready))

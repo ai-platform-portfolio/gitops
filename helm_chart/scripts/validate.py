@@ -43,7 +43,7 @@ def main():
             'github_team': 'platform',
             'repositories': ['github.com/example/*', '!github.com/example/gitops', '!github.com/example/terraform'],
             'azure': {
-                'identity_resource_group_name': 'rg-service-identities',
+                'identity_resource_group_name': 'rg-{{ .Values.cluster.name }}-atlantis',
                 'role_assignments': {
                     'state': {'resource_group_name': 'rg-state', 'storage_account_name': 'examplestate',
                               'role_definition_name': 'Storage Blob Data Contributor'},
@@ -133,6 +133,7 @@ def main():
         holmes_azure = next(app for app in with_holmes if app['metadata']['name'] == 'holmes-azure')
         azure_resources = list(yaml.safe_load_all(holmes_azure['spec']['source']['helm']['valuesObject']['manifests']))
         assert {'ResourceGroup', 'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'} == {resource['kind'] for resource in azure_resources}
+        assert next(resource for resource in azure_resources if resource['kind'] == 'ResourceGroup')['spec']['azureName'] == 'rg-management-holmes'
         config_app = next(app for app in with_holmes if app['metadata']['name'] == 'configuration')
         holmes_resources = list(yaml.safe_load_all(config_app['spec']['source']['helm']['valuesObject']['manifests']))
         holmes_role = next(resource for resource in holmes_resources if resource['kind'] == 'ClusterRole' and resource['metadata']['name'] == 'holmes-read')
@@ -184,7 +185,7 @@ def main():
                 if app['metadata']['name'] == 'atlantis-azure':
                     assert {d['kind'] for d in documents} == {'ResourceGroup', 'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
                     group = next(d for d in documents if d['kind'] == 'ResourceGroup')
-                    assert group['spec']['azureName'] == atlantis['azure']['identity_resource_group_name']
+                    assert group['spec']['azureName'] == 'rg-management-atlantis'
                     identity = next(d for d in documents if d['kind'] == 'UserAssignedIdentity')
                     assert identity['spec']['owner'] == {'name': 'atlantis'}
                     assert identity['metadata']['namespace'] == 'atlantis'
@@ -300,26 +301,32 @@ def main():
 
         values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}, 'atlantis': atlantis}))
         workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
-        assert 'atlantis' not in {a['metadata']['name'] for a in workload}, 'Workload must not install Atlantis even when enabled'
-        assert not {'holmes', 'holmes-azure'} & {a['metadata']['name'] for a in workload}, 'Workload must not install management Holmes'
-        assert not any('namespace: atlantis' in json.dumps(a) for a in workload), 'Workload must not create Atlantis prerequisites or routes'
+        workload_names = {a['metadata']['name'] for a in workload}
+        assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
+                                              'sonarqube', 'sonarqube-configure'}, 'Workload must install every ready package except Backstage'
+        assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
+                'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities',
+                'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
+        assert not {'backstage', 'backstage-credentials', 'backstage-reloader'} & workload_names
         assert waves['configuration'] < waves['atlantis-azure'] < waves['atlantis'] < waves['routes']
         assert waves['azure-service-operator'] < waves['atlantis-azure']
-        assert 'federation' not in {a['metadata']['name'] for a in workload}, 'Workload must not manage the hub'
-        assert 'azure-service-operator' not in {a['metadata']['name'] for a in workload}, 'ASO belongs on management only'
-        assert not {'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader'} & {a['metadata']['name'] for a in workload}, 'Management identity controllers must not leak into workload clusters'
         assert waves['crossplane'] < waves['crossplane-packages'] < waves['crossplane-identity-api'] < waves['service-identities'] < waves['langfuse']
         workload_namespaces = next(a for a in workload if a['metadata']['name'] == 'namespaces')
-        assert 'azureserviceoperator-system' not in workload_namespaces['spec']['source']['helm']['valuesObject']['manifests']
+        assert 'azureserviceoperator-system' in workload_namespaces['spec']['source']['helm']['valuesObject']['manifests']
+        workload_azure = next(a for a in workload if a['metadata']['name'] == 'holmes-azure')
+        workload_azure_docs = [d for d in yaml.safe_load_all(workload_azure['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        assert next(d for d in workload_azure_docs if d['kind'] == 'ResourceGroup')['spec']['azureName'] == 'rg-dev-holmes'
+        workload_atlantis = next(a for a in workload if a['metadata']['name'] == 'atlantis-azure')
+        workload_atlantis_docs = [d for d in yaml.safe_load_all(workload_atlantis['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        assert next(d for d in workload_atlantis_docs if d['kind'] == 'ResourceGroup')['spec']['azureName'] == 'rg-dev-atlantis'
         assert not any(a['metadata']['name'].startswith('sonarqube') for a in workload), 'Sonar must wait for cluster credential preparation'
         initial_postgres = next(a for a in workload if a['metadata']['name'] == 'postgres')
         initial_database_docs = [d for d in yaml.safe_load_all(initial_postgres['spec']['source']['helm']['valuesObject']['manifests']) if d]
-        assert not any(d['kind'] == 'Database' for d in initial_database_docs), 'Workload databases wait for their consumer credentials'
-        assert 'managed' not in next(d for d in initial_database_docs if d['kind'] == 'Cluster')['spec']
+        assert not any(d['kind'] == 'Database' and d['metadata']['name'] == 'sonarqube' for d in initial_database_docs), 'Sonar database waits for credentials'
+        assert any(d['kind'] == 'Database' and d['metadata']['name'] == 'testkube' for d in initial_database_docs)
         routes = next(a for a in workload if a['metadata']['name'] == 'routes')
         initial_routes = [d for d in yaml.safe_load_all(routes['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert not any(d['metadata']['namespace'] == 'sonarqube' for d in initial_routes), 'Initial routes must not block on a Sonar backend that has not been installed'
-        assert not any('devlake' in json.dumps(a) for a in workload), 'DevLake belongs on management only'
         assert waves['configuration'] < waves['postgres'] < waves['devlake-credentials'] < waves['grafana'] < waves['devlake'] < waves['devlake-configure'] < waves['devlake-collection'] < waves['routes']
         assert waves['crossplane-identity-api'] < waves['service-identities'] < waves['devlake']
         assert waves['routes'] > waves['sonarqube'], 'Activate routes after backend health'
@@ -329,7 +336,7 @@ def main():
         assert waves['external-secrets'] < waves['configuration'] < waves['postgres'] < waves['testkube-storage'] < waves['testkube']
         assert waves['configuration'] < waves['testkube-azure'] < waves['testkube-storage'] < waves['testkube']
         assert waves['testkube'] < waves['testkube-checks'] < waves['testkube-analysis']
-        assert not any(a['metadata']['name'].startswith('testkube') for a in workload), 'Central Testkube must not be duplicated on workloads'
+        assert any(a['metadata']['name'].startswith('testkube') for a in workload), 'Each cluster runs its own Testkube'
         assert waves['configuration'] < waves['testkube-nats'] < waves['testkube']
         assert waves['argo-rollouts'] < waves['testkube-analysis'] and waves['testkube'] < waves['testkube-analysis']
         assert waves['envoy-gateway'] < waves['argo-rollouts'] < waves['routes'], 'Gateway API must exist before Rollouts starts'
@@ -714,7 +721,7 @@ def main():
                 raise RuntimeError(f'{name}: {error.stderr}') from error
         with ThreadPoolExecutor(max_workers=4) as executor:
             list(executor.map(render, applications))
-    print(f'{len(applications)} management Applications rendered; workload isolation and upstream charts verified.')
+        print(f'{len(applications)} management Applications rendered; workload package parity and upstream charts verified.')
 
 
 if __name__ == '__main__':

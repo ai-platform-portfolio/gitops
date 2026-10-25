@@ -1,4 +1,4 @@
-{{- if and .Values.holmes.enabled (eq .Values.cluster.role "management") }}
+{{- if .Values.holmes.enabled }}
 {{- $_ := required "holmes.model must name the approved model deployment" .Values.holmes.model }}
 {{- $_ := required "holmes.modelEndpoint must be an approved HTTPS endpoint" .Values.holmes.modelEndpoint }}
 {{- if not (hasPrefix "azure/" .Values.holmes.model) }}{{- fail "holmes.model must use the azure/ provider for Entra workload identity" }}{{- end }}

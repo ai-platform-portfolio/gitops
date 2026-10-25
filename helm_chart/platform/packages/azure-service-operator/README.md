@@ -1,9 +1,9 @@
 # Azure Service Operator
 
-The management root installs the official chart **2.21.1**, running **v2.21.1**,
+Each cluster root installs the official chart **2.21.1**, running **v2.21.1**,
 verified as the latest stable release on 2026-10-23. The explicit Application in
 `../../templates/azure-service-operator.yaml` runs at wave 10, after cert-manager
-at wave 5. Workload roots omit the operator, its namespaces and network policy.
+at wave 5. Every root includes the operator, its namespace and network policy.
 One replica with upstream 200m CPU/256Mi memory requests and 500m/512Mi limits
 fits the initial non-HA portfolio; its disruption budget is disabled so a single
 replica does not block node maintenance. Upgrades use the upstream Recreate strategy
@@ -65,7 +65,7 @@ is not needed for this path. No client secret or Azure CLI is required by ASO.
 The repository's existing bootstrap/lifecycle tools still require Azure CLI.
 
 Bootstrap now supplies a dedicated `identities.aso` managed identity through the
-existing reusable module loop. It trusts the management controller service account
+existing reusable module loop. It trusts its cluster controller service account
 with audience `api://AzureADTokenExchange`, has Managed Identity Contributor on
 the cluster resource group and Storage Account Contributor plus Role Based Access
 Control Administrator on the existing application storage account. GitOps builds
@@ -73,8 +73,8 @@ Testkube's namespace `aso-credential` from runtime client/account context. No
 manual provisioner Key Vault secret is required for that package. The global
 credential remains empty; Atlantis retains its separately configured authority.
 
-The base installation watches `azure-resources` and `testkube`; optional Atlantis
-adds `atlantis`. New consumers must supply scoped namespace credentials and run
+The base installation watches `azure-resources` and `testkube`; enabled Holmes
+and optional Atlantis add their namespaces. New consumers must supply scoped namespace credentials and run
 after ASO health. Never let ASO reconcile Terraform-owned resource instances.
 Namespace writers can exercise the credential's Azure permissions, even without
 Secret reads. The upstream controller also has broad Kubernetes/CRD permissions;
@@ -88,7 +88,7 @@ they are separate from public ListenerSet certificates and need no public route.
 
 ## Validation and operations
 
-`make validate` checks the management/workload boundary, dependency wave, pinned
+`make validate` checks both cluster roles, dependency wave, pinned
 image, enabled CRD groups, projected token, empty global credential, single
 replica and stable Secret rendering, alongside every existing pinned chart.
 Rendering does not verify Kubernetes admission, runtime CRD installation or Azure

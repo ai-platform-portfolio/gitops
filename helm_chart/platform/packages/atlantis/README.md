@@ -1,6 +1,6 @@
 # Atlantis
 
-Management-only Terraform PR execution, installed and configured through GitOps.
+Terraform PR execution on each enabled cluster, installed and configured through GitOps.
 Official chart **6.16.2** / Atlantis **v0.48.2** was verified latest stable when
 added. One replica and a 5 GiB Azure Disk store BoltDB locks, checkouts and saved
 plans. No PostgreSQL, Redis, additional Key Vault or state account is required.
@@ -31,7 +31,7 @@ atlantis:
   azure:
     location: uksouth
     # ASO owns and deletes this group. Use a fresh package-only name.
-    identity_resource_group_name: rg-management-atlantis
+    identity_resource_group_name: rg-{{ .Values.cluster.name }}-atlantis
     role_assignments:
       state:
         resource_group_name: rg-developer-state
@@ -50,7 +50,7 @@ exclusions do not isolate state. All targets use the existing cluster runtime's
 subscription context. Keep company deployment choices in an approved private Git
 source; do not copy private settings into this public portfolio.
 
-The existing platform lifecycle reads generic account context and the management
+The existing platform lifecycle reads generic account context and each cluster's
 AKS OIDC issuer, storing them in the local Argo root's runtime values. No issuer
 or account identifiers are added to Terraform outputs. This context is reusable
 by GitOps identity consumers; Atlantis enablement is never taken from Terraform.
@@ -99,7 +99,7 @@ An operator cannot grant itself initial Azure access. This is a one-time platfor
 prerequisite, not an Atlantis Terraform dependency. The package does not create
 that initial authority or change its permissions.
 
-For the pinned ASO controller-token model, that identity must trust the management
+For the pinned ASO controller-token model, that identity must trust its cluster's
 AKS OIDC issuer with subject
 `system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default`
 and audience `api://AzureADTokenExchange`. Its approved permissions must cover

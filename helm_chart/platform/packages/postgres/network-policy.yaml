@@ -9,7 +9,7 @@ spec:
   - Ingress
   - Egress
   ingress:
-{{- if eq .Values.cluster.role "management" }}
+
   - from:
     - namespaceSelector:
         matchLabels:
@@ -26,7 +26,7 @@ spec:
     ports:
     - protocol: TCP
       port: 5432
-{{- end }}
+
   - from:
     - namespaceSelector:
         matchLabels:
@@ -50,7 +50,7 @@ spec:
     - protocol: TCP
       port: 5432
 {{- end }}
-{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+{{- if .Values.devlake.enabled }}
   - from:
     - namespaceSelector:
         matchLabels:

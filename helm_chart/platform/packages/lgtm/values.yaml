@@ -52,7 +52,7 @@ grafana:
     type: Recreate
   envFromSecrets:
   - name: grafana-azuread-app
-{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+{{- if .Values.devlake.enabled }}
   - name: devlake-grafana-database
   dashboardProviders:
     dashboardproviders.yaml:
@@ -98,7 +98,7 @@ grafana:
       - name: Tempo
         type: tempo
         url: http://tempo.lgtm.svc.cluster.local:3200
-{{- if and .Values.devlake.enabled (eq .Values.cluster.role "management") }}
+{{- if .Values.devlake.enabled }}
       - name: DevLake
         uid: devlake-postgres-api
         type: grafana-postgresql-datasource

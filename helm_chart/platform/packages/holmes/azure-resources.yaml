@@ -10,7 +10,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-5"
 spec:
-  azureName: {{ $azure.identityResourceGroupName | quote }}
+  azureName: {{ tpl $azure.identityResourceGroupName . | quote }}
   location: {{ $azure.location | quote }}
 ---
 apiVersion: managedidentity.azure.com/v1api20230131
