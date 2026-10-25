@@ -1,18 +1,8 @@
 {{- $azure := .Values.holmes.azure -}}
 {{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
 {{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s" $subscription $azure.foundryResourceGroupName $azure.foundryResourceName -}}
+{{- $identityGroup := printf "/subscriptions/%s/resourceGroups/%s" $subscription (required "runtime.CLUSTER_RESOURCE_GROUP is required" .Values.runtime.CLUSTER_RESOURCE_GROUP) -}}
 {{- $hash := sha256sum (printf "holmes/%s/%s" .Values.cluster.name $scope) | trunc 32 -}}
-apiVersion: resources.azure.com/v1api20200601
-kind: ResourceGroup
-metadata:
-  name: holmes
-  namespace: holmes
-  annotations:
-    argocd.argoproj.io/sync-wave: "-5"
-spec:
-  azureName: {{ tpl $azure.identityResourceGroupName . | quote }}
-  location: {{ $azure.location | quote }}
----
 apiVersion: managedidentity.azure.com/v1api20230131
 kind: UserAssignedIdentity
 metadata:
@@ -24,7 +14,7 @@ spec:
   azureName: id-{{ .Values.cluster.name }}-holmes
   location: {{ $azure.location | quote }}
   owner:
-    name: holmes
+    armId: {{ $identityGroup | quote }}
   operatorSpec:
     configMaps:
       clientId:

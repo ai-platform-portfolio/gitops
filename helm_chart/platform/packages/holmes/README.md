@@ -39,16 +39,16 @@ validate the deployed model before using the service:
 | `apiCidrs` | AKS Kubernetes API endpoint address range. Empty until verified; egress remains denied. |
 | `entraCidrs` | Entra token endpoint ranges, or a tested private/proxy route. Empty until verified; egress remains denied. Maintain ranges as Microsoft changes them. |
 | `azure.foundryResourceGroupName` / `foundryResourceName` | Preconfigured new management account; verify it exists before enabling. |
-| `azure.identityResourceGroupName` | New package-owned group; do not point at a shared group. |
-| `azure.asoClientIdSecret` | Key Vault secret for a scoped ASO provisioner client ID. It is not present yet; establish and verify its federation and Azure permissions before enabling. |
 
-The package's Azure resources are GitOps owned by ASO: a new resource group,
-managed identity, AKS federated credential and `Cognitive Services OpenAI User`
-assignment scoped to the bootstrap-owned Foundry account after it exists. ASO
-does not adopt that account. Its provisioner needs permission to create the new
-group and identity and assign that role at the Foundry scope. The provisioner
-credential and its Azure authority are not established yet. ESO will deliver
-its credential to the new namespace.
+The package's Azure resources are GitOps owned by ASO: a managed identity in
+the existing management resource group, an AKS federated credential and a
+`Cognitive Services OpenAI User` assignment scoped to the bootstrap-owned
+Foundry account. ASO does not adopt the group or Foundry account. The existing
+ASO bootstrap identity has Managed Identity Contributor on that group and a
+Foundry-account-scoped RBAC administrator grant so ASO can create the role
+assignment. Its client ID comes from the bootstrap runtime context; the
+configuration stage delivers it as a Kubernetes Secret rather than requiring
+a second Key Vault copy.
 ASO exports the new identity client ID to a ConfigMap. The Holmes pod receives
 that ID and a projected Azure-audience service account token; the pinned source
 uses `DefaultAzureCredential` with `AZURE_AD_TOKEN_AUTH=true`. There is no model

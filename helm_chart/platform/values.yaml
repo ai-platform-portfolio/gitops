@@ -25,10 +25,8 @@ holmes:
 
   azure:
     location: uksouth
-    identityResourceGroupName: rg-{{ .Values.cluster.name }}-holmes
     foundryResourceGroupName: rg-management
     foundryResourceName: foundry-management-portfolio
-    asoClientIdSecret: aso-provisioner-client-id
 
 # Package choices live in GitOps, not Terraform/tfvars.
 # Enable through a reviewed values change after supplying Key Vault credentials.

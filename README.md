@@ -90,6 +90,10 @@ when Azure has completed cluster or API allowlist changes but client access has
 not yet propagated; it fails after ten minutes with an allowlist/access hint.
 Envoy Gateway, cert-manager, ExternalDNS, databases, observability and the enabled
 applications are included. Packages configured as disabled remain disabled.
+On a repeated `make up`, the lifecycle ends a still-running root sync only when
+Argo has already compared a newer Git revision. This lets Argo restart at the
+current revision if an older package wave was blocked by a manifest since fixed
+on `main`.
 
 There is no foundations profile or separate ingress deployment step. Configure
 packages in `helm_chart/platform/` before applying. SonarQube SSO and application

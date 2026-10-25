@@ -116,10 +116,8 @@ def main():
                 'entraCidrs': ['10.1.3.5/32'],
                 'azure': {
                     'location': 'uksouth',
-                    'identityResourceGroupName': 'rg-management-holmes',
                     'foundryResourceGroupName': 'rg-foundry',
                     'foundryResourceName': 'foundry-test',
-                    'asoClientIdSecret': 'aso-provisioner-client-id',
                 },
             },
         }))
@@ -132,16 +130,20 @@ def main():
         assert 'api_key' not in holmes['spec']['source']['helm']['valuesObject']['modelList']['approved']
         holmes_azure = next(app for app in with_holmes if app['metadata']['name'] == 'holmes-azure')
         azure_resources = list(yaml.safe_load_all(holmes_azure['spec']['source']['helm']['valuesObject']['manifests']))
-        assert {'ResourceGroup', 'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'} == {resource['kind'] for resource in azure_resources}
-        assert next(resource for resource in azure_resources if resource['kind'] == 'ResourceGroup')['spec']['azureName'] == 'rg-management-holmes'
+        assert {'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'} == {resource['kind'] for resource in azure_resources}
+        holmes_identity = next(resource for resource in azure_resources if resource['kind'] == 'UserAssignedIdentity')
+        assert holmes_identity['spec']['owner']['armId'].endswith('/resourceGroups/example')
         config_app = next(app for app in with_holmes if app['metadata']['name'] == 'configuration')
         holmes_resources = list(yaml.safe_load_all(config_app['spec']['source']['helm']['valuesObject']['manifests']))
         holmes_role = next(resource for resource in holmes_resources if resource['kind'] == 'ClusterRole' and resource['metadata']['name'] == 'holmes-read')
         assert all(rule['verbs'] == ['get', 'list', 'watch'] for rule in holmes_role['rules'])
         assert not any('secrets' in rule['resources'] for rule in holmes_role['rules'])
-        assert {'holmes-aso-credential', 'holmes-api-token', 'holmes-egress', 'holmes-ingress'} <= {
+        assert {'aso-credential', 'holmes-api-token', 'holmes-egress', 'holmes-ingress'} <= {
             resource['metadata']['name'] for resource in holmes_resources
         }
+        aso_credential = next(resource for resource in holmes_resources if resource['metadata']['name'] == 'aso-credential')
+        assert aso_credential['kind'] == 'Secret'
+        assert base64.b64decode(aso_credential['data']['AZURE_CLIENT_ID']).decode() == runtime['ASO_CLIENT_ID']
         values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis}))
         for app_name, workload in [('testkube-storage', 'testkube-s3'), ('testkube', 'testkube-api-server'), ('testkube-nats', 'testkube-nats')]:
             app = next(a for a in applications if a['metadata']['name'] == app_name)
@@ -315,7 +317,7 @@ def main():
         assert 'azureserviceoperator-system' in workload_namespaces['spec']['source']['helm']['valuesObject']['manifests']
         workload_azure = next(a for a in workload if a['metadata']['name'] == 'holmes-azure')
         workload_azure_docs = [d for d in yaml.safe_load_all(workload_azure['spec']['source']['helm']['valuesObject']['manifests']) if d]
-        assert next(d for d in workload_azure_docs if d['kind'] == 'ResourceGroup')['spec']['azureName'] == 'rg-dev-holmes'
+        assert next(d for d in workload_azure_docs if d['kind'] == 'UserAssignedIdentity')['spec']['owner']['armId'].endswith('/resourceGroups/example')
         workload_atlantis = next(a for a in workload if a['metadata']['name'] == 'atlantis-azure')
         workload_atlantis_docs = [d for d in yaml.safe_load_all(workload_atlantis['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert next(d for d in workload_atlantis_docs if d['kind'] == 'ResourceGroup')['spec']['azureName'] == 'rg-dev-atlantis'

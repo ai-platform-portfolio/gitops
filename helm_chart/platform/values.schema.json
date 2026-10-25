@@ -17,13 +17,11 @@
         "azure": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["location", "identityResourceGroupName", "foundryResourceGroupName", "foundryResourceName", "asoClientIdSecret"],
+          "required": ["location", "foundryResourceGroupName", "foundryResourceName"],
           "properties": {
             "location": {"type": "string"},
-            "identityResourceGroupName": {"type": "string"},
             "foundryResourceGroupName": {"type": "string"},
-            "foundryResourceName": {"type": "string"},
-            "asoClientIdSecret": {"type": "string"}
+            "foundryResourceName": {"type": "string"}
           }
         }
       },

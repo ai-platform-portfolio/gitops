@@ -89,6 +89,29 @@ class PlatformInputTests(unittest.TestCase):
         values = cluster.root({}, False)['spec']['source']['helm']['valuesObject']
         self.assertNotIn('atlantis', values)
 
+    def test_stale_root_operation_is_terminated_after_new_revision_is_seen(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.object = Mock(side_effect=[
+            {'status': {'sync': {'revision': 'new'}, 'operationState': {
+                'phase': 'Running', 'syncResult': {'revision': 'old'}}}},
+            {'status': {'sync': {'revision': 'new'}, 'operationState': {'phase': 'Terminated',
+                'syncResult': {'revision': 'old'}}}},
+        ])
+        with patch('helm_chart.scripts.cluster.run') as run:
+            cluster.resume_stale_root_sync()
+        command = run.call_args.args
+        self.assertEqual(command[:6], ('kubectl', '-n', 'argocd', 'patch', 'applications.argoproj.io', 'platform'))
+        self.assertEqual(json.loads(command[-1]), {'status': {'operationState': {'phase': 'Terminating'}}})
+
+    def test_current_root_operation_is_left_running(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.object = Mock(return_value={'status': {'sync': {'revision': 'same'},
+            'operationState': {'phase': 'Running', 'syncResult': {'revision': 'same'}}}})
+        with patch('helm_chart.scripts.cluster.run') as run:
+            cluster.resume_stale_root_sync()
+        run.assert_not_called()
+
 
 class TeardownTests(unittest.TestCase):
     def test_application_rollouts_block_controller_teardown(self):
