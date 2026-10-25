@@ -169,8 +169,9 @@ class Cluster:
                 'annotations': {'platform.ai-platform-portfolio/root': json.dumps(root)}},
             'stringData': {'name': name, 'server': self.connection['server'], 'config': json.dumps(config)}}, self.hub)
 
-    def resume_stale_root_sync(self):
-        app = self.object('applications.argoproj.io', 'platform', 'argocd')
+    def resume_stale_root_sync(self, app=None):
+        if app is None:
+            app = self.object('applications.argoproj.io', 'platform', 'argocd')
         status = (app or {}).get('status', {})
         operation = status.get('operationState', {})
         active_revision = operation.get('syncResult', {}).get('revision')
@@ -207,6 +208,8 @@ class Cluster:
         def reconciled():
             apps = self.objects('applications.argoproj.io', 'argocd')
             root = next((a for a in apps if a['metadata']['name'] == 'platform'), None)
+            if root:
+                self.resume_stale_root_sync(root)
             if not root or not root.get('status', {}).get('resources'):
                 return False
             expected = {r['name'] for r in root['status']['resources'] if r['kind'] == 'Application'}
