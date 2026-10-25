@@ -16,9 +16,9 @@ sonarqubeReady: false
 # Enable after an approved Azure Foundry deployment and private route are available.
 holmes:
   enabled: false
-  model: ""
-  modelEndpoint: ""
-  modelApiVersion: ""
+  model: azure/holmes
+  modelEndpoint: https://foundry-management-portfolio.cognitiveservices.azure.com/
+  modelApiVersion: "2025-04-01-preview"
   modelCidrs: []
   apiCidrs: []
   entraCidrs: []
@@ -26,8 +26,8 @@ holmes:
   azure:
     location: uksouth
     identityResourceGroupName: rg-management-holmes
-    foundryResourceGroupName: ""
-    foundryResourceName: ""
+    foundryResourceGroupName: rg-management
+    foundryResourceName: foundry-management-portfolio
     asoClientIdSecret: aso-provisioner-client-id
 
 # Management-only package choices live in GitOps, not Terraform/tfvars.

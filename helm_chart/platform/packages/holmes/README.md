@@ -5,30 +5,34 @@ chart at wave 50, after the LGTM backends and Kubernetes collector. It is one
 private API Deployment and Service in the `holmes` namespace. Its operator,
 Robusta platform, GitHub MCP server and Kubernetes remediation MCP server are
 disabled. No database, persistent disk or public route is added. The package
-is initially disabled because no approved Azure Foundry deployment exists in
-this workspace and the AKS cluster has been torn down.
+is initially disabled while the private management Foundry account and model
+in [bootstrap PR #48](https://github.com/ai-platform-portfolio/gitops/pull/48)
+remain unapplied and the AKS cluster is torn down.
 
 ## Enablement requirements
 
-Create or select an approved Azure Foundry Azure OpenAI-style model deployment.
-The selected deployment must permit regional processing that meets the company
-boundary; a global deployment is not an equivalent choice. Configure private
-endpoint/DNS and disable local API-key authentication where supported. HolmesGPT
+The bootstrap proposal selects a UK South `gpt-4.1-mini` deployment named
+`holmes` with regional `Standard` processing, a private endpoint and local API
+keys disabled. The account name, resource group, endpoint and API version are
+preconfigured in platform values, but must be verified against the actual
+deployed account before enablement. A global deployment is not an equivalent
+choice for the company boundary. HolmesGPT
 itself is not Azure-specific: its incident toolsets work with other cloud and
 Kubernetes data sources. This installation is restricted to management because
 ASO currently runs there.
 
-Set `holmes.enabled: true` and these values in GitOps platform values:
+After applying bootstrap and validating the model, set `holmes.enabled: true`
+and complete these remaining GitOps platform values:
 
 | Value | Requirement |
 | --- | --- |
-| `model` | `azure/<deployment-name>`, the Azure Foundry deployment identifier. |
-| `modelEndpoint` | Approved HTTPS Foundry endpoint, resolving to the private endpoint. |
-| `modelApiVersion` | API version supported by that deployment. |
+| `model` | Preconfigured as `azure/holmes`; verify the deployed name. |
+| `modelEndpoint` | Preconfigured HTTPS Foundry endpoint; verify private DNS resolution. |
+| `modelApiVersion` | Preconfigured from current Holmes documentation; confirm with a live model request. |
 | `modelCidrs` | Private endpoint address range. |
 | `apiCidrs` | AKS Kubernetes API endpoint address range. |
 | `entraCidrs` | Entra token endpoint ranges, or a tested private/proxy route. Maintain them as Microsoft changes them. |
-| `azure.foundryResourceGroupName` / `foundryResourceName` | Existing model resource for a scoped role assignment. |
+| `azure.foundryResourceGroupName` / `foundryResourceName` | Preconfigured new management account; verify it exists before enabling. |
 | `azure.identityResourceGroupName` | New package-owned group; do not point at a shared group. |
 | `azure.asoClientIdSecret` | Existing scoped ASO provisioner client ID in Key Vault. |
 
