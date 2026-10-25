@@ -13,9 +13,20 @@ spec:
     - platform-pooler.postgres
     - platform-pooler.postgres.svc
     - platform-pooler.postgres.svc.cluster.local
-{{- if or .Values.sonarqubeReady (and (or .Values.backstage.enabled .Values.devlake.enabled) (eq .Values.cluster.role "management")) }}
+{{- if or .Values.sonarqubeReady (eq .Values.cluster.role "management") }}
   managed:
     roles:
+{{- if eq .Values.cluster.role "management" }}
+    - name: testkube
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+      passwordSecret:
+        name: testkube-role
+{{- end }}
 {{- if .Values.sonarqubeReady }}
     - name: sonarqube
       ensure: present
@@ -102,6 +113,9 @@ spec:
     pg_hba:
     - hostnossl all all all reject
     - hostssl app app all scram-sha-256
+{{- if eq .Values.cluster.role "management" }}
+    - hostssl testkube testkube all scram-sha-256
+{{- end }}
     - hostssl sonarqube sonarqube all scram-sha-256
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
     - hostssl backstage backstage all scram-sha-256

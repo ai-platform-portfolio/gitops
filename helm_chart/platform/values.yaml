@@ -63,6 +63,13 @@ langfuse:
     credentialValidityDays: 180
     allowAccountLinking: true
 
+# Central testing service. Cloud dependencies are ASO-owned, not bootstrap inputs.
+testkube:
+  azure:
+    location: uksouth
+    storageResourceGroup: kubernetes
+  retentionDays: 14
+
 # Free, management-only delivery analytics; PostgreSQL and Grafana are shared.
 devlake:
   enabled: true

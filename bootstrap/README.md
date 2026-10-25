@@ -123,3 +123,10 @@ including Gateway API route matches and backend/certificate references, without
 copying those defaults into every manifest. This setting controls comparison;
 normal synchronization still uses server-side apply. The chart rolls the
 application controller when command parameters change.
+
+The map-driven `identities.aso` entry supplies the ASO controller's initial
+federated authority on the management resource group and existing application
+storage account. `platform_settings.runtime` carries its client ID and the cluster
+resource-group name; GitOps supplies namespace credentials and owns service
+identities/resources. This resolves the circular dependency of ASO provisioning
+its own first credential. See [Testkube sequencing](../helm_chart/platform/packages/testkube/README.md).

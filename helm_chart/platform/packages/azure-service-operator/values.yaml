@@ -18,6 +18,7 @@ crdPattern:
 
 azureTargetNamespaces:
   - azure-resources
+  - testkube
 {{- if and (eq .Values.cluster.role "management") .Values.atlantis.enabled }}
   - atlantis
 {{- end }}

@@ -1,0 +1,123 @@
+global:
+  podSecurityContext: &podSecurity
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext: &containerSecurity
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+      - ALL
+  testWorkflows:
+    createServiceAccountTemplates: false
+    createOfficialTemplates: false
+    globalTemplate:
+      enabled: true
+      inline: true
+      spec:
+        pod:
+          serviceAccountName: testkube-tests
+          automountServiceAccountToken: false
+          securityContext: *podSecurity
+        container:
+          securityContext: *containerSecurity
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+  annotations:
+    reloader.stakater.com/auto: "true"
+
+mongodb:
+  enabled: false
+
+testkube-api:
+  multinamespace:
+    enabled: true
+  analyticsEnabled: false
+  disableSecretCreation: true
+  skipDBCreation: true
+
+  serviceAccount:
+    name: testkube-api
+  testServiceAccount:
+    create: false
+  jobServiceAccountName: testkube-tests
+  mongodb:
+    enabled: false
+  postgresql:
+    enabled: true
+    secretName: testkube-database
+    secretKey: dsn
+  minio:
+    enabled: false
+
+  nats:
+    enabled: false
+    uri: tls://testkube-nats.testkube.svc.cluster.local:4222
+    tls:
+      enabled: true
+      mountCACertificate: true
+      certSecret:
+        enabled: true
+        name: testkube-nats-client
+        baseMountPath: /etc/client-certs/nats
+        certFile: tls.crt
+        keyFile: tls.key
+
+  storage:
+    endpoint: testkube-s3.testkube.svc.cluster.local:8443
+    secretNameAccessKeyId: testkube-storage
+    secretKeyAccessKeyId: accessKey
+    secretNameSecretAccessKey: testkube-storage
+    secretKeySecretAccessKey: secretKey
+    bucket: '{{ .Values.cluster.name }}-testkube-artifacts'
+    SSL: true
+    cacheExpiration: 0
+    mountCACertificate: true
+    certSecret:
+      enabled: true
+      name: testkube-s3
+      certFile: tls.crt
+      keyFile: tls.key
+
+  extraEnvVars:
+  - name: SSL_CERT_FILE
+    value: /etc/client-certs/storage/ca.crt
+
+  additionalVolumes:
+  - name: postgres-ca
+    secret:
+      secretName: testkube-database
+      items:
+      - key: ca.crt
+        path: ca.crt
+
+  additionalVolumeMounts:
+  - name: postgres-ca
+    mountPath: /etc/testkube-postgres
+    readOnly: true
+  podAnnotations:
+    k8s.grafana.com/scrape: 'true'
+    k8s.grafana.com/metrics.portNumber: '8088'
+
+  resources:
+    requests:
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  next:
+    gitops:
+      syncKubernetesToCloud: false
+    legacyTests:
+      enabled: false
+
+  logs:
+    bucket: '{{ .Values.cluster.name }}-testkube-logs'

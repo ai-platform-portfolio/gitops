@@ -9,6 +9,24 @@ spec:
   - Ingress
   - Egress
   ingress:
+{{- if eq .Values.cluster.role "management" }}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: testkube
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: api-server
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: testkube
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: testkube-schema-check
+    ports:
+    - protocol: TCP
+      port: 5432
+{{- end }}
   - from:
     - namespaceSelector:
         matchLabels:

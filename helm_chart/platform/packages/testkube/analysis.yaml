@@ -1,0 +1,63 @@
+# Reusable gate only; applications supply their own real workflow and candidate.
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: testkube-workflow
+
+spec:
+  args:
+    - name: workflow
+    - name: candidate-url
+
+  metrics:
+    - name: testkube-workflow
+      count: 1
+      failureLimit: 0
+      provider:
+        job:
+          spec:
+            activeDeadlineSeconds: 900
+            backoffLimit: 0
+            template:
+              metadata:
+                labels:
+                  gitops.platform/testkube-client: "true"
+              spec:
+                automountServiceAccountToken: false
+                restartPolicy: Never
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  runAsGroup: 1000
+                  fsGroup: 1000
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: testkube
+                    image: docker.io/kubeshop/testkube-cli:2.14.2@sha256:1ee9228907b31d6fb901b0683237797aa107ed73915504ac8a547de01681f9b7
+                    args:
+                      - --client=direct
+                      - --api-uri=http://testkube-api-server.testkube.svc.cluster.local:8088
+                      - run
+                      - testworkflow
+                      - {{ "{{args.workflow}}" | quote }}
+                      - --config
+                      - {{ "candidateUrl={{args.candidate-url}}" | quote }}
+                      - --watch
+                    env:
+                      - name: HOME
+                        value: /tmp
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop: [ALL]
+                    resources:
+                      requests: {cpu: 50m, memory: 64Mi}
+                      limits: {memory: 256Mi}
+                    volumeMounts:
+                      - name: tmp
+                        mountPath: /tmp
+                volumes:
+                  - name: tmp
+                    emptyDir: {}

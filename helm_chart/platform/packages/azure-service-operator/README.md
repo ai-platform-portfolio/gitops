@@ -64,36 +64,21 @@ workload identity and projects a service-account token with audience
 is not needed for this path. No client secret or Azure CLI is required by ASO.
 The repository's existing bootstrap/lifecycle tools still require Azure CLI.
 
-Before creating a consumer resource:
+Bootstrap now supplies a dedicated `identities.aso` managed identity through the
+existing reusable module loop. It trusts the management controller service account
+with audience `api://AzureADTokenExchange`, has Managed Identity Contributor on
+the cluster resource group and Storage Account Contributor plus Role Based Access
+Control Administrator on the existing application storage account. GitOps builds
+Testkube's namespace `aso-credential` from runtime client/account context. No
+manual provisioner Key Vault secret is required for that package. The global
+credential remains empty; Atlantis retains its separately configured authority.
 
-1. Provision a dedicated managed identity or federated service principal outside
-   ASO, with only the Azure permissions the consumer needs. Use the existing
-   reusable identity module for federated credentials and scoped roles. Resource
-   group creation needs permission on the parent subscription; do not grant it
-   just to demonstrate an installation. A later resource-specific consumer can
-   instead use an existing dedicated resource group and narrower permissions.
-2. Trust the management AKS OIDC issuer with subject
-   `system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default`
-   and audience `api://AzureADTokenExchange`. This is the controller-token model
-   of the pinned chart; do not assume newer documentation's strict identity mode
-   is available in 2.21.1.
-3. Securely supply an `aso-credential` Secret in `azure-resources`, containing
-   `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and
-   `USE_WORKLOAD_IDENTITY_AUTH: "true"`. Keep all actual identifiers in private
-   deployment inputs or an approved secret source, outside public Git and logs.
-   This PR does not provision the identity, roles or namespace credential.
-4. Restrict Kubernetes write access to that namespace. Anyone able to create ASO
-   resources there can exercise the credential's Azure permissions even without
-   Secret read permission. A resource-scoped credential reference must also be
-   in the same namespace.
-
-The base installation watches `azure-resources`. Enabling Atlantis adds its
-`atlantis` namespace, namespace credential and package-owned identity/federation/
-role resources. The Atlantis guide describes their bootstrap authority and lifecycle. This watch filter is not Kubernetes RBAC
-isolation: the upstream chart grants broad cluster permissions, including Secret
-access and CRD create/update. It also installs admission webhook configurations
-for supported APIs beyond the initial CRD subset. Do not treat this installation
-as a hardened multitenant control plane.
+The base installation watches `azure-resources` and `testkube`; optional Atlantis
+adds `atlantis`. New consumers must supply scoped namespace credentials and run
+after ASO health. Never let ASO reconcile Terraform-owned resource instances.
+Namespace writers can exercise the credential's Azure permissions, even without
+Secret reads. The upstream controller also has broad Kubernetes/CRD permissions;
+the watch filter is not tenant RBAC isolation. Restrict authors accordingly.
 
 The package policy permits DNS to kube-system, outbound HTTPS/API traffic and
 inbound webhook/probe/secure-metrics ports. It avoids upstream SQL egress rules.
@@ -124,8 +109,8 @@ together; a Helm rollback alone may not undo CRD/storage-version migrations.
 Remove consumer Applications/CRs and wait for ASO finalizers and intended Azure
 deletion before `make down`. Keep the operator and credential available throughout
 deletion. The lifecycle fails before stopping the platform when unrelated namespaced Azure
-CRs remain; only exact resources tracked by the platform-managed `atlantis-azure`
-Application may be removed through its ordered package cleanup. It never force-removes finalizers. Use an explicitly reviewed reconcile
+CRs remain; only exact resources tracked by the platform-managed `atlantis-azure` or `testkube-azure`
+Applications may be removed through its ordered package cleanup. It never force-removes finalizers. Use an explicitly reviewed reconcile
 policy if Azure resources must survive. Never place Terraform state resources
 under disposable ASO ownership. The operator does not remove CRDs on uninstall;
 they remain on a retained cluster and disappear with a destroyed AKS cluster.
