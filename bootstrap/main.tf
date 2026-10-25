@@ -43,6 +43,7 @@ locals {
   }))
 
   role_scopes = {
+    subscription    = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
     resource_group  = azurerm_resource_group.this.id
     dns_zone        = data.azurerm_dns_zone.existing.id
     key_vault       = data.azurerm_key_vault.platform.id

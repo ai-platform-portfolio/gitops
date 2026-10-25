@@ -11,7 +11,7 @@ metadata:
   name: backstage
   namespace: backstage
   annotations:
-    secret.reloader.stakater.com/reload: backstage-sso,backstage-database
+    secret.reloader.stakater.com/reload: backstage-sso,backstage-database{{ if .Values.backstage.clusterRequests.enabled }},backstage-github{{ end }}
     configmap.reloader.stakater.com/reload: backstage-identity,backstage-integrations
 spec:
   replicas: 1
@@ -80,6 +80,23 @@ spec:
             - name: AUTH_MICROSOFT_TENANT_ID
               valueFrom:
                 secretKeyRef: { name: backstage-sso, key: tenant-id }
+{{- if .Values.backstage.clusterRequests.enabled }}
+            - name: BACKSTAGE_GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef: { name: backstage-github, key: app-id }
+            - name: BACKSTAGE_GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef: { name: backstage-github, key: private-key }
+            - name: BACKSTAGE_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: backstage-github, key: client-id }
+            - name: BACKSTAGE_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: backstage-github, key: client-secret }
+            - name: BACKSTAGE_GITHUB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef: { name: backstage-github, key: webhook-secret }
+{{- end }}
           startupProbe:
             httpGet: {path: /.backstage/health/v1/readiness, port: http}
             failureThreshold: 60

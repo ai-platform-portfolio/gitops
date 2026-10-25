@@ -47,9 +47,15 @@ spec:
   issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
   subject: system:serviceaccount:atlantis:atlantis
 {{- range $name, $role := required "atlantis.azure.role_assignments is required" $azure.role_assignments }}
-{{- $scope := printf "/subscriptions/%s/resourceGroups/%s" $subscription $role.resource_group_name }}
-{{- if $role.storage_account_name }}
+{{- $kind := default (ternary "storage_account" "resource_group" (not (empty $role.storage_account_name))) $role.scope }}
+{{- $scope := printf "/subscriptions/%s" $subscription }}
+{{- if ne $kind "subscription" }}
+{{- $scope = printf "%s/resourceGroups/%s" $scope $role.resource_group_name }}
+{{- if eq $kind "storage_account" }}
 {{- $scope = printf "%s/providers/Microsoft.Storage/storageAccounts/%s" $scope $role.storage_account_name }}
+{{- else if eq $kind "key_vault" }}
+{{- $scope = printf "%s/providers/Microsoft.KeyVault/vaults/%s" $scope $role.key_vault_name }}
+{{- end }}
 {{- end }}
 {{- $hash := sha256sum (printf "%s/%s/%s/%s" $identityGroup $.Values.cluster.name $scope $role.role_definition_name) | trunc 32 }}
 ---

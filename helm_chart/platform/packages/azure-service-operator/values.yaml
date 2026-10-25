@@ -18,6 +18,9 @@ crdPattern:
 
 azureTargetNamespaces:
   - azure-resources
+{{- if eq .Values.cluster.role "management" }}
+  - cluster-onboarding
+{{- end }}
   - testkube
 {{- if .Values.holmes.enabled }}
   - holmes

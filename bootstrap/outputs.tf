@@ -54,6 +54,8 @@ output "platform_settings" {
 
     runtime = {
       ASO_CLIENT_ID            = module.aso_identity.client_id
+      ONBOARDING_CLIENT_ID     = module.identities["cluster_onboarding"].client_id
+      ONBOARDING_PRINCIPAL_ID  = module.identities["cluster_onboarding"].principal_id
       CLUSTER_RESOURCE_GROUP   = azurerm_resource_group.this.name
       ARGOCD_HOSTNAME          = local.argocd_hostname
       AZURE_CLIENT_ID          = module.identities["platform"].client_id

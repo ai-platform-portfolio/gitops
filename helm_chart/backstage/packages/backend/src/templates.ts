@@ -19,6 +19,8 @@ export const templatesModule = createBackendModule({
         templating.addTemplateGlobals({
           gitopsRepoUrl:
             config.getOptionalString('platform.gitopsRepoUrl') ?? '',
+          clusterRepoUrl:
+            config.getOptionalString('platform.clusterRepoUrl') ?? '',
         });
       },
     });

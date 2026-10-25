@@ -25,7 +25,10 @@ const query = (name: string) => ({
 });
 const policy = new PlatformPolicy(
   ['group:default/platform-team'],
-  'git.company.internal?owner=platform&repo=services',
+  [
+    'git.company.internal?owner=platform&repo=services',
+    'github.com?owner=ai-platform-portfolio&repo=cluster-deployments',
+  ],
 );
 
 describe('platform permissions', () => {
@@ -96,10 +99,22 @@ describe('platform permissions', () => {
             allOf: [
               { params: { actionId: 'publish:github:pull-request' } },
               {
-                params: {
-                  key: 'repoUrl',
-                  value: 'git.company.internal?owner=platform&repo=services',
-                },
+                anyOf: [
+                  {
+                    params: {
+                      key: 'repoUrl',
+                      value:
+                        'git.company.internal?owner=platform&repo=services',
+                    },
+                  },
+                  {
+                    params: {
+                      key: 'repoUrl',
+                      value:
+                        'github.com?owner=ai-platform-portfolio&repo=cluster-deployments',
+                    },
+                  },
+                ],
               },
             ],
           },

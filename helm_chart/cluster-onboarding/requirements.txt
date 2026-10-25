@@ -1,0 +1,4 @@
+azure-identity==1.25.1
+kubernetes==34.1.0
+PyYAML==6.0.3
+requests==2.32.5

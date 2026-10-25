@@ -79,6 +79,34 @@ external analytics or AI endpoints without the separately required company
 boundary assessment. Empty integration settings do not enable Git publishing or
 cloud provisioning; those credentials and permissions require separate setup.
 
+## Cluster request template
+
+The image registers **Request a workload AKS cluster**. It creates a reviewed PR
+in the private `cluster-deployments` repository, with one Terraform state key per
+cluster. Only `platform-team` operators may run the template or publish to that
+repository. Terraform pins the shared module commit; the form takes no tenant or
+subscription IDs, credentials or raw API CIDRs. The CIDRs come from an existing
+Key Vault secret and are stored in encrypted Terraform state.
+
+`backstage.clusterRequests.enabled` defaults to false. Before enabling it, install
+an organisation-owned GitHub App on both `gitops` and `cluster-deployments` with
+repository Contents and Pull requests write access. Supply its app ID, private
+key, client ID, client secret and webhook secret to the existing platform Key
+Vault under `backstage-github-app-id`, `backstage-github-app-key`,
+`backstage-github-client-id`, `backstage-github-client-secret` and
+`backstage-github-webhook-secret`. ESO projects them to the portal; no key is
+checked into Git. Add approved GitHub API CIDRs to `backstage.egress` with TCP
+443. The values schema requires an explicit egress entry when cluster requests
+are enabled. Confirm the App can read the target repo and open a PR before
+accepting a request.
+
+The template opens both a private Terraform PR and a GitOps profile PR. A trusted
+reviewer checks quota, Azure roles, CIDR overlap and API access, approves the
+Terraform PR and invokes Atlantis plan/apply. Merge the GitOps profile after AKS
+exists. The management onboarding worker then reconciles the full workload
+platform and reports its status. Atlantis deliberately has no Kubernetes API
+credential. A Terraform apply alone does not establish platform health.
+
 ## Acceptance and teardown
 
 Validate image architecture/pull access, CNPG reconciliation, verified TLS startup,

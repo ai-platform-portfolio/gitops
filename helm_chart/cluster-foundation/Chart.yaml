@@ -1,0 +1,4 @@
+apiVersion: v2
+name: cluster-foundation
+version: 0.1.0
+description: GitOps-owned Azure dependencies and onboarding access for a workload cluster

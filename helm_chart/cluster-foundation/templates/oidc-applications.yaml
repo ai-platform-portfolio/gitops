@@ -1,0 +1,130 @@
+{{- $c := .Values.cluster -}}
+{{- $s := .Values.shared -}}
+{{- $identity := .Values.identity -}}
+{{- $name := required "cluster.name is required" $c.name -}}
+{{- $domain := printf "%s.%s" $name (required "shared.dnsZone is required" $s.dnsZone) -}}
+{{- $tenant := required "shared.tenantId is required" $s.tenantId -}}
+{{- $owner := required "identity.ownerPrincipalId is required" $identity.ownerPrincipalId -}}
+{{- $apps := dict
+  "langfuse" (dict "callback" (printf "https://langfuse.%s/api/auth/callback/azure-ad" $domain) "users" $identity.langfuseUsers "days" $identity.langfuseCredentialValidityDays)
+  "devlake" (dict "callback" (printf "https://devlake.%s/oauth2/callback" $domain) "users" $identity.devlakeUsers "days" $identity.devlakeCredentialValidityDays)
+  "grafana" (dict "callback" (printf "https://grafana.%s/login/azuread" $domain) "users" $identity.grafanaUsers "days" $identity.grafanaCredentialValidityDays)
+-}}
+{{- range $service, $app := $apps }}
+{{- $appName := printf "%s-%s-sso" $name $service -}}
+---
+apiVersion: identity.platform.ai-platform-portfolio/v1alpha1
+kind: OIDCApplication
+metadata:
+  name: {{ $appName }}
+  namespace: cluster-onboarding
+spec:
+  displayName: portfolio-{{ $name }}-{{ $service }}
+  redirectUri: {{ $app.callback | quote }}
+  tenantId: {{ $tenant | quote }}
+  ownerId: {{ $owner | quote }}
+  credentialValidityDays: {{ required (printf "identity.%sCredentialValidityDays is required" $service) $app.days }}
+{{- range $user, $objectId := $app.users }}
+{{- $hash := sha256sum (printf "%s/%s/%s" $name $service $user) | trunc 24 }}
+---
+apiVersion: app.azuread.m.upbound.io/v1beta1
+kind: RoleAssignment
+metadata:
+  name: assignment-{{ $hash }}
+  namespace: cluster-onboarding
+spec:
+  providerConfigRef: {name: platform, kind: ClusterProviderConfig}
+  forProvider:
+    appRoleId: "00000000-0000-0000-0000-000000000000"
+    principalObjectId: {{ $objectId | quote }}
+    resourceObjectIdRef:
+      name: {{ $appName }}
+{{ end }}
+---
+# Crossplane owns the registration and rotating client Secret. ESO publishes
+# only this cluster's credential keys into the existing platform vault.
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: {{ $appName }}
+  namespace: cluster-onboarding
+spec:
+  refreshInterval: 1h
+  updatePolicy: Replace
+  deletionPolicy: Delete
+  secretStoreRefs:
+    - name: cluster-onboarding-writer
+      kind: SecretStore
+  selector:
+    secret:
+      name: {{ $appName }}
+  data:
+    - match:
+        secretKey: client-id
+        remoteRef:
+          remoteKey: {{ $appName }}-client-id
+    - match:
+        secretKey: client-secret
+        remoteRef:
+          remoteKey: {{ $appName }}-client-secret
+{{ end }}
+---
+# SonarQube uses a dedicated enterprise application and active SAML signing
+# certificate. Its public certificate is read from Entra federation metadata.
+apiVersion: applications.azuread.m.upbound.io/v1beta1
+kind: Application
+metadata:
+  name: {{ $name }}-sonarqube-saml
+  namespace: cluster-onboarding
+spec:
+  providerConfigRef: {name: platform, kind: ClusterProviderConfig}
+  forProvider:
+    displayName: portfolio-{{ $name }}-sonarqube
+    signInAudience: AzureADMyOrg
+    preventDuplicateNames: true
+    owners: [{{ $owner | quote }}]
+    identifierUris: [{{ printf "api://%s/sonarqube-%s" $tenant $name | quote }}]
+    web:
+      redirectUris: [{{ printf "https://sonarqube.%s/oauth2/callback/saml" $domain | quote }}]
+---
+apiVersion: serviceprincipals.azuread.m.upbound.io/v1beta1
+kind: Principal
+metadata:
+  name: {{ $name }}-sonarqube-saml
+  namespace: cluster-onboarding
+spec:
+  providerConfigRef: {name: platform, kind: ClusterProviderConfig}
+  forProvider:
+    clientIdRef:
+      name: {{ $name }}-sonarqube-saml
+    owners: [{{ $owner | quote }}]
+    appRoleAssignmentRequired: true
+    preferredSingleSignOnMode: saml
+---
+apiVersion: serviceprincipals.azuread.m.upbound.io/v1beta1
+kind: TokenSigningCertificate
+metadata:
+  name: {{ $name }}-sonarqube-saml
+  namespace: cluster-onboarding
+spec:
+  providerConfigRef: {name: platform, kind: ClusterProviderConfig}
+  forProvider:
+    displayName: GitOps SonarQube SAML
+    servicePrincipalIdRef:
+      name: {{ $name }}-sonarqube-saml
+{{- range $user, $objectId := $identity.sonarqubeUsers }}
+{{- $hash := sha256sum (printf "%s/sonarqube/%s" $name $user) | trunc 24 }}
+---
+apiVersion: app.azuread.m.upbound.io/v1beta1
+kind: RoleAssignment
+metadata:
+  name: assignment-{{ $hash }}
+  namespace: cluster-onboarding
+spec:
+  providerConfigRef: {name: platform, kind: ClusterProviderConfig}
+  forProvider:
+    appRoleId: "00000000-0000-0000-0000-000000000000"
+    principalObjectId: {{ $objectId | quote }}
+    resourceObjectIdRef:
+      name: {{ $name }}-sonarqube-saml
+{{ end }}

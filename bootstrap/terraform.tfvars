@@ -215,6 +215,24 @@ platform = {
 }
 
 identities = {
+  cluster_onboarding = {
+    name = "id-management-cluster-onboarding"
+
+    federated_credentials = {
+      worker = {
+        namespace       = "cluster-onboarding"
+        service_account = "cluster-onboarding"
+      }
+    }
+
+    role_assignments = {
+      discovery = {
+        scope                = "subscription"
+        role_definition_name = "Reader"
+      }
+    }
+  }
+
   # Initial ASO authority is a cluster foundation. Service resources stay in GitOps.
   aso = {
     name = "id-management-aso"
@@ -227,6 +245,16 @@ identities = {
     }
 
     role_assignments = {
+      # One-time operator authority for GitOps-owned Atlantis's fresh identity
+      # group and approved subscription-scoped deployment role grants.
+      cluster_groups = {
+        scope                = "subscription"
+        role_definition_name = "Contributor"
+      }
+      cluster_roles = {
+        scope                = "subscription"
+        role_definition_name = "Role Based Access Control Administrator"
+      }
       identities = {
         scope                = "resource_group"
         role_definition_name = "Managed Identity Contributor"
@@ -241,6 +269,14 @@ identities = {
       }
       foundry_roles = {
         scope                = "foundry_account"
+        role_definition_name = "Role Based Access Control Administrator"
+      }
+      dns_roles = {
+        scope                = "dns_zone"
+        role_definition_name = "Role Based Access Control Administrator"
+      }
+      key_vault_roles = {
+        scope                = "key_vault"
         role_definition_name = "Role Based Access Control Administrator"
       }
     }
