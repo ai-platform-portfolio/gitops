@@ -1,5 +1,10 @@
 # Terraform owns ArgoCD; configuration lives in argocd-configmap.yaml.
 fullnameOverride: argocd
+
+global:
+  networkPolicy:
+    create: false
+
 server:
   replicas: 1
   service:

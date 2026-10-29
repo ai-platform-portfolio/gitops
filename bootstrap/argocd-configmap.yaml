@@ -17,6 +17,16 @@ data:
   admin.enabled: "true"
   users.anonymous.enabled: "false"
 
+  # AI-91: temporarily stop reconciling Kubernetes NetworkPolicies while the
+  # management cluster runs without them. Remove this block to restore them.
+  resource.exclusions: |
+    - apiGroups:
+        - networking.k8s.io
+      kinds:
+        - NetworkPolicy
+      clusters:
+        - "*"
+
   # The template inputs come from authenticated context and the Entra module.
   # jsonencode keeps injected strings valid YAML. No client secret is created.
   url: ${jsonencode(argocd_url)}
