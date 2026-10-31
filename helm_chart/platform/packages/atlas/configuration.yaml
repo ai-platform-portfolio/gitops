@@ -1,0 +1,59 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: atlas-token-secret
+  namespace: atlas-system
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: azure-kv
+    kind: ClusterSecretStore
+  target:
+    name: atlas-token-secret
+  data:
+    - secretKey: ATLAS_TOKEN
+      remoteRef:
+        key: ai-platform-portfolio-atlas-bot
+
+---
+
+# Bootstrap credentials exist before CNPG creates the role. ESO keeps this
+# password stable for the lifetime of the disposable PostgreSQL cluster.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: atlas-role-manager
+  namespace: postgres
+spec:
+  length: 48
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: atlas-role-manager
+  namespace: postgres
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: atlas-role-manager
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: 'true'
+      data:
+        username: atlas_role_manager
+        password: '{{ "{{ .password }}" }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: atlas-role-manager

@@ -81,6 +81,25 @@ data:
       return {status = "Healthy"}
     end
     return {status = "Progressing", message = status.message or "Waiting for database reconciliation"}
+  # A previous successful apply must not release workloads after a spec change.
+  # Atlas publishes generation on both status and its Ready condition.
+  resource.customizations.health.db.atlasgo.io_AtlasSchema: &atlasHealth |
+    local status = obj.status or {}
+    if status.observedGeneration ~= obj.metadata.generation then
+      return {status = "Progressing", message = "Waiting for current Atlas generation"}
+    end
+    local ready = false
+    for _, condition in ipairs(status.conditions or {}) do
+      if condition.observedGeneration == obj.metadata.generation then
+        if condition.type == "Stalled" and condition.status == "True" then
+          return {status = "Degraded", message = condition.message or "Atlas reconciliation stalled"}
+        end
+        if condition.type == "Ready" and condition.status == "True" then ready = true end
+      end
+    end
+    if ready then return {status = "Healthy"} end
+    return {status = "Progressing", message = "Waiting for Atlas reconciliation"}
+  resource.customizations.health.db.atlasgo.io_AtlasMigration: *atlasHealth
   # Wait for External Secrets to report successful secret reconciliation before
   # starting applications that need credentials fetched from Key Vault.
   resource.customizations.health.external-secrets.io_ExternalSecret: |

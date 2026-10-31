@@ -295,6 +295,23 @@ class Cluster:
             wait_for(lambda: self.object('applications.argoproj.io', 'onboard-' + name, 'argocd', self.hub) is None,
                      'Waiting for hub onboarding to detach')
         apps = self.objects('applications.argoproj.io', 'argocd')
+        if any(a['metadata']['name'] in {'postgres', 'atlas-operator'} for a in apps):
+            apis = set(run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines())
+            # Atlas CR deletion does not remove SQL roles or databases. Finish
+            # preview cleanup while its controller, credentials and server exist.
+            for kind in ['atlasschemas.db.atlasgo.io', 'atlasmigrations.db.atlasgo.io',
+                         'databaseroles.postgresql.cnpg.io']:
+                if kind in apis and self.objects(kind):
+                    raise RuntimeError('Complete preview database/Atlas cleanup before teardown')
+            if 'databases.postgresql.cnpg.io' in apis:
+                owned = {(r.get('namespace'), r.get('name')) for app in apps
+                         if app['metadata']['name'] == 'postgres'
+                         and app['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true'
+                         for r in app.get('status', {}).get('resources', [])
+                         if r.get('group') == 'postgresql.cnpg.io' and r.get('kind') == 'Database'}
+                if any((obj['metadata']['namespace'], obj['metadata']['name']) not in owned
+                       for obj in self.objects('databases.postgresql.cnpg.io')):
+                    raise RuntimeError('Remove preview PostgreSQL databases and wait for finalizers before teardown')
         if any(a['metadata']['name'] == 'argo-rollouts' for a in apps):
             if self.objects('rollouts.argoproj.io'):
                 raise RuntimeError('Remove application Rollouts before tearing down their controller and traffic-routing dependencies')

@@ -1,0 +1,108 @@
+# Reuse ESO's Kubernetes provider instead of granting Atlas access to postgres
+# namespace Secrets. Only the bootstrap credential and public CA are copied.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: atlas-secret-reader
+  namespace: atlas-system
+automountServiceAccountToken: false
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: atlas-secret-reader
+  namespace: postgres
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [atlas-role-manager, platform-ca]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: atlas-secret-reader
+  namespace: postgres
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: atlas-secret-reader
+subjects:
+  - kind: ServiceAccount
+    name: atlas-secret-reader
+    namespace: atlas-system
+
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: atlas-postgres
+  namespace: atlas-system
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: postgres
+      server:
+        url: https://kubernetes.default.svc
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+      auth:
+        serviceAccount:
+          name: atlas-secret-reader
+
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: atlas-postgres
+  namespace: atlas-system
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: atlas-postgres
+    kind: SecretStore
+  target:
+    name: atlas-postgres
+    template:
+      engineVersion: v2
+      data:
+        url: 'postgres://atlas_role_manager:{{ "{{ .password }}" }}@platform-rw.postgres.svc.cluster.local:5432/postgres?sslmode=verify-full&sslrootcert=/etc/atlas-postgres/ca.crt'
+        ca.crt: '{{ "{{ index . \"ca.crt\" }}" }}'
+  data:
+    - secretKey: password
+      remoteRef: {key: atlas-role-manager, property: password}
+    - secretKey: ca.crt
+      remoteRef: {key: platform-ca, property: ca.crt}
+
+---
+# Explicit gets support urlFrom/cloud.tokenFrom without Secret list/watch
+# permissions. Add future per-application credential names deliberately.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: atlas-credentials
+  namespace: atlas-system
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [atlas-token-secret, atlas-postgres]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: atlas-credentials
+  namespace: atlas-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: atlas-credentials
+subjects:
+  - kind: ServiceAccount
+    name: atlas-operator
+    namespace: atlas-system

@@ -163,6 +163,43 @@ class PlatformInputTests(unittest.TestCase):
 
 
 class TeardownTests(unittest.TestCase):
+    def test_database_consumers_are_cleaned_before_platform_teardown(self):
+        kinds = ['atlasschemas.db.atlasgo.io', 'atlasmigrations.db.atlasgo.io',
+                 'databaseroles.postgresql.cnpg.io', 'databases.postgresql.cnpg.io']
+        for kind, tracked, read_error in [(kind, False, False) for kind in kinds] + [
+                ('databases.postgresql.cnpg.io', True, False),
+                ('databases.postgresql.cnpg.io', True, True)]:
+            with self.subTest(kind=kind, tracked=tracked, read_error=read_error):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                app = {'metadata': {'name': 'postgres',
+                    'labels': {'platform.ai-platform-portfolio/managed': 'true'}},
+                    'status': {'resources': [{'group': 'postgresql.cnpg.io', 'kind': 'Database',
+                                             'namespace': 'postgres', 'name': 'service'}]}}
+                def objects(resource, namespace=None):
+                    if resource == 'applications.argoproj.io':
+                        return [app]
+                    if read_error:
+                        raise subprocess.CalledProcessError(1, ['kubectl', 'get'])
+                    return [{'metadata': {'namespace': 'postgres',
+                             'name': 'service' if tracked else 'preview'}}] if resource == kind else []
+                cluster.objects = Mock(side_effect=objects)
+                cluster.delete = Mock()
+                with patch('helm_chart.scripts.cluster.run', return_value='\n'.join(kinds)):
+                    if read_error:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            cluster.cleanup()
+                        cluster.delete.assert_not_called()
+                    elif tracked:
+                        cluster.cleanup()
+                        cluster.delete.assert_called()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'preview'):
+                            cluster.cleanup()
+                        cluster.delete.assert_not_called()
+
     def test_application_rollouts_block_controller_teardown(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']

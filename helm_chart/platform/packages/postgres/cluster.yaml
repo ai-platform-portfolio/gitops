@@ -15,6 +15,17 @@ spec:
     - platform-pooler.postgres.svc.cluster.local
   managed:
     roles:
+    # Platform bootstrap account for Atlas-created preview roles. It cannot
+    # create databases or bypass PostgreSQL's role administration permissions.
+    - name: atlas_role_manager
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: true
+      replication: false
+      passwordSecret:
+        name: atlas-role-manager
     - name: testkube
       ensure: present
       login: true
@@ -108,6 +119,7 @@ spec:
       archive_timeout: 60s
     pg_hba:
     - hostnossl all all all reject
+    - hostssl postgres atlas_role_manager all scram-sha-256
     - hostssl app app all scram-sha-256
     - hostssl testkube testkube all scram-sha-256
     - hostssl sonarqube sonarqube all scram-sha-256
