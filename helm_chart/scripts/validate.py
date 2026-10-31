@@ -120,6 +120,16 @@ def main():
         assert names == expected, 'A platform Application was omitted or renamed'
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
+        application_aso = next(doc for doc in staged_resources if doc['kind'] == 'Secret'
+                               and doc['metadata']['name'] == 'aso-credential'
+                               and doc['metadata']['namespace'] == 'azure-resources')
+        assert {key: base64.b64decode(value).decode() for key, value in application_aso['data'].items()} == {
+            'AZURE_CLIENT_ID': runtime['ASO_CLIENT_ID'],
+            'AZURE_TENANT_ID': runtime['AZURE_TENANT_ID'],
+            'AZURE_SUBSCRIPTION_ID': runtime['AZURE_SUBSCRIPTION_ID'],
+            'USE_WORKLOAD_IDENTITY_AUTH': 'true',
+        }
+        assert not application_aso['metadata'].get('annotations'), 'ASO credential must not be reflected'
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
         assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}

@@ -86,6 +86,17 @@ Namespace writers can exercise the credential's Azure permissions, even without
 Secret reads. The upstream controller also has broad Kubernetes/CRD permissions;
 the watch filter is not tenant RBAC isolation. Restrict authors accordingly.
 
+The shared `configuration` Application creates an `aso-credential` only in the
+platform-owned `azure-resources` namespace. This lets trusted GitOps Applications
+place new application Azure CRs in the namespace ASO already watches, without
+opening every dynamic PR namespace to ASO. The operator credential is not
+reflected into application namespaces. An ASO-generated identity ConfigMap can
+instead carry Reflector annotations to copy its public client ID to one approved
+application namespace. A shared preview workload identity still needs a
+federated credential for each preview namespace and ServiceAccount; its lifecycle
+belongs to the later preview delivery work. The central credential does not
+authorize adopting Terraform-owned Azure resources.
+
 The package policy permits DNS to kube-system, outbound HTTPS/API traffic and
 inbound webhook/probe/secure-metrics ports. It avoids upstream SQL egress rules.
 HTTPS destinations are unrestricted; this policy does not implement a company
