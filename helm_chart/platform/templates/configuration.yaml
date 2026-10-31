@@ -32,6 +32,8 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/external-secrets/secret-store.yaml") . | indent 10 }}
           ---
+{{ tpl (.Files.Get "packages/atlas/token.yaml") . | indent 10 }}
+          ---
 {{ tpl (.Files.Get "packages/cert-manager/issuer.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/lgtm/service-account.yaml") . | indent 10 }}

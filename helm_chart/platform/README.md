@@ -61,8 +61,8 @@ files easier to find.
 | -10 | namespaces | Namespaces exist before resources and credentials are consumed |
 | 0 | reflector, envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation is installed on each cluster |
 | 5 | cert-manager, testkube-reloader | Envoy has installed Gateway API and ListenerSet CRDs |
-| 10 | argo-rollouts, atlas-operator, cloudnative-pg, configuration, azure-service-operator | Gateway API exists for Rollouts; foundation controllers can reconcile issuers, secret stores and external secrets |
-| 20 | plugin-barman-cloud, external-dns, gateway, testkube-azure, optional atlantis-azure | Operators/configuration are available |
+| 10 | argo-rollouts, cloudnative-pg, configuration, azure-service-operator | Gateway API exists for Rollouts; foundation controllers deliver issuers, secret stores and the Atlas token |
+| 20 | atlas-operator, plugin-barman-cloud, external-dns, gateway, testkube-azure, optional atlantis-azure | Operators/configuration are available and the Atlas token is Ready |
 | 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir, testkube-nats | Database operators, backup plugin and shared secrets are ready |
 | 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials, testkube-storage | Backend services are ready |
@@ -114,9 +114,9 @@ configuration, then the wave-40 backstage-credentials Application delivers the
 password/CA before the wave-60 portal and wave-80 route. It adds no PostgreSQL
 server, Azure infrastructure or Backstage-specific bootstrap/lifecycle handoff.
 
-[Atlas](packages/atlas/README.md) installs the free/basic operator without cloud
-credentials or database migrations. Existing database ownership stays with CNPG
-and application migration systems.
+[Atlas](packages/atlas/README.md) installs the operator with an Atlas Cloud bot
+token delivered from Key Vault. No database migrations are configured yet;
+existing database ownership stays with CNPG and application migration systems.
 
 [Reflector](packages/reflector/README.md) provides annotation-driven Secret and
 ConfigMap replication. Installation alone enables no copies; future sources must
