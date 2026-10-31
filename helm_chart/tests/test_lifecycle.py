@@ -190,16 +190,22 @@ class TeardownTests(unittest.TestCase):
                 def app(name, wave):
                     return {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
                                          'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
-                apps = [app('azure-service-operator', 10), app(package + '-azure', 20), app(package, 40)]
+                apps = [app('configuration', 10), app('azure-service-operator', 10),
+                        app(package + '-azure', 20), app(package, 40)]
                 resource = {'apiVersion': 'managedidentity.azure.com/v1api20230131', 'kind': 'UserAssignedIdentity',
                             'metadata': {'name': package, 'namespace': package}}
-                apps[1]['status'] = {'resources': [{'group': 'managedidentity.azure.com', 'kind': 'UserAssignedIdentity',
+                apps[2]['status'] = {'resources': [{'group': 'managedidentity.azure.com', 'kind': 'UserAssignedIdentity',
                                                   'namespace': package, 'name': package}]}
                 inventory = [resource]
                 if extra:
                     inventory.append({**resource, 'metadata': {'name': 'untracked', 'namespace': 'atlantis'}})
-                cluster.objects = Mock(side_effect=lambda kind, namespace=None: apps if kind == 'applications.argoproj.io' else inventory)
-                cluster.delete = Mock()
+                deleted = []
+                def objects(kind, namespace=None):
+                    if kind == 'applications.argoproj.io':
+                        return apps
+                    return inventory if package + '-azure' not in deleted else []
+                cluster.objects = Mock(side_effect=objects)
+                cluster.delete = Mock(side_effect=lambda kind, names, namespace=None: deleted.extend(names))
                 with patch('helm_chart.scripts.cluster.run', return_value='userassignedidentities.managedidentity.azure.com\n'):
                     if extra:
                         with self.assertRaisesRegex(RuntimeError, 'Remove ASO Azure resources'):
@@ -207,8 +213,9 @@ class TeardownTests(unittest.TestCase):
                         cluster.delete.assert_not_called()
                     else:
                         cluster.cleanup()
-                        self.assertEqual([c.args[1][0] for c in cluster.delete.call_args_list],
-                                         [package, package + '-azure', 'azure-service-operator', 'platform'])
+                        self.assertEqual(deleted,
+                                         [package, package + '-azure', 'configuration',
+                                          'azure-service-operator', 'platform'])
 
     def test_azure_resources_block_teardown_before_operator_or_identity_removal(self):
         cluster = Cluster.__new__(Cluster)
@@ -227,6 +234,34 @@ class TeardownTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
         self.assertIn('customresourcedefinitions.apiextensions.k8s.io', run.call_args.args)
         self.assertIn('app.kubernetes.io/name=azure-service-operator', run.call_args.args)
+
+    def test_stuck_azure_finalizer_preserves_credential_and_operator(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        def app(name, wave):
+            return {'metadata': {'name': name,
+                    'labels': {'platform.ai-platform-portfolio/managed': 'true'},
+                    'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
+        apps = [app('configuration', 10), app('azure-service-operator', 10), app('testkube-azure', 20)]
+        apps[-1]['status'] = {'resources': [{'group': 'managedidentity.azure.com',
+            'kind': 'UserAssignedIdentity', 'namespace': 'testkube', 'name': 'testkube'}]}
+        resource = {'apiVersion': 'managedidentity.azure.com/v1api20230131',
+                    'kind': 'UserAssignedIdentity',
+                    'metadata': {'name': 'testkube', 'namespace': 'testkube'}}
+        cluster.objects = Mock(side_effect=lambda kind, namespace=None: apps
+                               if kind == 'applications.argoproj.io' else [resource])
+        cluster.delete = Mock()
+        def wait(check, description):
+            if 'ASO Azure resources' in description:
+                self.assertFalse(check())
+                raise TimeoutError(description)
+        with patch('helm_chart.scripts.cluster.run', return_value='userassignedidentities.managedidentity.azure.com\n'), \
+             patch('helm_chart.scripts.cluster.wait_for', side_effect=wait):
+            with self.assertRaisesRegex(TimeoutError, 'ASO Azure resources'):
+                cluster.cleanup()
+        self.assertEqual([call.args[1][0] for call in cluster.delete.call_args_list], ['testkube-azure'])
 
     def test_native_aks_network_objects_do_not_block_teardown(self):
         cluster = Cluster.__new__(Cluster)

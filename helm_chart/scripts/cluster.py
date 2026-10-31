@@ -298,6 +298,7 @@ class Cluster:
         if any(a['metadata']['name'] == 'argo-rollouts' for a in apps):
             if self.objects('rollouts.argoproj.io'):
                 raise RuntimeError('Remove application Rollouts before tearing down their controller and traffic-routing dependencies')
+        aso_resources = []
         if any(a['metadata']['name'] == 'azure-service-operator' for a in apps):
             # External consumer CRs must finish deletion first. Only exact Azure
             # resources tracked by platform-owned consumer Applications may
@@ -308,11 +309,11 @@ class Cluster:
                      for r in app.get('status', {}).get('resources', [])}
             # Use ASO's own reserved CRD ownership label. Native AKS ACN APIs
             # also end in .azure.com and must not be treated as ASO resources.
-            resources = run(*self.kube, 'get', 'customresourcedefinitions.apiextensions.k8s.io',
+            aso_resources = run(*self.kube, 'get', 'customresourcedefinitions.apiextensions.k8s.io',
                             '-l', 'app.kubernetes.io/name=azure-service-operator',
                             '-o', 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
                             capture=True).splitlines()
-            for resource in resources:
+            for resource in aso_resources:
                 for obj in self.objects(resource):
                     key = (obj.get('apiVersion', '').split('/')[0], obj.get('kind'),
                            obj['metadata'].get('namespace'), obj['metadata']['name'])
@@ -356,8 +357,13 @@ class Cluster:
                    if a['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true']
         suspend(managed)
         # Remove clients before databases and keep operators until their CRs disappear.
+        aso_drained = False
         for app in sorted(managed, key=lambda a: int(a['metadata'].get('annotations', {}).get('argocd.argoproj.io/sync-wave', 0)), reverse=True):
             name = app['metadata']['name']
+            if name in {'configuration', 'azure-service-operator'} and aso_resources and not aso_drained:
+                wait_for(lambda: all(not self.objects(resource) for resource in aso_resources),
+                         'Waiting for ASO Azure resources to finish deletion')
+                aso_drained = True
             self.delete('applications.argoproj.io', [name], 'argocd')
             if name == 'argocd-route':
                 deadline = time.monotonic() + 70
