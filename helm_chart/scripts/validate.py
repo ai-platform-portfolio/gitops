@@ -120,6 +120,24 @@ def main():
         assert names == expected, 'A platform Application was omitted or renamed'
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
+        application_aso = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret'
+                               and doc['metadata']['name'] == 'aso-credential'
+                               and doc['metadata']['namespace'] == 'azure-resources')
+        assert application_aso['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
+        assert application_aso['spec']['target']['name'] == 'aso-credential'
+        assert application_aso['spec']['target']['creationPolicy'] == 'Owner'
+        assert application_aso['spec']['target']['template']['data']['USE_WORKLOAD_IDENTITY_AUTH'] == 'true'
+        assert {item['secretKey']: item['remoteRef']['key'] for item in application_aso['spec']['data']} == {
+            'clientId': 'aso-client-id', 'tenantId': 'tenant-id', 'subscriptionId': 'subscription-id',
+        }
+        assert not application_aso['metadata'].get('annotations'), 'ASO credential source must not be reflected'
+        assert not application_aso['spec']['target']['template'].get('metadata'), 'ASO credential target must not be reflected'
+        health = configmap['data']['resource.customizations.health.external-secrets.io_ExternalSecret']
+        assert 'condition.type == "Ready" and condition.status == "True"' in health
+        waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+                 for app in applications}
+        assert waves['namespaces'] < waves['external-secrets'] < waves['configuration'] < waves['testkube-azure']
+        assert waves['configuration'] == waves['azure-service-operator']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
         assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}

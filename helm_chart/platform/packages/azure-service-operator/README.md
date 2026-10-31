@@ -86,6 +86,29 @@ Namespace writers can exercise the credential's Azure permissions, even without
 Secret reads. The upstream controller also has broad Kubernetes/CRD permissions;
 the watch filter is not tenant RBAC isolation. Restrict authors accordingly.
 
+The shared `configuration` Application has ESO create an `aso-credential` only
+in the platform-owned `azure-resources` namespace. ESO reads `aso-client-id`,
+`tenant-id` and `subscription-id` from the existing platform Key Vault; the
+resulting Kubernetes Secret is required by ASO's namespace credential API. The
+client/tenant/subscription IDs identify the ASO bootstrap identity and account;
+the projected service-account token is the actual login proof. This lets trusted GitOps Applications
+place new application Azure CRs in the namespace ASO already watches, without
+opening every dynamic PR namespace to ASO. The operator credential is not
+reflected into application namespaces. An ASO-generated identity ConfigMap can
+instead carry Reflector annotations to copy its public client ID to one approved
+application namespace. A shared preview workload identity still needs a
+federated credential for each preview namespace and ServiceAccount; its lifecycle
+belongs to the later preview delivery work. The central credential does not
+authorize adopting Terraform-owned Azure resources.
+
+On a fresh cluster, the namespaces Application runs at wave -10 and External
+Secrets at wave 0. The configuration Application at wave 10 creates the
+`azure-kv` ClusterSecretStore and `aso-credential` ExternalSecret. Argo waits
+for the ExternalSecret Ready condition before advancing to Azure resource
+consumers at wave 20. ESO authenticates with its own bootstrap identity, so
+fetching this ASO credential does not depend on ASO. The three Key Vault values
+survive disposable cluster teardown and are fetched again on the next `make up`.
+
 The package policy permits DNS to kube-system, outbound HTTPS/API traffic and
 inbound webhook/probe/secure-metrics ports. It avoids upstream SQL egress rules.
 HTTPS destinations are unrestricted; this policy does not implement a company
@@ -94,9 +117,9 @@ they are separate from public ListenerSet certificates and need no public route.
 
 ## Validation and operations
 
-`make validate` checks both cluster roles, dependency wave, pinned
-image, enabled CRD groups, projected token, empty global credential, single
-replica and stable Secret rendering, alongside every existing pinned chart.
+`make validate` checks both cluster roles, dependency waves, ExternalSecret
+mapping and health gate, pinned image, enabled CRD groups, projected token,
+empty global credential and single replica, alongside every existing pinned chart.
 Rendering does not verify Kubernetes admission, runtime CRD installation or Azure
 authentication. No deployment or Azure CRUD validation was performed for this PR.
 
@@ -113,8 +136,10 @@ renders, and test against a disposable cluster. Upgrade the operator and CRDs
 together; a Helm rollback alone may not undo CRD/storage-version migrations.
 
 Remove consumer Applications/CRs and wait for ASO finalizers and intended Azure
-deletion before `make down`. Keep the operator and credential available throughout
-deletion. The lifecycle fails before stopping the platform when unrelated namespaced Azure
+deletion before `make down`. The lifecycle waits for every ASO CR to disappear
+before deleting either the configuration Application that owns the credential or
+the operator. If deletion stalls, it times out with both still present; do not
+force-remove finalizers. The lifecycle fails before stopping the platform when unrelated namespaced Azure
 CRs remain; only exact resources tracked by the platform-managed `atlantis-azure` or `testkube-azure`
 Applications may be removed through its ordered package cleanup. It never force-removes finalizers. Use an explicitly reviewed reconcile
 policy if Azure resources must survive. Never place Terraform state resources
