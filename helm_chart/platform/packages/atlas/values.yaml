@@ -1,6 +1,6 @@
 # The bot token is delivered from Azure Key Vault by External Secrets.
 prewarmDevDB: false
-allowCustomConfig: false
+allowCustomConfig: true
 watchNamespaces: [atlas-system]
 
 extraEnvs:
@@ -10,11 +10,23 @@ extraEnvs:
         name: atlas-token-secret
         key: ATLAS_TOKEN
 
-# The operator consumes its token as an environment variable. Future Atlas
-# resources need separately scoped Secret access for database credentials.
+# Resource Secret references use the named Role in database-access.yaml.
+# Keep Secret discovery/watches disabled rather than granting namespace-wide reads.
 rbac:
   clusterWideSecretAccess: false
 watchSecrets: false
+
+extraVolumes:
+  - name: postgres-ca
+    secret:
+      secretName: atlas-postgres
+      items:
+        - {key: ca.crt, path: ca.crt}
+
+extraVolumeMounts:
+  - name: postgres-ca
+    mountPath: /etc/atlas-postgres
+    readOnly: true
 
 # Set security on the container: the chart defaults fsGroup and skips pod settings.
 # Argo valuesObject omits null values, so a null fsGroup override is unreliable.

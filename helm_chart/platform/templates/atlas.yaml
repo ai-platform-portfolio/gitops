@@ -1,4 +1,34 @@
-# Wait for the Key Vault token to be delivered by the configuration stage.
+# PostgreSQL must create its CA before ESO delivers the TLS connection Secret.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: atlas-database-access
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "35"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: atlas-system
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/atlas/database-access.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+# The required CA volume now exists; never put this operator before PostgreSQL.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -7,7 +37,7 @@ metadata:
   labels:
     platform.ai-platform-portfolio/managed: "true"
   annotations:
-    argocd.argoproj.io/sync-wave: "20"
+    argocd.argoproj.io/sync-wave: "40"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 

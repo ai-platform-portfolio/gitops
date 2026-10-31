@@ -1,54 +1,79 @@
-# Atlas operator and Cloud token
+# Atlas PostgreSQL prerequisites
 
-`templates/atlas.yaml` installs Atlas Operator/chart 0.8.4 at wave 20 on each
-cluster. The namespace is created at wave -10. At wave 10, External Secrets
-copies the `ai-platform-portfolio-atlas-bot` secret from the existing platform Azure Key
-Vault to `atlas-system/atlas-token-secret` with key `ATLAS_TOKEN`. Argo waits for
-that ExternalSecret to become Ready before installing the operator. The Helm
-chart reads the token through `extraEnvs`; the token never enters Git or Argo
-values.
+Each cluster installs Atlas Operator/chart **0.8.4**. Atlas resources remain in
+the platform-controlled `atlas-system` namespace; dynamic preview namespaces
+are not watched. Only trusted platform GitOps may author custom Atlas config:
+it executes with the operator's database access.
 
-Before merging this change, create an Atlas Cloud bot in the
-`ai-platform-portfolio` organization (Settings > Bots), then store its token as
-the `ai-platform-portfolio-atlas-bot` secret in the platform Key Vault. The token is shown
-only once. The existing `azure-kv` ClusterSecretStore supplies it on each
-cluster. If the Key Vault secret is missing, the configuration Application stays
-unhealthy and the operator does not roll out with an empty token.
+## Startup and credentials
 
-The chart leaves persistence disabled while no Atlas resources exist. When
-Atlas starts managing database objects, assess a 1 GiB PVC for the cached Pro
-grant so a pod restart during a Cloud outage does not lose offline access.
-The operator is idle until a later change adds AtlasSchema or AtlasMigration
-resources. No existing databases, application schemas or CNPG roles are adopted.
+| Wave | Stage | Readiness dependency |
+| --- | --- | --- |
+| -10 | Namespaces | Platform namespaces exist |
+| 0 | ESO | Secret APIs/controller available |
+| 10 | Configuration | Atlas bot token and bootstrap password delivered |
+| 30 | PostgreSQL | CNPG server and CA Ready |
+| 35 | Atlas database access | ESO copies the bootstrap URL and CA |
+| 40 | Atlas operator | Required CA volume now exists |
 
-The operator needs no separate application SSO: Kubernetes RBAC controls its API
-and existing Argo CD SSO controls deployment management. Atlas Cloud account
-sign-in is separate from this operator credential.
+`configuration.yaml` reads the existing `ai-platform-portfolio-atlas-bot` Key
+Vault secret via `azure-kv`. ESO generates an alphanumeric bootstrap password
+once per cluster, using the existing portfolio generator pattern. Its immutable
+`postgres/atlas-role-manager` Secret survives removal of the ExternalSecret and
+is removed with its namespace during full teardown. It is not regenerated while
+the cluster still uses it. No token or password enters Git or Helm values.
 
-Development-database prewarming and custom project configuration are disabled.
-Non-root and seccomp settings live on the container because the upstream chart
-defaults fsGroup and skips podSecurityContext; null overrides are lost through
-Argo valuesObject.
-The controller watches Atlas resources only in atlas-system. This watch setting
-is not an RBAC boundary: upstream ClusterRole permissions for pods, deployments,
-ConfigMaps and Atlas resources remain cluster-wide. Cluster-wide Secret access
-and Secret watches are disabled; no database credentials are supplied.
+CNPG owns the new `atlas_role_manager` bootstrap login with `CREATEROLE`, without
+superuser, database creation or replication privileges. Its HBA rule permits TLS
+connections only to the `postgres` maintenance database. `CREATEROLE` is a
+privileged platform capability, not isolation by preview name: subsequent Atlas
+config must scope role inspection/plans explicitly and prove unrelated roles
+remain untouched. Existing service roles retain their current ownership.
 
-Before adding migrations, explicitly choose the target namespace, provide scoped
-Secret RBAC (including any `cloud.tokenFrom` reference; remote migration
-directories require this reference even with operator-wide `ATLAS_TOKEN`),
-and account for local migration directories storing state in Secrets,
-configure verified database TLS and network policies, and gate dependent apps on
-migration readiness. Do not let Atlas and CNPG or application-owned migration
-systems manage the same objects. ConfigMap migration directories can be used
-without the registry. No migration functionality is claimed tested by this
-operator-only installation. The Cloud token does not itself enroll a database
-or create a Registry project.
+`database-access.yaml` reuses ESO's Kubernetes provider to read only this Secret
+and `platform-ca` from `postgres`. ESO writes `atlas-system/atlas-postgres`,
+containing `url` and `ca.crt`. The URL uses the direct
+`platform-rw.postgres.svc.cluster.local` endpoint with `sslmode=verify-full` and
+`sslrootcert=/etc/atlas-postgres/ca.crt`; it never uses the transaction pooler.
+The operator mounts only the CA key. A named-resource Role grants its ServiceAccount
+`get` on `atlas-postgres` and `atlas-token-secret`, without Secret list/watch or
+cluster-wide Secret access. Future application credential names need deliberate
+RBAC additions. Secret watches remain disabled; credential changes require an
+Atlas resource spec change or a controlled reconciliation/restart, not an assumed
+automatic Secret watch.
 
-Advanced objects, security as code, safety policies and paid automation require
-the appropriate Atlas licence. The Pro trial must cover the intended operator
-usage; a local developer sign-in is not an operator credential.
+Future central Atlas resources use `urlFrom.secretKeyRef` for the bootstrap URL
+and `cloud.tokenFrom` for the bot token. Operator-wide `ATLAS_TOKEN` alone does
+not authorize remote migration directories. Custom configuration is enabled for
+future scoped role plans; it must keep the same verified connection settings.
+No AtlasSchema, AtlasMigration, preview database or schema is created here.
 
-Sources: [installation](https://atlasgo.io/integrations/kubernetes/install),
-[versioned migrations](https://atlasgo.io/integrations/kubernetes/versioned),
-[pricing](https://atlasgo.io/cloud/pricing).
+## Health and teardown
+
+The bootstrap Argo ConfigMap gives AtlasSchema and AtlasMigration a health gate
+that checks both the current observed generation and Ready condition; stale
+success cannot start dependent workloads. Apply this ConfigMap through the
+normal bootstrap workflow before relying on those gates in a later deployment.
+
+`make down` refuses to remove the platform while AtlasSchema/AtlasMigration,
+standalone CNPG DatabaseRole, or databases outside the tracked platform database
+inventory remain. Complete preview SQL cleanup and wait for finalizers first:
+deleting an Atlas CR alone does not delete its SQL objects. It never removes
+finalizers to bypass failed cleanup. Atlas shuts down before its copied
+credentials, PostgreSQL and the original bootstrap credential are removed.
+
+Persistence remains disabled for this idle prerequisite. Before adopting live
+Atlas resources, assess the recommended grant-cache PVC against AKS disk
+attachment headroom and verify its permissions; the last cluster startup was
+already constrained by disk attachments. No additional node capacity is assumed.
+
+`make validate` checks rendered credentials, limited RBAC, verified TLS, role
+privileges, health configuration and startup waves. Lifecycle tests cover
+teardown blockers and API failures. These are not live PostgreSQL authentication,
+Atlas licence, migration or cold-start acceptance tests. Run those in the next
+approved disposable integration stage, including two-preview role isolation.
+
+Sources: [operator credentials](https://atlasgo.io/integrations/kubernetes/versioned),
+[security as code](https://atlasgo.io/guides/postgres/security-declarative),
+[grant cache](https://atlasgo.io/integrations/kubernetes/install),
+[CNPG roles](https://cloudnative-pg.io/docs/1.30/declarative_role_management/).

@@ -107,7 +107,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'federation', 'envoy-gateway', 'external-secrets',
+            'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -145,6 +145,28 @@ def main():
         assert atlas_token['spec']['target']['name'] == 'atlas-token-secret'
         atlas_app = next(app for app in applications if app['metadata']['name'] == 'atlas-operator')
         assert int(staged_config['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(atlas_app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+        assert waves['configuration'] < waves['postgres'] < waves['atlas-database-access'] < waves['atlas-operator']
+        bootstrap_secret = next(d for d in staged_resources if d['kind'] == 'ExternalSecret'
+                                and d['metadata']['name'] == 'atlas-role-manager')
+        assert bootstrap_secret['metadata']['namespace'] == 'postgres'
+        assert bootstrap_secret['spec']['refreshPolicy'] == 'CreatedOnce'
+        assert bootstrap_secret['spec']['target']['immutable'] is True
+        access = next(a for a in applications if a['metadata']['name'] == 'atlas-database-access')
+        access_docs = list(yaml.safe_load_all(access['spec']['source']['helm']['valuesObject']['manifests']))
+        readers = {d['metadata']['name']: d for d in access_docs if d['kind'] == 'Role'}
+        assert readers['atlas-secret-reader']['rules'] == [{'apiGroups': [''], 'resources': ['secrets'],
+            'resourceNames': ['atlas-role-manager', 'platform-ca'], 'verbs': ['get']}]
+        assert readers['atlas-credentials']['rules'] == [{'apiGroups': [''], 'resources': ['secrets'],
+            'resourceNames': ['atlas-token-secret', 'atlas-postgres'], 'verbs': ['get']}]
+        connection = next(d for d in access_docs if d['kind'] == 'ExternalSecret')
+        url = connection['spec']['target']['template']['data']['url']
+        assert '@platform-rw.postgres.svc.cluster.local:5432/postgres?' in url
+        assert 'sslmode=verify-full&sslrootcert=/etc/atlas-postgres/ca.crt' in url
+        assert {d['remoteRef']['key'] for d in connection['spec']['data']} == {'atlas-role-manager', 'platform-ca'}
+        for kind in ['AtlasSchema', 'AtlasMigration']:
+            health = configmap['data']['resource.customizations.health.db.atlasgo.io_' + kind]
+            assert 'status.observedGeneration ~= obj.metadata.generation' in health
+            assert 'condition.observedGeneration == obj.metadata.generation' in health
         staged_egress = next(doc for doc in staged_resources if doc['kind'] == 'NetworkPolicy' and doc['metadata']['name'] == 'holmes-egress')
         assert not any('ipBlock' in peer for rule in staged_egress['spec']['egress'] for peer in rule['to']), 'Unknown Holmes egress destinations must stay denied'
         values.write_text(json.dumps({
@@ -223,6 +245,11 @@ def main():
                     assert role['login'] and not any(role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
                     database = next(d for d in documents if d['kind'] == 'Database')
                     assert database['spec']['owner'] == 'sonarqube' and database['spec']['databaseReclaimPolicy'] == 'retain'
+                    manager_role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'atlas_role_manager')
+                    assert manager_role['createrole'] is True and manager_role['createdb'] is False
+                    assert manager_role['superuser'] is False and manager_role['replication'] is False
+                    assert manager_role['passwordSecret'] == {'name': 'atlas-role-manager'}
+                    assert 'hostssl postgres atlas_role_manager all scram-sha-256' in cluster['spec']['postgresql']['pg_hba']
                     testing_role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'testkube')
                     assert testing_role['passwordSecret']['name'] == 'testkube-role'
                     assert not any(testing_role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
@@ -614,9 +641,13 @@ def main():
                     assert manager['securityContext']['allowPrivilegeEscalation'] is False
                     env = {e['name']: e for e in manager['env']}
                     assert {name: env[name]['value'] for name in ['PREWARM_DEVDB', 'ALLOW_CUSTOM_CONFIG', 'WATCH_SECRETS']} == {
-                        'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'false', 'WATCH_SECRETS': 'false'}
+                        'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'true', 'WATCH_SECRETS': 'false'}
                     assert env['ATLAS_TOKEN']['valueFrom']['secretKeyRef'] == {'name': 'atlas-token-secret', 'key': 'ATLAS_TOKEN'}
                     assert len(env) == 4
+                    assert manager['volumeMounts'] == [{'name': 'postgres-ca', 'mountPath': '/etc/atlas-postgres', 'readOnly': True}]
+                    assert pod['volumes'] == [{'name': 'postgres-ca', 'secret': {'secretName': 'atlas-postgres',
+                        'items': [{'key': 'ca.crt', 'path': 'ca.crt'}]}}]
+                    assert pod['serviceAccountName'] == 'atlas-operator'
                     assert not any('secrets' in rule.get('resources', [])
                                    for d in docs if d['kind'] == 'ClusterRole' for rule in d['rules'])
                     assert not any(d['kind'] in {'Secret', 'PersistentVolumeClaim', 'Service', 'Ingress', 'AtlasSchema', 'AtlasMigration'} for d in docs)
