@@ -120,6 +120,13 @@ def main():
         assert names == expected, 'A platform Application was omitted or renamed'
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
+        atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
+        assert atlas_token['metadata']['namespace'] == 'atlas-system'
+        assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
+        assert atlas_token['spec']['data'] == [{'secretKey': 'ATLAS_TOKEN', 'remoteRef': {'key': 'ai-platform-portfolio-atlas-bot'}}]
+        assert atlas_token['spec']['target']['name'] == 'atlas-token-secret'
+        atlas_app = next(app for app in applications if app['metadata']['name'] == 'atlas-operator')
+        assert int(staged_config['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(atlas_app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
         staged_egress = next(doc for doc in staged_resources if doc['kind'] == 'NetworkPolicy' and doc['metadata']['name'] == 'holmes-egress')
         assert not any('ipBlock' in peer for rule in staged_egress['spec']['egress'] for peer in rule['to']), 'Unknown Holmes egress destinations must stay denied'
         values.write_text(json.dumps({
@@ -587,8 +594,11 @@ def main():
                     assert manager['securityContext']['runAsNonRoot'] is True
                     assert manager['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
                     assert manager['securityContext']['allowPrivilegeEscalation'] is False
-                    env = {e['name']: e.get('value') for e in manager['env']}
-                    assert env == {'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'false', 'WATCH_SECRETS': 'false'}
+                    env = {e['name']: e for e in manager['env']}
+                    assert {name: env[name]['value'] for name in ['PREWARM_DEVDB', 'ALLOW_CUSTOM_CONFIG', 'WATCH_SECRETS']} == {
+                        'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'false', 'WATCH_SECRETS': 'false'}
+                    assert env['ATLAS_TOKEN']['valueFrom']['secretKeyRef'] == {'name': 'atlas-token-secret', 'key': 'ATLAS_TOKEN'}
+                    assert len(env) == 4
                     assert not any('secrets' in rule.get('resources', [])
                                    for d in docs if d['kind'] == 'ClusterRole' for rule in d['rules'])
                     assert not any(d['kind'] in {'Secret', 'PersistentVolumeClaim', 'Service', 'Ingress', 'AtlasSchema', 'AtlasMigration'} for d in docs)

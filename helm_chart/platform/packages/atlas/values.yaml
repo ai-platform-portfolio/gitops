@@ -1,9 +1,17 @@
-# Free/basic operator only: no Atlas Cloud token or paid features.
+# The bot token is delivered from Azure Key Vault by External Secrets.
 prewarmDevDB: false
 allowCustomConfig: false
 watchNamespaces: [atlas-system]
 
-# No cross-namespace credential access for this idle installation.
+extraEnvs:
+  - name: ATLAS_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: atlas-token-secret
+        key: ATLAS_TOKEN
+
+# The operator consumes its token as an environment variable. Future Atlas
+# resources need separately scoped Secret access for database credentials.
 rbac:
   clusterWideSecretAccess: false
 watchSecrets: false
