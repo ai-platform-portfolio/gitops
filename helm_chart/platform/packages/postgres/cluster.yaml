@@ -121,6 +121,9 @@ spec:
     - hostnossl all all all reject
     - hostssl postgres atlas_role_manager all scram-sha-256
     - hostssl app app all scram-sha-256
+{{- if and .Values.preview.enabled (eq .Values.cluster.role "management") }}
+    - hostssl preview_manual preview_manual_migrator,preview_manual_app all scram-sha-256
+{{- end }}
     - hostssl testkube testkube all scram-sha-256
     - hostssl sonarqube sonarqube all scram-sha-256
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}

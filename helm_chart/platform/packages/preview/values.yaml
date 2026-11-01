@@ -1,0 +1,101 @@
+# Selected together from publication run41315554435, attempt1.
+# Source a429264bbc5960e7eacba1499e255f517a39ff48; no rebuild for deployment.
+# atlas.sum SHA-256: 90f164b66905062d8c94414e1027a2adde3baa6e400690fb936f0d4d4d2e41b8
+namespace: preview-manual
+
+hosts:
+  web:
+    hostname: preview-manual.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+
+components:
+  web:
+    image: localacrk8s.azurecr.io/portfolio/preview-frontend@sha256:b6207b616980a63f8feecaaa0a1805b7d5a31f1af9155abcffaa45c1ffdf53ef
+    port: 8080
+    healthPath: /
+    route: {host: web, path: /}
+
+  # The frontend's existing nginx config proxies /api to this Service.
+  api:
+    image: localacrk8s.azurecr.io/portfolio/preview-backend@sha256:9bdd7282972d9984fb9cb9a6c53f0841783427cba4bf078aa93b372f9f76fddc
+    port: 8000
+    healthPath: /api/healthz
+    readinessProbe:
+      httpGet: {path: /api/readyz}
+    env:
+      - name: DATABASE_URL
+        valueFrom: {secretKeyRef: {name: preview-database, key: url}}
+
+postgres:
+  databases:
+    api:
+      name: preview_manual
+      owner: preview_manual_owner
+      reclaimPolicy: delete
+
+  roles:
+    preview_manual_owner: {}
+    preview_manual_migrator:
+      login: true
+      passwordSecret: preview-manual-migrator
+      memberOf: [preview_manual_owner]
+    preview_manual_app:
+      login: true
+      passwordSecret: preview-manual-runtime
+
+  migrations:
+    access:
+      database: api
+      role: preview_manual_migrator
+      schema: public
+      revisionsSchema: atlas_access_revisions
+      syncWave: -5
+      roleVars:
+        runtime: preview_manual_app
+      local:
+        1_access.sql: |
+          DO $$ BEGIN
+            EXECUTE format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database());
+            EXECUTE format('GRANT CONNECT ON DATABASE %I TO %I, %I',
+              current_database(), current_user, '{{ "{{ .runtime }}" }}');
+          END $$;
+          REVOKE ALL ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO "{{ "{{ .runtime }}" }}";
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT SELECT, INSERT ON TABLES TO "{{ "{{ .runtime }}" }}";
+
+    api:
+      database: api
+      role: preview_manual_migrator
+      schema: public
+      revisionsSchema: atlas_schema_revisions
+      repository: preview-environments
+      tag: a429264bbc5960e7eacba1499e255f517a39ff48
+      syncWave: 0
+
+platform:
+  atlas:
+    roleScope: [preview_manual_owner, preview_manual_migrator, preview_manual_app]
+    rolePlanRepository: preview-roles
+  syncWaves:
+    namespace: -40
+    atlasAccess: -25
+    atlasSchema: -20
+    database: -10
+    deployment: 10
+    service: 10
+    listenerSet: 10
+    httpRoute: 10
+
+  # Only the public CA key is projected, including in the frontend pod.
+  pod:
+    volumeMounts:
+      - {name: tmp, mountPath: /tmp}
+      - {name: nginx-cache, mountPath: /var/cache/nginx}
+      - {name: postgres-ca, mountPath: /etc/postgres, readOnly: true}
+    volumes:
+      - {name: tmp, emptyDir: {}}
+      - {name: nginx-cache, emptyDir: {}}
+      - name: postgres-ca
+        secret:
+          secretName: preview-database
+          items: [{key: ca.crt, path: ca.crt}]

@@ -144,3 +144,7 @@ devlake:
   # One project/webhook per service/environment. Empty until a real delivery
   # boundary is selected; never classify management/bootstrap syncs as production.
   projects: {}
+
+# First disposable application is opt-in and manually synced, before PR automation.
+preview:
+  enabled: false

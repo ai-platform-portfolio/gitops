@@ -22,6 +22,85 @@ def command(*args):
     return result.stdout
 
 
+def validate_preview(tmp, runtime):
+    """Prove the opt-in caller's credential boundary and complete resource ordering."""
+    for enabled, role in [(False, 'management'), (True, 'workload'), (True, 'management')]:
+        settings = tmp / 'preview-settings.json'
+        settings.write_text(json.dumps({'runtime': runtime, 'preview': {'enabled': enabled},
+                                        'cluster': {'role': role}}))
+        rendered = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform',
+                    str(HELM_CHART / 'platform'), '-f', str(settings))) if d]
+        selected = [d for d in rendered if d.get('kind') == 'Application'
+                    and d['metadata']['name'] == 'preview-manual']
+        postgres = next(d for d in rendered if d.get('kind') == 'Application' and d['metadata']['name'] == 'postgres')
+        cluster = next(d for d in yaml.safe_load_all(postgres['spec']['source']['helm']['valuesObject']['manifests'])
+                       if d and d['kind'] == 'Cluster')
+        hba = cluster['spec']['postgresql']['pg_hba']
+        active = enabled and role == 'management'
+        assert bool(selected) == active
+        assert ('hostssl preview_manual preview_manual_migrator,preview_manual_app all scram-sha-256' in hba) == active
+        assert hba[-1] == 'host all all all reject'
+    app = selected[0]
+    assert 'automated' not in app['spec']['syncPolicy'] and not app['metadata'].get('finalizers')
+    source, credentials = app['spec']['sources']
+    assert re.fullmatch('[0-9a-f]{40}', source['targetRevision']), 'Pin the reviewed chart commit'
+    chart = tmp / 'application-chart'
+    command('git', 'init', '--quiet', str(chart))
+    command('git', '-C', str(chart), 'fetch', '--depth=1', source['repoURL'], source['targetRevision'])
+    command('git', '-C', str(chart), 'checkout', '--quiet', '--detach', 'FETCH_HEAD')
+    assert command('git', '-C', str(chart), 'rev-parse', 'HEAD').strip() == source['targetRevision']
+    settings.write_text(json.dumps(source['helm']['valuesObject']))
+    resources = [d for d in yaml.safe_load_all(command('helm', 'template', source['helm']['releaseName'],
+                 str(chart / source['path']), '--namespace', app['spec']['destination']['namespace'], '-f', str(settings))) if d]
+    settings.write_text(json.dumps(credentials['helm']['valuesObject']))
+    resources += [d for d in yaml.safe_load_all(command('helm', 'template', 'preview-credentials',
+                  str(HELM_CHART / 'charts/resources'), '-f', str(settings))) if d]
+    keys = [(d['kind'], d['metadata'].get('namespace'), d['metadata']['name']) for d in resources]
+    assert len(keys) == len(set(keys)), 'Only one source may own each resource'
+    def one(kind, name, namespace=None):
+        return next(d for d in resources if d['kind'] == kind and d['metadata']['name'] == name
+                    and (namespace is None or d['metadata'].get('namespace') == namespace))
+    def wave(d):
+        return int(d['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+    namespace = one('Namespace', 'preview-manual')
+    assert wave(namespace) < wave(one('ExternalSecret', 'preview-manual-runtime', 'postgres'))
+    for name in ['preview-manual-runtime', 'preview-manual-migrator']:
+        source_secret = one('ExternalSecret', name, 'postgres')
+        assert source_secret['spec']['refreshPolicy'] == 'CreatedOnce' and source_secret['spec']['target']['immutable']
+        assert wave(source_secret) < wave(one('ExternalSecret', name, 'atlas-system'))
+    reader = one('Role', 'preview-manual-runtime-reader')
+    assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'],
+            'resourceNames': ['preview-manual-runtime', 'platform-ca'], 'verbs': ['get']}]
+    runtime_secret = one('ExternalSecret', 'preview-database', 'preview-manual')
+    assert {d['remoteRef']['key'] for d in runtime_secret['spec']['data']} == {'preview-manual-runtime', 'platform-ca'}
+    url = runtime_secret['spec']['target']['template']['data']['url']
+    assert 'sslmode=verify-full&sslrootcert=/etc/postgres/ca.crt' in url and '{{ .password }}' in url
+    assert not any(d['kind'] == 'Secret' for d in resources), 'No generated credentials in rendered GitOps'
+    roles = next(d for d in resources if d['kind'] == 'AtlasSchema')
+    database = next(d for d in resources if d['kind'] == 'Database')
+    access = next(d for d in resources if d['kind'] == 'AtlasMigration' and 'local' in d['spec']['dir'])
+    migration = next(d for d in resources if d['kind'] == 'AtlasMigration' and 'remote' in d['spec']['dir'])
+    api = one('Deployment', 'api')
+    assert wave(runtime_secret) < wave(roles) < wave(database) < wave(access) < wave(migration) < wave(api)
+    assert database['spec']['databaseReclaimPolicy'] == 'delete'
+    assert access['spec']['revisionsSchema'] != migration['spec']['revisionsSchema']
+    assert '{{ .runtime }}' in access['spec']['dir']['local']['1_access.sql'], 'Atlas templates must survive both Helm stages'
+    for d in [access, migration]:
+        assert d['spec']['credentials']['parameters']['search_path'] == 'public'
+        assert d['spec']['credentials']['parameters']['sslmode'] == 'verify-full'
+    container = api['spec']['template']['spec']['containers'][0]
+    assert container['env'] == [{'name': 'DATABASE_URL', 'valueFrom': {'secretKeyRef': {'name': 'preview-database', 'key': 'url'}}}]
+    assert container['readinessProbe']['httpGet']['path'] == '/api/readyz'
+    assert container['livenessProbe']['httpGet']['path'] == '/api/healthz'
+    assert 'env' not in one('Deployment', 'web')['spec']['template']['spec']['containers'][0]
+    for name in ['api', 'web']:
+        volume = next(v for v in one('Deployment', name)['spec']['template']['spec']['volumes'] if v['name'] == 'postgres-ca')
+        assert volume['secret']['items'] == [{'key': 'ca.crt', 'path': 'ca.crt'}]
+    assert one('ListenerSet', 'web')['metadata']['annotations']['cert-manager.io/cluster-issuer']
+    assert not any(d['kind'] == 'Certificate' for d in resources)
+    print('Preview: pinned chart rendered; opt-in/manual sync, ordered dependencies and runtime-only verified-TLS credentials checked.')
+
+
 def main():
     bootstrap = ROOT / 'bootstrap'
     bootstrap_values = yaml.safe_load((bootstrap / 'argocd-values.yaml').read_text())
@@ -43,6 +122,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='platform-render-') as directory:
         tmp = Path(directory)
         values = tmp / 'values.json'
+        validate_preview(tmp, runtime)
         atlantis = {
             'enabled': True, 'github_app_id': '12345', 'github_app_slug': 'platform-atlantis',
             'github_team': 'platform',

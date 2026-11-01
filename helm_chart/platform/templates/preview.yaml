@@ -1,0 +1,46 @@
+{{- if and .Values.preview.enabled (eq .Values.cluster.role "management") }}
+# Manual acceptance caller: one Application owns namespace, credentials and app.
+# No cascade finalizer or automatic sync until ordered cleanup is proven.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: preview-manual
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "50"
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-manual
+
+  sources:
+    - repoURL: https://github.com/ai-platform-portfolio/application-helm-chart.git
+      targetRevision: 6be389041551a86b34f5105f282fba8a4e054e74
+      path: .
+      helm:
+        releaseName: preview
+        valuesObject:
+{{ tpl (.Files.Get "packages/preview/values.yaml") . | indent 10 }}
+
+    - repoURL: {{ .Values.git.repository }}
+      targetRevision: {{ .Values.git.revision | quote }}
+      path: helm_chart/charts/resources
+      helm:
+        releaseName: preview-credentials
+        valuesObject:
+          manifests: |
+{{ tpl (.Files.Get "packages/preview/credentials.yaml") . | indent 12 }}
+
+  syncPolicy:
+    retry:
+      limit: 3
+      backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+    syncOptions:
+      - ServerSideApply=true
+      - PruneLast=true
+
+{{- end }}
