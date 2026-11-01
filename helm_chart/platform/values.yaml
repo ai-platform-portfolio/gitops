@@ -145,6 +145,7 @@ devlake:
   # boundary is selected; never classify management/bootstrap syncs as production.
   projects: {}
 
-# First disposable application is opt-in and manually synced, before PR automation.
-preview:
-  enabled: false
+# Approved extra PostgreSQL access rules go before the terminal reject-all rule.
+# Application registrations and deployment values live outside this chart.
+postgres:
+  additionalHba: []

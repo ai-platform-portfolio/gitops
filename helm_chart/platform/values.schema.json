@@ -2,10 +2,10 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "preview": {
+    "postgres": {
       "type": "object",
       "additionalProperties": false,
-      "properties": {"enabled": {"type": "boolean"}}
+      "properties": {"additionalHba": {"type": "array", "items": {"type": "string", "minLength": 1}}}
     },
     "clusterOnboarding": {
       "type": "object",
