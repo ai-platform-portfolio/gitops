@@ -22,6 +22,16 @@ build does not deploy anything. A separate reviewed controller-only digest pin i
 Remove the package/override once an adopted upstream release includes the fix.
 Unattended previews still require the live failed-hook/retry acceptance gate.
 
+The controller image override uses the published main-commit tag plus its immutable
+ACR digest. Other Argo components keep the official chart image. Deploy the reviewed
+values through the existing Terraform bootstrap Helm release; merging values alone
+does not update that release. Verify the controller's running image and readiness,
+then repeat the failed-hook/retry cleanup check before enabling unattended previews.
+To roll back, remove only `controller.image` from `bootstrap/argocd-values.yaml`
+and apply through the same bootstrap root. Rolling back also restores the cleanup
+race, so keep unattended previews disabled. Once a fixed upstream release is adopted,
+remove the override, temporary image package and its workflow.
+
 ## Before you start
 
 Run the commands below from this repository's root directory. Install Terraform
