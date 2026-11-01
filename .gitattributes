@@ -1,0 +1,2 @@
+# Unified-diff context has significant whitespace; validate the patched source.
+bootstrap/argocd-image/*.patch -whitespace
