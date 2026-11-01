@@ -1,42 +1,26 @@
-# Argo registry reader
+# Argo registry access
 
-This shared package lets Argo read private Helm OCI releases without registry
-passwords or application-specific credential entries. `argocd.registry` in platform
-values selects the existing registry name/resource group and identity location.
-It currently uses `AcrPull` for the portfolio's legacy registry permission mode;
-an ABAC-enabled registry needs its corresponding repository-reader role instead.
+Argo reuses its existing bootstrap-managed identity. The bootstrap caller adds
+`repoServer` to `argocd.identity_components`, a matching service-account federation,
+and registry-scoped `AcrPull` through the existing identity module. Registry scopes
+are available as `registry_<key>` from the configured `container_registries` map.
+No identity is recreated or transferred between Terraform and ASO.
 
-ASO creates a dedicated cluster-named identity, federation for the existing
-`argocd-repo-server` service account, and one registry-scoped `AcrPull` assignment.
-It exports the client/principal IDs to `argocd-registry-identity`. A prefix credential
-Secret enables native Helm OCI Workload Identity for repositories under that ACR.
-No client secret, admin password or per-app registry list is needed.
+The existing Helm wiring supplies the identity annotation and Workload Identity
+pod label. No exported client-ID ConfigMap, Reloader, token-generation script or
+manual client-ID handoff is required. The existing server/controller share the
+read-only registry permission as components of the same Argo installation.
 
-The existing bootstrap Helm release still owns repo-server and its service account.
-Its values opt the pod into Workload Identity and read `AZURE_CLIENT_ID` from ASO's
-ConfigMap. Admission preserves that environment entry and injects the projected
-federated token/tenant settings. No resource ownership is transferred to GitOps.
+GitOps owns only the native Helm OCI prefix credential configuration. Set
+`argocd.registry.name` in platform values; application repositories need no registry
+credential entries. The Secret contains metadata flags, not a registry password.
+The current ACR uses legacy registry permissions; ABAC-enabled registries need the
+corresponding reader role. Existing identities/federations retain single ownership.
 
-On a fresh cluster, the ConfigMap does not exist until Argo installs ASO and this
-package. Its reference is therefore optional: repo-server can initially read public
-Git. The namespace-scoped Reloader starts at root wave5, ASO at wave10, and this
-package at wave20. `reloadOnCreate` rolls repo-server when ASO creates the ConfigMap;
-later client-ID changes also roll it. Only the explicitly annotated deployment is
-selected; Secrets and Jobs are ignored. This avoids a bootstrap dependency cycle
-and manual client-ID handoffs. Reloader is already used by other platform packages.
-
-For an existing cluster, let GitOps create the reader resources, then review/apply
-the bootstrap Helm values update through its existing Terraform owner. Check the
-ASO resources' current-generation readiness and repo-server rollout. Azure role
-propagation may lag resource readiness. A real private release pull is required
-before claiming registry integration works; render/admission checks alone do not
-prove authentication. No new Terraform identity, module or runtime output is added.
-
-The ASO controller already has bootstrap authority to create identities and assign
-roles. Its watch list includes `argocd`; namespace credential metadata comes from
-the existing runtime context. Application namespaces never receive that credential.
-
-Rollback the repo-server settings through the bootstrap Helm owner before removing
-the reader package. Removing registry access prevents new private pulls; retain it
-and the release packages until dependent Applications and deletion hooks finish.
-ApplicationSet lifecycle and deployed Testkube checks remain separate work.
+Review/apply the saved bootstrap plan through the existing Terraform owner after
+merge. It should add only the repo-server federation, the read-only registry role
+and update the Argo Helm release. Verify the running repo-server and a real private
+chart pull before claiming integration works; render checks do not prove auth.
+For rollback, remove these added bootstrap entries and the prefix credential after
+all dependent Applications/deletion hooks finish. ApplicationSet and deployed
+Testkube checks remain separate work.

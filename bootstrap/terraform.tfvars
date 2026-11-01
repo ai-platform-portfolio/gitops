@@ -166,6 +166,8 @@ dns = {
 }
 
 argocd = {
+  identity_components = ["controller", "server", "repoServer"]
+
   # Use a fresh label; existing Azure DNS records are not adopted or overwritten.
   dns_label      = "argocd-management"
   chart_version  = "10.10.5"
@@ -358,6 +360,17 @@ identities = {
       argocd-server = {
         namespace       = "argocd"
         service_account = "argocd-server"
+      }
+      argocd-repo-server = {
+        namespace       = "argocd"
+        service_account = "argocd-repo-server"
+      }
+    }
+
+    role_assignments = {
+      registry = {
+        scope                = "registry_platform"
+        role_definition_name = "AcrPull"
       }
     }
   }

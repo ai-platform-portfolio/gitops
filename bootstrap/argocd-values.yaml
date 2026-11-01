@@ -11,20 +11,6 @@ server:
     type: ClusterIP
 repoServer:
   replicas: 1
-
-  podLabels:
-    azure.workload.identity/use: "true"
-  annotations:
-    configmap.reloader.stakater.com/reload: argocd-registry-identity
-  env:
-    - name: AZURE_CLIENT_ID
-      valueFrom:
-        configMapKeyRef:
-          name: argocd-registry-identity
-          key: clientId
-          # Public Git must work before GitOps/ASO exports the registry identity.
-          optional: true
-
 applicationSet:
   replicas: 1
 controller:

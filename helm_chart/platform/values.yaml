@@ -10,12 +10,10 @@ git:
 # Tenant/account context is supplied at runtime, not checked into values.
 runtime: {}
 
-# Shared registry reader; identity names derive from the cluster, not applications.
+# Prefix credentials for private release charts; Argo reuses its bootstrap identity.
 argocd:
   registry:
     name: localacrk8s
-    resourceGroupName: kubernetes
-    location: uksouth
 
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false

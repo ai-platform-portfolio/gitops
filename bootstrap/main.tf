@@ -42,13 +42,13 @@ locals {
     sso_client_id = module.entra_applications["argocd"].client_id
   }))
 
-  role_scopes = {
+  role_scopes = merge({
     subscription    = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
     resource_group  = azurerm_resource_group.this.id
     dns_zone        = data.azurerm_dns_zone.existing.id
     key_vault       = data.azurerm_key_vault.platform.id
     storage_account = data.azurerm_storage_account.platform.id
-  }
+  }, { for name, registry in data.azurerm_container_registry.existing : "registry_${name}" => registry.id })
 }
 
 resource "azurerm_resource_group" "this" {
