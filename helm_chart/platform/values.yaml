@@ -148,4 +148,6 @@ devlake:
 # Approved extra PostgreSQL access rules go before the terminal reject-all rule.
 # Application registrations and deployment values live outside this chart.
 postgres:
-  additionalHba: []
+  additionalHba:
+    # Disposable preview-poc messages database; only its migration/runtime logins.
+    - hostssl app_preview_poc_preview_poc_messages_689c6a35e388 app_preview_poc_preview_poc_messages_689c6a35e388_migrator,app_preview_poc_preview_poc_messages_689c6a35e388_app all scram-sha-256
