@@ -1,0 +1,24 @@
+name: Argo controller backport
+
+on:
+  pull_request:
+    paths: ['bootstrap/argocd-image/**', '.github/workflows/argocd-image.yml']
+  push:
+    branches: [main]
+    paths: ['bootstrap/argocd-image/**', '.github/workflows/argocd-image.yml']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  image:
+    uses: ai-platform-portfolio/ops-shared/.github/workflows/docker.yml@7ed775ef5c3077a99f49e859816ffc095c54d18a
+    with:
+      image: platform/argocd
+      context: bootstrap/argocd-image
+      tag: argocd-v3.5.5-ai116-${{ github.sha }}
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

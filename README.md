@@ -9,6 +9,19 @@ that Argo CD reconciles, with readiness gates between dependencies. One Make
 command applies the bootstrap and reconciles the full platform,
 including Argo CD access through Envoy and a per-host HTTPS certificate.
 
+### Temporary Argo controller backport
+
+`bootstrap/argocd-image/` builds the installed Argo 3.5.5 with the delete-hook fix
+from [upstream PR29687](https://github.com/argoproj/argo-cd/pull/29687), pinned at
+`4f8dd4a36fff0e6d7c9c780842240b0185901565` (Apache-2.0, author ChadiDridi).
+The patch includes its regressions; the only production adaptation uses
+`context.Background()` for the 3.5.5 hook API. Source/runtime/toolchain are pinned.
+The existing shared Docker workflow builds PRs and publishes main to ACR. This
+build does not deploy anything. A separate reviewed controller-only digest pin in
+`bootstrap/argocd-values.yaml` promotes it; rolling back removes that override.
+Remove the package/override once an adopted upstream release includes the fix.
+Unattended previews still require the live failed-hook/retry acceptance gate.
+
 ## Before you start
 
 Run the commands below from this repository's root directory. Install Terraform
