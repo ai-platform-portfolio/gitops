@@ -149,5 +149,5 @@ devlake:
 # Application registrations and deployment values live outside this chart.
 postgres:
   additionalHba:
-    # Disposable preview-poc messages database; only its migration/runtime logins.
-    - hostssl app_preview_poc_preview_poc_messages_689c6a35e388 app_preview_poc_preview_poc_messages_689c6a35e388_migrator,app_preview_poc_preview_poc_messages_689c6a35e388_app all scram-sha-256
+    # Each generated login must belong to its database-named connection group.
+    - hostssl samerole /^app_[a-z0-9_]+_(migrator|app)$ all scram-sha-256
