@@ -148,4 +148,6 @@ devlake:
 # Approved extra PostgreSQL access rules go before the terminal reject-all rule.
 # Application registrations and deployment values live outside this chart.
 postgres:
-  additionalHba: []
+  additionalHba:
+    # Each generated login must belong to its database-named connection group.
+    - hostssl samerole /^app_[a-z0-9_]+_(migrator|app)$ all scram-sha-256
