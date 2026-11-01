@@ -27,6 +27,12 @@ def main():
     bootstrap_values = yaml.safe_load((bootstrap / 'argocd-values.yaml').read_text())
     configmap = yaml.safe_load((bootstrap / 'argocd-configmap.yaml').read_text())
     assert bootstrap_values['configs']['cm'] == {'create': False}, 'Argo configuration must live in the ConfigMap file'
+    reader = bootstrap_values['repoServer']
+    assert reader['podLabels']['azure.workload.identity/use'] == 'true'
+    assert reader['annotations']['configmap.reloader.stakater.com/reload'] == 'argocd-registry-identity'
+    assert reader['env'] == [{'name': 'AZURE_CLIENT_ID', 'valueFrom': {'configMapKeyRef': {
+        'name': 'argocd-registry-identity', 'key': 'clientId', 'optional': True}}}], 'Public Git must bootstrap without the ASO ConfigMap'
+    assert 'serviceAccount' not in reader, 'Keep the existing Helm-owned service account'
     assert configmap['kind'] == 'ConfigMap' and configmap['metadata']['name'] == 'argocd-cm'
     outputs = (bootstrap / 'outputs.tf').read_text()
     assert 'data.azurerm_client_config' not in outputs and 'var.account' not in outputs and 'oidc_issuer_url' not in outputs, 'Account identifiers must not be Terraform outputs'
@@ -115,7 +121,7 @@ def main():
         expected = {
             'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
-            'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
+            'external-dns', 'gateway', 'argocd-route', 'argocd-reloader', 'argocd-registry', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
@@ -124,6 +130,27 @@ def main():
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
+        registry_app = next(app for app in applications if app['metadata']['name'] == 'argocd-registry')
+        registry_docs = list(yaml.safe_load_all(registry_app['spec']['source']['helm']['valuesObject']['manifests']))
+        assert len(registry_docs) == 5 and all(doc['metadata']['namespace'] == 'argocd' for doc in registry_docs)
+        assert {doc['kind'] for doc in registry_docs} == {'Secret', 'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
+        identity = next(doc for doc in registry_docs if doc['kind'] == 'UserAssignedIdentity')
+        assert identity['spec']['azureName'] == 'id-management-argocd-registry-reader'
+        assert identity['spec']['operatorSpec']['configMaps']['clientId'] == {'name': 'argocd-registry-identity', 'key': 'clientId'}
+        federation = next(doc for doc in registry_docs if doc['kind'] == 'FederatedIdentityCredential')['spec']
+        assert federation['subject'] == 'system:serviceaccount:argocd:argocd-repo-server'
+        assert federation['audiences'] == ['api://AzureADTokenExchange']
+        assert federation['issuer'] == runtime['AKS_OIDC_ISSUER_URL']
+        reader_role = next(doc for doc in registry_docs if doc['kind'] == 'RoleAssignment')['spec']
+        assert reader_role['roleDefinitionReference'] == {'wellKnownName': 'AcrPull'}
+        assert reader_role['owner']['armId'] == f"/subscriptions/{runtime['AZURE_SUBSCRIPTION_ID']}/resourceGroups/kubernetes/providers/Microsoft.ContainerRegistry/registries/localacrk8s"
+        assert reader_role['principalIdFromConfig'] == {'name': 'argocd-registry-identity', 'key': 'principalId'}
+        credential = next(doc for doc in registry_docs if doc['metadata']['name'] == 'argocd-registry-reader' and doc['kind'] == 'Secret')
+        assert credential['metadata']['labels']['argocd.argoproj.io/secret-type'] == 'repo-creds'
+        assert credential['stringData'] == {'url': 'localacrk8s.azurecr.io', 'type': 'helm', 'enableOCI': 'true', 'useAzureWorkloadIdentity': 'true'}
+        registry_reloader = next(app for app in applications if app['metadata']['name'] == 'argocd-reloader')['spec']['source']['helm']['valuesObject']['reloader']
+        assert registry_reloader['watchGlobally'] is False and registry_reloader['ignoreSecrets'] is True
+        assert registry_reloader['reloadOnCreate'] is True and registry_reloader['reloadStrategy'] == 'annotations'
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
         application_aso = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret'
@@ -144,6 +171,7 @@ def main():
                  for app in applications}
         assert waves['namespaces'] < waves['external-secrets'] < waves['configuration'] < waves['testkube-azure']
         assert waves['configuration'] == waves['azure-service-operator']
+        assert waves['argocd-reloader'] < waves['azure-service-operator'] < waves['argocd-registry']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
         assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
@@ -410,10 +438,21 @@ def main():
                         if doc['kind'] == 'HTTPRoute' and doc['metadata']['name'] != 'https-redirect':
                             assert doc['spec']['parentRefs'][0]['kind'] == 'ListenerSet'
 
-        values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}, 'atlantis': atlantis}))
+        values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'dev', 'role': 'workload'}, 'atlantis': atlantis,
+                                      'argocd': {'registry': {'name': 'anotherregistry', 'resourceGroupName': 'other-rg', 'location': 'westeurope'}}}))
         workload = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         workload = [d for d in workload if d and d['kind'] == 'Application']
         workload_names = {a['metadata']['name'] for a in workload}
+        workload_reader = next(app for app in workload if app['metadata']['name'] == 'argocd-registry')
+        workload_reader_docs = list(yaml.safe_load_all(workload_reader['spec']['source']['helm']['valuesObject']['manifests']))
+        workload_identity = next(doc for doc in workload_reader_docs if doc['kind'] == 'UserAssignedIdentity')
+        workload_role = next(doc for doc in workload_reader_docs if doc['kind'] == 'RoleAssignment')
+        assert workload_identity['spec']['azureName'] == 'id-dev-argocd-registry-reader'
+        assert workload_identity['spec']['location'] == 'westeurope'
+        assert workload_role['spec']['owner']['armId'].endswith('/resourceGroups/other-rg/providers/Microsoft.ContainerRegistry/registries/anotherregistry')
+        workload_credential = next(doc for doc in workload_reader_docs if doc['kind'] == 'Secret' and doc['metadata']['name'] == 'argocd-registry-reader')
+        assert workload_credential['stringData']['url'] == 'anotherregistry.azurecr.io'
+        assert workload_role['spec']['azureName'] != next(doc for doc in registry_docs if doc['kind'] == 'RoleAssignment')['spec']['azureName']
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
                                               'sonarqube', 'sonarqube-configure', 'crossplane',
                                               'crossplane-packages', 'crossplane-identity-api', 'argocd-route'}, 'Workload must install every ready package except management services'
@@ -705,13 +744,13 @@ def main():
                     settings = next(d for d in docs if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-controller-settings')['data']
                     assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
                     assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
-                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,cluster-onboarding,testkube,holmes,atlantis'
+                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,argocd,cluster-onboarding,testkube,holmes,atlantis'
                     namespaces = base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode().split(',')
                     checksum = hashlib.sha256(json.dumps(namespaces, separators=(',', ':')).encode()).hexdigest()
                     assert deployment['spec']['template']['metadata']['annotations']['gitops.platform/watch-namespaces'] == checksum
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
-                if name in {'langfuse-reloader', 'backstage-reloader', 'testkube-reloader', 'devlake-reloader'}:
+                if name in {'langfuse-reloader', 'backstage-reloader', 'testkube-reloader', 'devlake-reloader', 'argocd-reloader'}:
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')
                     pod = deployment['spec']['template']['spec']
                     assert pod['securityContext']['runAsNonRoot'] is True
@@ -721,6 +760,10 @@ def main():
                         assert security['allowPrivilegeEscalation'] is False
                         assert security['readOnlyRootFilesystem'] is True
                         assert security['capabilities']['drop'] == ['ALL']
+                    if name == 'argocd-reloader':
+                        assert not any(doc['kind'] in {'ClusterRole', 'ClusterRoleBinding'} for doc in docs)
+                        reloader_args = pod['containers'][0]['args']
+                        assert '--reload-on-create=true' in reloader_args
                 if name == 'langfuse':
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
                     assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'langfuse-sso'

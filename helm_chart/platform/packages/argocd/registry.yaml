@@ -1,0 +1,84 @@
+{{- $registry := .Values.argocd.registry -}}
+{{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $identityGroup := printf "/subscriptions/%s/resourceGroups/%s" $subscription (required "runtime.CLUSTER_RESOURCE_GROUP is required" .Values.runtime.CLUSTER_RESOURCE_GROUP) -}}
+{{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s" $subscription (required "argocd.registry.resourceGroupName is required" $registry.resourceGroupName) (required "argocd.registry.name is required" $registry.name) -}}
+# Provisioner credentials stay in the shared controller namespace, never app releases.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aso-credential
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+type: Opaque
+stringData:
+  AZURE_CLIENT_ID: {{ required "runtime.ASO_CLIENT_ID is required" .Values.runtime.ASO_CLIENT_ID | quote }}
+  AZURE_TENANT_ID: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  AZURE_SUBSCRIPTION_ID: {{ $subscription | quote }}
+  USE_WORKLOAD_IDENTITY_AUTH: "true"
+
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: argocd-registry-reader
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  azureName: id-{{ .Values.cluster.name }}-argocd-registry-reader
+  location: {{ required "argocd.registry.location is required" $registry.location | quote }}
+  owner: {armId: {{ $identityGroup | quote }}}
+  operatorSpec:
+    configMaps:
+      clientId: {name: argocd-registry-identity, key: clientId}
+      principalId: {name: argocd-registry-identity, key: principalId}
+
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: argocd-registry-reader
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  owner: {name: argocd-registry-reader}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:argocd:argocd-repo-server
+
+---
+{{- $hash := sha256sum (printf "%s/%s/argocd-registry-reader" $scope .Values.cluster.name) | trunc 32 }}
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: argocd-registry-reader
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner: {armId: {{ $scope | quote }}}
+  principalIdFromConfig: {name: argocd-registry-identity, key: principalId}
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    wellKnownName: AcrPull
+
+---
+# Prefix credentials cover release repositories without per-application entries.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-registry-reader
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repo-creds
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+type: Opaque
+stringData:
+  url: {{ printf "%s.azurecr.io" $registry.name | quote }}
+  type: helm
+  enableOCI: "true"
+  useAzureWorkloadIdentity: "true"

@@ -1,4 +1,4 @@
-{{- $targetNamespaces := list "azure-resources" }}
+{{- $targetNamespaces := list "azure-resources" "argocd" }}
 {{- if eq .Values.cluster.role "management" }}
 {{- $targetNamespaces = append $targetNamespaces "cluster-onboarding" }}
 {{- end }}
