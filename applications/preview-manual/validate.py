@@ -82,7 +82,7 @@ def validate(tmp):
         assert volume['secret']['items'] == [{'key': 'ca.crt', 'path': 'ca.crt'}]
     assert one('ListenerSet', 'web')['metadata']['annotations']['cert-manager.io/cluster-issuer']
     assert not any(d['kind'] == 'Certificate' for d in resources)
-    print('Preview: external app values and merged chart pins rendered; ordered dependencies and runtime-only TLS credentials checked.')
+    print('Preview: external app values and pinned chart rendered; ordered dependencies and runtime-only TLS credentials checked.')
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='preview-render-') as directory:
