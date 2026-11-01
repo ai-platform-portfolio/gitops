@@ -15,6 +15,12 @@ applicationSet:
   replicas: 1
 controller:
   replicas: 1
+
+  # Temporary delete-hook race fix; remove after adopting a fixed upstream release.
+  image:
+    repository: localacrk8s.azurecr.io/platform/argocd
+    tag: argocd-v3.5.5-ai116-ff239df2939c83920eba012356bb9497aff35805@sha256:ffa04c5aa5dc5dc536ac0f0bdd386762a8e2a778bb51ad3b35adf889106b8669
+
 configs:
   params:
     # Envoy terminates public HTTPS; Argo stays on its ClusterIP service.
