@@ -149,5 +149,7 @@ devlake:
 # Application registrations and deployment values live outside this chart.
 postgres:
   additionalHba:
-    # Each generated login must belong to its database-named connection group.
-    - hostssl samerole /^app_[a-z0-9_]+_(migrator|app)$ all scram-sha-256
+    # Only Atlas can map its fixed client identity to generated migration logins.
+    - hostssl samerole /^app_[a-z0-9_]+_migrator$ all cert map=atlas_clients
+    # Runtime certificates must identify the exact login; no shared runtime key.
+    - hostssl samerole /^app_[a-z0-9_]+_app$ all cert
