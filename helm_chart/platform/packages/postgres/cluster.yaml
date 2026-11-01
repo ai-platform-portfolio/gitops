@@ -130,4 +130,7 @@ spec:
     - hostssl devlake devlake all scram-sha-256
     - hostssl devlake devlake_grafana all scram-sha-256
 {{- end }}
+{{- range .Values.postgres.additionalHba }}
+    - {{ . | quote }}
+{{- end }}
     - host all all all reject

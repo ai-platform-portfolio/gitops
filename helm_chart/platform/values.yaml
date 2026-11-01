@@ -144,3 +144,8 @@ devlake:
   # One project/webhook per service/environment. Empty until a real delivery
   # boundary is selected; never classify management/bootstrap syncs as production.
   projects: {}
+
+# Approved extra PostgreSQL access rules go before the terminal reject-all rule.
+# Application registrations and deployment values live outside this chart.
+postgres:
+  additionalHba: []

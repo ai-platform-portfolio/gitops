@@ -43,6 +43,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix='platform-render-') as directory:
         tmp = Path(directory)
         values = tmp / 'values.json'
+        hba_rule = 'hostssl example example_login all scram-sha-256'
+        values.write_text(json.dumps({'runtime': runtime, 'postgres': {'additionalHba': [hba_rule]}}))
+        hba_render = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+        postgres = next(d for d in hba_render if d and d['kind'] == 'Application' and d['metadata']['name'] == 'postgres')
+        cluster = next(d for d in yaml.safe_load_all(postgres['spec']['source']['helm']['valuesObject']['manifests']) if d and d['kind'] == 'Cluster')
+        assert cluster['spec']['postgresql']['pg_hba'][-2:] == [hba_rule, 'host all all all reject']
         atlantis = {
             'enabled': True, 'github_app_id': '12345', 'github_app_slug': 'platform-atlantis',
             'github_team': 'platform',
