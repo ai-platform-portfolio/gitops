@@ -117,9 +117,14 @@ spec:
       password_encryption: scram-sha-256
       ssl_min_protocol_version: TLSv1.2
       archive_timeout: 60s
+    # The shared Atlas certificate may use only the role-manager and generated
+    # migration logins. samerole HBA still checks each requested database.
+    pg_ident:
+    - atlas_clients atlas-operator atlas_role_manager
+    - atlas_clients atlas-operator /^app_[a-z0-9_]+_migrator$
     pg_hba:
     - hostnossl all all all reject
-    - hostssl postgres atlas_role_manager all scram-sha-256
+    - hostssl postgres atlas_role_manager all cert map=atlas_clients
     - hostssl app app all scram-sha-256
     - hostssl testkube testkube all scram-sha-256
     - hostssl sonarqube sonarqube all scram-sha-256

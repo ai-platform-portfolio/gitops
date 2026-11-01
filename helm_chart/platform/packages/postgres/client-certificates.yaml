@@ -1,0 +1,110 @@
+# CNPG owns the CA. ESO adapts its key names for cert-manager inside postgres;
+# neither the CA private key nor the signing Secret leaves this namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-client-ca-reader
+  namespace: postgres
+automountServiceAccountToken: false
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-client-ca-reader
+  namespace: postgres
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [platform-ca]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-client-ca-reader
+  namespace: postgres
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-client-ca-reader
+subjects:
+  - kind: ServiceAccount
+    name: postgres-client-ca-reader
+    namespace: postgres
+
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: postgres-client-ca
+  namespace: postgres
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: postgres
+      server:
+        url: https://kubernetes.default.svc
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+      auth:
+        serviceAccount:
+          name: postgres-client-ca-reader
+
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-client-ca
+  namespace: postgres
+spec:
+  refreshInterval: 1m
+  secretStoreRef: {name: postgres-client-ca, kind: SecretStore}
+  target:
+    name: postgres-client-ca
+    template:
+      engineVersion: v2
+      type: kubernetes.io/tls
+      data:
+        tls.crt: {{ `{{ index . "ca.crt" }}` | quote }}
+        tls.key: {{ `{{ index . "ca.key" }}` | quote }}
+  data:
+    - secretKey: ca.crt
+      remoteRef: {key: platform-ca, property: ca.crt}
+    - secretKey: ca.key
+      remoteRef: {key: platform-ca, property: ca.key}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: postgres-client
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  ca:
+    secretName: postgres-client-ca
+
+---
+# One trusted Atlas identity handles scoped role and migration connections.
+# Runtime applications receive separate certificates through the app chart.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: atlas-postgres-client
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  secretName: atlas-postgres-client
+  commonName: atlas-operator
+  duration: 720h
+  renewBefore: 168h
+  privateKey:
+    rotationPolicy: Always
+  usages: [digital signature, client auth]
+  issuerRef: {name: postgres-client, kind: Issuer}

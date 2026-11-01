@@ -1,5 +1,5 @@
 # Reuse ESO's Kubernetes provider instead of granting Atlas access to postgres
-# namespace Secrets. Only the bootstrap credential and public CA are copied.
+# namespace Secrets. Only the Atlas leaf certificate/key and public CA are copied.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -16,7 +16,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [secrets]
-    resourceNames: [atlas-role-manager, platform-ca]
+    resourceNames: [atlas-postgres-client]
     verbs: [get]
 
 ---
@@ -70,13 +70,19 @@ spec:
     template:
       engineVersion: v2
       data:
-        url: 'postgres://atlas_role_manager:{{ "{{ .password }}" }}@platform-rw.postgres.svc.cluster.local:5432/postgres?sslmode=verify-full&sslrootcert=/etc/atlas-postgres/ca.crt'
+        url: 'postgres://atlas_role_manager@platform-rw.postgres.svc.cluster.local:5432/postgres?sslmode=verify-full&sslrootcert=/etc/atlas-postgres/ca.crt&sslcert=/etc/atlas-postgres/tls.crt&sslkey=/etc/atlas-postgres/tls.key'
         ca.crt: '{{ "{{ index . \"ca.crt\" }}" }}'
+        tls.crt: {{ `{{ index . "tls.crt" }}` | quote }}
+        tls.key: {{ `{{ index . "tls.key" }}` | quote }}
   data:
-    - secretKey: password
-      remoteRef: {key: atlas-role-manager, property: password}
+    - secretKey: tls.crt
+      remoteRef: {key: atlas-postgres-client, property: tls.crt}
+    - secretKey: tls.key
+      remoteRef: {key: atlas-postgres-client, property: tls.key}
+    # CNPG currently shares its server/client CA. cert-manager includes that
+    # public issuer certificate in the leaf Secret; Atlas never reads the CA key.
     - secretKey: ca.crt
-      remoteRef: {key: platform-ca, property: ca.crt}
+      remoteRef: {key: atlas-postgres-client, property: ca.crt}
 
 ---
 # Explicit gets support urlFrom/cloud.tokenFrom without Secret list/watch

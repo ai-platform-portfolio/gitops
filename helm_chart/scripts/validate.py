@@ -161,14 +161,18 @@ def main():
         access_docs = list(yaml.safe_load_all(access['spec']['source']['helm']['valuesObject']['manifests']))
         readers = {d['metadata']['name']: d for d in access_docs if d['kind'] == 'Role'}
         assert readers['atlas-secret-reader']['rules'] == [{'apiGroups': [''], 'resources': ['secrets'],
-            'resourceNames': ['atlas-role-manager', 'platform-ca'], 'verbs': ['get']}]
+            'resourceNames': ['atlas-postgres-client'], 'verbs': ['get']}]
         assert readers['atlas-credentials']['rules'] == [{'apiGroups': [''], 'resources': ['secrets'],
             'resourceNames': ['atlas-token-secret', 'atlas-postgres'], 'verbs': ['get']}]
         connection = next(d for d in access_docs if d['kind'] == 'ExternalSecret')
         url = connection['spec']['target']['template']['data']['url']
         assert '@platform-rw.postgres.svc.cluster.local:5432/postgres?' in url
         assert 'sslmode=verify-full&sslrootcert=/etc/atlas-postgres/ca.crt' in url
-        assert {d['remoteRef']['key'] for d in connection['spec']['data']} == {'atlas-role-manager', 'platform-ca'}
+        assert 'sslcert=/etc/atlas-postgres/tls.crt&sslkey=/etc/atlas-postgres/tls.key' in url
+        assert url.startswith('postgres://atlas_role_manager@') and 'password' not in connection['spec']['target']['template']['data']
+        assert {d['remoteRef']['key'] for d in connection['spec']['data']} == {'atlas-postgres-client'}
+        assert {d['remoteRef']['property'] for d in connection['spec']['data']} == {'tls.crt', 'tls.key', 'ca.crt'}
+        assert set(connection['spec']['target']['template']['data']) == {'url', 'tls.crt', 'tls.key', 'ca.crt'}
         for kind in ['AtlasSchema', 'AtlasMigration']:
             health = configmap['data']['resource.customizations.health.db.atlasgo.io_' + kind]
             assert 'status.observedGeneration ~= obj.metadata.generation' in health
@@ -255,7 +259,35 @@ def main():
                     assert manager_role['createrole'] is True and manager_role['createdb'] is False
                     assert manager_role['superuser'] is False and manager_role['replication'] is False
                     assert manager_role['passwordSecret'] == {'name': 'atlas-role-manager'}
-                    assert 'hostssl postgres atlas_role_manager all scram-sha-256' in cluster['spec']['postgresql']['pg_hba']
+                    hba = cluster['spec']['postgresql']['pg_hba']
+                    assert 'hostssl postgres atlas_role_manager all cert map=atlas_clients' in hba
+                    assert hba[-3:] == [
+                        'hostssl samerole /^app_[a-z0-9_]+_migrator$ all cert map=atlas_clients',
+                        'hostssl samerole /^app_[a-z0-9_]+_app$ all cert', 'host all all all reject']
+                    assert hba[0] == 'hostnossl all all all reject'
+                    assert cluster['spec']['postgresql']['pg_ident'] == [
+                        'atlas_clients atlas-operator atlas_role_manager',
+                        'atlas_clients atlas-operator /^app_[a-z0-9_]+_migrator$']
+                    pki = {d['kind'] + '/' + d['metadata']['name']: d for d in documents
+                           if d['metadata']['name'] in {'postgres-client-ca-reader', 'postgres-client-ca', 'postgres-client', 'atlas-postgres-client'}}
+                    assert all(d['metadata']['namespace'] == 'postgres' for d in pki.values())
+                    assert pki['Role/postgres-client-ca-reader']['rules'] == [{'apiGroups': [''], 'resources': ['secrets'],
+                        'resourceNames': ['platform-ca'], 'verbs': ['get']}]
+                    adapter = pki['ExternalSecret/postgres-client-ca']['spec']
+                    assert adapter['refreshInterval'] == '1m'
+                    assert adapter['target']['template']['type'] == 'kubernetes.io/tls'
+                    assert adapter['target']['template']['data'] == {
+                        'tls.crt': '{{ index . "ca.crt" }}', 'tls.key': '{{ index . "ca.key" }}'}
+                    assert {d['remoteRef']['key'] for d in adapter['data']} == {'platform-ca'}
+                    assert pki['Issuer/postgres-client']['spec']['ca'] == {'secretName': 'postgres-client-ca'}
+                    leaf = pki['Certificate/atlas-postgres-client']
+                    assert leaf['spec']['commonName'] == 'atlas-operator'
+                    assert leaf['spec']['issuerRef'] == {'name': 'postgres-client', 'kind': 'Issuer'}
+                    assert leaf['spec']['usages'] == ['digital signature', 'client auth']
+                    assert leaf['spec']['privateKey']['rotationPolicy'] == 'Always'
+                    assert leaf['spec']['duration'] == '720h' and leaf['spec']['renewBefore'] == '168h'
+                    assert int(pki['Issuer/postgres-client']['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(leaf['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+                    assert not any(d['kind'] in {'DatabaseRole', 'AtlasSchema', 'AtlasMigration'} for d in pki.values()), 'PKI must not take ownership of preview roles'
                     testing_role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'testkube')
                     assert testing_role['passwordSecret']['name'] == 'testkube-role'
                     assert not any(testing_role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
@@ -652,7 +684,9 @@ def main():
                     assert len(env) == 4
                     assert manager['volumeMounts'] == [{'name': 'postgres-ca', 'mountPath': '/etc/atlas-postgres', 'readOnly': True}]
                     assert pod['volumes'] == [{'name': 'postgres-ca', 'secret': {'secretName': 'atlas-postgres',
-                        'items': [{'key': 'ca.crt', 'path': 'ca.crt'}]}}]
+                        'defaultMode': 0o640, 'items': [{'key': 'ca.crt', 'path': 'ca.crt'},
+                        {'key': 'tls.crt', 'path': 'tls.crt'}, {'key': 'tls.key', 'path': 'tls.key'}]}}]
+                    assert isinstance(pod['securityContext']['fsGroup'], int), 'Non-root Atlas must be able to read the group-readable client key'
                     assert pod['serviceAccountName'] == 'atlas-operator'
                     assert not any('secrets' in rule.get('resources', [])
                                    for d in docs if d['kind'] == 'ClusterRole' for rule in d['rules'])

@@ -92,6 +92,8 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/postgres/cluster.yaml") . | indent 10 }}
           ---
+{{ tpl (.Files.Get "packages/postgres/client-certificates.yaml") . | indent 10 }}
+          ---
 {{ tpl (.Files.Get "packages/postgres/storage-class.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/postgres/pooler.yaml") . | indent 10 }}
