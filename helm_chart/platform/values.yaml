@@ -10,6 +10,11 @@ git:
 # Tenant/account context is supplied at runtime, not checked into values.
 runtime: {}
 
+# Prefix credentials for private release charts; Argo reuses its bootstrap identity.
+argocd:
+  registry:
+    name: localacrk8s
+
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 

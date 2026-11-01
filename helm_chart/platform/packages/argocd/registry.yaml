@@ -1,0 +1,14 @@
+# Registry-wide prefix credentials, not per-application secrets or passwords.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-registry
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repo-creds
+type: Opaque
+stringData:
+  url: {{ printf "%s.azurecr.io" (required "argocd.registry.name is required" .Values.argocd.registry.name) | quote }}
+  type: helm
+  enableOCI: "true"
+  useAzureWorkloadIdentity: "true"

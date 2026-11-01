@@ -115,7 +115,7 @@ def main():
         expected = {
             'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
-            'external-dns', 'gateway', 'argocd-route', 'plugin-barman-cloud', 'postgres', 'clickhouse',
+            'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
@@ -124,6 +124,11 @@ def main():
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
+        registry_app = next(app for app in applications if app['metadata']['name'] == 'argocd-registry')
+        registry_docs = list(yaml.safe_load_all(registry_app['spec']['source']['helm']['valuesObject']['manifests']))
+        assert len(registry_docs) == 1 and registry_docs[0]['kind'] == 'Secret', 'Reuse the bootstrap identity; do not provision a second identity/reloader'
+        assert registry_docs[0]['metadata']['labels']['argocd.argoproj.io/secret-type'] == 'repo-creds'
+        assert registry_docs[0]['stringData'] == {'url': 'localacrk8s.azurecr.io', 'type': 'helm', 'enableOCI': 'true', 'useAzureWorkloadIdentity': 'true'}
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
         application_aso = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret'
