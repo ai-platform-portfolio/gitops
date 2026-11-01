@@ -4,14 +4,10 @@ A federated Argo CD platform on Azure AKS. Each cluster reconciles the shared
 platform independently; management onboards workload clusters.
 
 Terraform provisions the management infrastructure and installs its initial
-Argo CD Helm release. The platform Helm chart defines shared platform services
+Argo CD Helm release. The platform Helm chart defines the application packages
 that Argo CD reconciles, with readiness gates between dependencies. One Make
 command applies the bootstrap and reconciles the full platform,
 including Argo CD access through Envoy and a per-host HTTPS certificate.
-
-Workload registrations live separately under [applications](applications/preview-manual).
-They consume deployment values from the application repository and pin the reusable
-application chart. Registering or syncing them requires separate approval.
 
 ## Before you start
 
