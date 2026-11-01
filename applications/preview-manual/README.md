@@ -10,10 +10,12 @@ The sources have separate responsibilities:
 - The pinned application repository supplies `deploy/values.yaml`, including its
   components, selected images/migration and database requests. The hostname is an
   environment binding here. Updating that values pin requires GitOps review.
-- This GitOps directory owns trusted ESO credential/RBAC policy. Argo reads only
-  `credentials.yaml`, rather than registering the Application recursively.
+- This GitOps directory owns trusted ESO credential/RBAC policy as values in
+  `credentials.yaml`. The application chart's `templates/credentials/` renders it;
+  both Git sources are values-only, so neither repository is rendered recursively.
 
-Argo combines the chart and credential manifests into one wave sequence:
+The application chart renders both app resources and reusable credential templates
+in one wave sequence:
 namespace -> generated passwords/reader access -> copied credentials -> Atlas
 roles -> CNPG database -> access migration -> application migration -> workloads.
 The API receives runtime credentials only, with verified direct PostgreSQL TLS,
@@ -30,7 +32,8 @@ The CA projection contains only `ca.crt`; only the API receives DATABASE_URL.
 
 Before registering or syncing:
 
-1. Merge the app-owned values PR and update its pin to the actual merged revision.
+1. Merge chart PR8 and the app-owned values PR4, then update their pins to the
+   actual merged revisions.
 2. Apply the already-merged bootstrap Argo ConfigMap through its existing owner;
    current-generation Atlas health checks are still absent live.
 3. Add the following entry to the shared platform's `postgres.additionalHba` in

@@ -14,11 +14,13 @@ spec:
 
   sources:
     - repoURL: https://github.com/ai-platform-portfolio/application-helm-chart.git
-      targetRevision: 6a77da74d6caea8f0730df8b4b699f83c43d594f
+      targetRevision: 9961023942fe22ee732fd304d9bf3d9fb460f095
       path: .
       helm:
         releaseName: preview
-        valueFiles: [$application/deploy/values.yaml]
+        valueFiles:
+          - $application/deploy/values.yaml
+          - $platform/applications/preview-manual/credentials.yaml
         valuesObject:
           hosts:
             web: {hostname: preview-manual.dev.michaelalinks.com}
@@ -30,9 +32,7 @@ spec:
 
     - repoURL: https://github.com/ai-platform-portfolio/gitops.git
       targetRevision: main
-      path: applications/preview-manual
-      directory:
-        include: credentials.yaml
+      ref: platform
 
   syncPolicy:
     retry:

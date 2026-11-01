@@ -30,15 +30,15 @@ def validate(tmp):
         command('git', '-C', str(checkout), 'checkout', '--quiet', '--detach', 'FETCH_HEAD')
         assert command('git', '-C', str(checkout), 'rev-parse', 'HEAD').strip() == source['targetRevision']
         checkouts.append(checkout)
-    value_file, = chart['helm']['valueFiles']
-    assert value_file.startswith('$application/')
+    app_values, platform_values = chart['helm']['valueFiles']
+    assert app_values.startswith('$application/') and platform_values.startswith('$platform/')
+    assert credentials['ref'] == 'platform' and 'path' not in credentials
     overrides = tmp / 'overrides.json'
     overrides.write_text(json.dumps(chart['helm']['valuesObject']))
     resources = [d for d in yaml.safe_load_all(command('helm', 'template', chart['helm']['releaseName'],
                  str(checkouts[0] / chart['path']), '--namespace', app['spec']['destination']['namespace'],
-                 '-f', str(checkouts[1] / value_file.removeprefix('$application/')), '-f', str(overrides))) if d]
-    assert credentials['directory'] == {'include': 'credentials.yaml'}
-    resources += [d for d in yaml.safe_load_all((ROOT / credentials['path'] / 'credentials.yaml').read_text()) if d]
+                 '-f', str(checkouts[1] / app_values.removeprefix('$application/')),
+                 '-f', str(ROOT / platform_values.removeprefix('$platform/')), '-f', str(overrides))) if d]
     keys = [(d['kind'], d['metadata'].get('namespace'), d['metadata']['name']) for d in resources]
     assert len(keys) == len(set(keys)), 'Only one source may own each resource'
     def one(kind, name, namespace=None):
