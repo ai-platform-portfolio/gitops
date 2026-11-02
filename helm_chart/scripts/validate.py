@@ -197,6 +197,84 @@ def main():
         assert watch['eventTypes'] == ['ADD', 'UPDATE'] and watch['filter']['afterStart'] is False
         bus = next(d for d in event_docs if d['kind'] == 'EventBus')['spec']['jetstream']
         assert bus['replicas'] == 1 and bus['persistence']['volumeSize'] == '1Gi'
+        # Shared GitHub delivery is opt-in; default rendering above keeps it absent.
+        assert not any(d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in event_docs)
+        github_values = tmp / 'github-events.json'
+        github_values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True,
+                                            'events': {'github': {'enabled': True}}}))
+        github_render = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform',
+                         str(HELM_CHART / 'platform'), '-f', str(github_values))) if d]
+        github_apps = {d['metadata']['name']: d for d in github_render if d['kind'] == 'Application'}
+        def manifests(app):
+            return [d for d in yaml.safe_load_all(github_apps[app]['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        credentials = manifests('argocd-github')
+        webhook_generator = next(d for d in credentials if d['kind'] == 'GithubAccessToken' and d['metadata']['name'] == 'github-webhook-api')
+        assert webhook_generator['metadata']['namespace'] == 'argocd'
+        assert webhook_generator['spec']['permissions'] == {'organization_hooks': 'write', 'actions': 'read'}
+        assert webhook_generator['spec']['auth']['privateKey']['secretRef'] == {'name': 'argocd-github-app', 'key': 'private-key'}
+        readonly = next(d for d in credentials if d['kind'] == 'GithubAccessToken' and d['metadata']['name'] == 'argocd-github-api')
+        assert readonly['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read'}
+        mirrored = next(d for d in credentials if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'github-webhook-api')
+        assert mirrored['spec']['refreshInterval'] == '15m'
+        assert mirrored['spec']['target']['template']['mergePolicy'] == 'Merge'
+        assert mirrored['spec']['target']['template']['metadata']['annotations'] == {
+            'reflector.v1.k8s.emberstack.com/reflection-allowed': 'true',
+            'reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces': '^cluster-onboarding$',
+            'reflector.v1.k8s.emberstack.com/reflection-auto-enabled': 'true',
+            'reflector.v1.k8s.emberstack.com/reflection-auto-namespaces': '^cluster-onboarding$',
+        }
+        delivery = manifests('platform-events')
+        receiver = next(d for d in delivery if d['kind'] == 'EventSource' and d['metadata']['name'] == 'github')
+        github = receiver['spec']['github']['organization']
+        assert github['organizations'] == ['ai-platform-portfolio'] and github['events'] == ['pull_request', 'workflow_run']
+        assert github['apiToken'] == {'name': 'github-webhook-api', 'key': 'token'}
+        assert github['webhookSecret'] == {'name': 'github-event-auth', 'key': 'webhook-secret'}
+        assert 'githubApp' not in github and github['deleteHookOnFinish'] is False
+        assert github['insecure'] is False and github['webhook']['maxPayloadSize'] == 1048576
+        assert receiver['spec']['resource']['startup']['filter']['afterStart'] is False
+        hmac = next(d for d in delivery if d['kind'] == 'ExternalSecret')
+        assert hmac['spec']['data'] == [{'secretKey': 'webhook-secret', 'remoteRef': {'key': 'cluster-github-webhook-secret'}}]
+        refresh = next(d for d in delivery if d['kind'] == 'Sensor' and d['metadata']['name'] == 'preview-refresh')
+        dependencies = {d['name']: d for d in refresh['spec']['dependencies']}
+        def matches(dependency, payload):
+            for rule in dependency['filters']['data']:
+                value = payload
+                for key in rule['path'].split('.'):
+                    value = value.get(key) if isinstance(value, dict) else None
+                if not isinstance(value, str) or not any(re.fullmatch(pattern, value) for pattern in rule['value']):
+                    return False
+            return True
+        for action in ['opened', 'reopened', 'synchronize', 'closed']:
+            assert matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'pull_request', 'action': action}})
+        assert matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'completed'}})
+        assert not matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'requested'}})
+        assert not matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'issues', 'action': 'opened'}})
+        assert not matches(dependencies['pr'], {'body': {}})
+        trigger = refresh['spec']['triggers'][0]
+        assert trigger['template']['conditions'] == 'pr || publication || startup'
+        assert not trigger['template']['k8s'].get('parameters'), 'GitHub payloads must not parameterize Kubernetes commands'
+        job = trigger['template']['k8s']['source']['resource']
+        assert job['spec']['activeDeadlineSeconds'] == 60 and job['spec']['ttlSecondsAfterFinished'] == 300
+        pod = job['spec']['template']['spec']
+        assert pod['serviceAccountName'] == 'preview-refresh'
+        for container, resource, annotation in [
+            (pod['initContainers'][0], 'applicationsets.argoproj.io', 'argocd.argoproj.io/application-set-refresh=true'),
+            (pod['containers'][0], 'applications.argoproj.io', 'argocd.argoproj.io/refresh=hard'),
+        ]:
+            assert container['args'] == ['annotate', resource, '--namespace=argocd',
+                '--selector=platform.ai-platform-portfolio/preview=true', annotation,
+                '--overwrite', '--cache-dir=/tmp', '--request-timeout=15s']
+            assert '@sha256:' in container['image'] and container['securityContext']['readOnlyRootFilesystem']
+        refresh_role = next(d for d in delivery if d['kind'] == 'Role')
+        assert refresh_role['metadata']['namespace'] == 'argocd'
+        assert refresh_role['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['applications', 'applicationsets'], 'verbs': ['get', 'list', 'patch']}]
+        listener = next(d for d in delivery if d['kind'] == 'ListenerSet')
+        assert listener['metadata']['annotations'] == {'cert-manager.io/cluster-issuer': 'letsencrypt-azuredns'}
+        assert not any(d['kind'] == 'Certificate' for d in delivery)
+        namespace = next(d for d in manifests('namespaces') if d['kind'] == 'Namespace' and d['metadata']['name'] == 'cluster-onboarding')
+        assert namespace['metadata']['labels']['gitops.platform/gateway'] == 'public'
+        assert {'group': '', 'kind': 'ConfigMap', 'name': 'preview-refresh', 'namespace': 'cluster-onboarding',
+                'jsonPointers': ['/data']} in github_apps['platform-events']['spec']['ignoreDifferences']
         sender = next(app for app in applications if app['metadata']['name'] == 'atlantis')['spec']['source']['helm']['valuesObject']
         assert 'config' not in sender and not any(e['name'] == 'ATLANTIS_WEBHOOK_HTTP_HEADERS' for e in sender['environmentRaw'])
         workflows = yaml.safe_load(sender['repoConfig'])

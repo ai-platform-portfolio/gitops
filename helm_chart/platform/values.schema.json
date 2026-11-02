@@ -13,6 +13,15 @@
       "required": ["enabled", "sources", "sensors"],
       "properties": {
         "enabled": {"type": "boolean"},
+        "github": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "organization": {"type": "string", "pattern": "^[a-zA-Z0-9-]+$"},
+            "signingSecretRemoteKey": {"type": "string", "minLength": 1},
+            "refreshImage": {"type": "string", "pattern": "^\\S+@sha256:[a-f0-9]{64}$"}
+          }
+        },
         "sources": {"type": "object", "additionalProperties": {"type": "object"}, "propertyNames": {"pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}},
         "sensors": {"type": "object", "additionalProperties": {"type": "object"}, "propertyNames": {"pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}}
       }

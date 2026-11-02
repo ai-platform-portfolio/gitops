@@ -129,8 +129,14 @@ spec:
         manifests: |
 {{ tpl (.Files.Get "packages/argo-events/eventbus.yaml") . | indent 10 }}
 {{ tpl (.Files.Get "packages/cluster-onboarding/events.yaml") . | indent 10 }}
+{{- if .Values.events.github.enabled }}
+{{ tpl (.Files.Get "packages/argo-events/github.yaml") . | indent 10 }}
+{{- end }}
 {{- $policy := include "platform.syncPolicy" . | fromYaml }}
 {{- $ignored := $policy.ignoreDifferences }}
+{{- if .Values.events.github.enabled }}
+{{- $ignored = append $ignored (dict "group" "" "kind" "ConfigMap" "name" "preview-refresh" "namespace" "cluster-onboarding" "jsonPointers" (list "/data")) }}
+{{- end }}
 {{- if .Values.clusterOnboarding.enabled }}
 {{- range $path, $contents := .Files.Glob "clusters/*/profile.yaml" }}
 {{- $name := (fromYaml (toString $contents)).cluster.name }}
