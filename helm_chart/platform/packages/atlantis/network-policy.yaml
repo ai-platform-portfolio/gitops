@@ -29,3 +29,15 @@ spec:
   - ports:
     - protocol: TCP
       port: 443
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+  - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: cluster-onboarding
+        podSelector:
+          matchLabels:
+            eventsource-name: atlantis
+    ports:
+      - protocol: TCP
+        port: 12000
+{{- end }}

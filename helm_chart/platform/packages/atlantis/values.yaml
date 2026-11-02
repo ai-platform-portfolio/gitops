@@ -28,6 +28,15 @@ repoConfig: |
     repo_locks:
       mode: on_plan
 
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+# Native notifications run after apply; the Sensor rejects unsuccessful results.
+config: |
+  webhooks:
+    - event: apply
+      kind: http
+      url: http://atlantis-eventsource-svc.cluster-onboarding.svc:12000/apply
+{{- end }}
+
 environment:
   ATLANTIS_DISABLE_AUTOPLAN: "true"
   ATLANTIS_ALLOW_COMMANDS: version,plan,apply,unlock
@@ -44,6 +53,13 @@ environment:
 
 # ASO creates this ConfigMap in the same namespace after Azure provisioning.
 environmentRaw:
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+  - name: ATLANTIS_WEBHOOK_HTTP_HEADERS
+    valueFrom:
+      secretKeyRef:
+        name: onboarding-webhook
+        key: headers
+{{- end }}
   - name: ARM_CLIENT_ID
     valueFrom:
       configMapKeyRef:

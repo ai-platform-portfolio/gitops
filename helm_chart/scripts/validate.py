@@ -100,6 +100,40 @@ def main():
         maps = [d for d in argo if d and d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'argocd-cm']
         assert len(maps) == 1 and maps[0]['data'] == configmap['data'], 'Helm must install exactly the file-defined Argo ConfigMap'
         rendered = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
+        sensors = [d for d in rendered if d['kind'] == 'Sensor']
+        assert sensors and not any(d['kind'] == 'CronJob' for d in rendered), 'Onboarding must be event-driven'
+        for sensor in sensors:
+            name = sensor['metadata']['name'].removeprefix('onboard-')
+            filters = sensor['spec']['dependencies'][0]['filters']['data']
+            def accepts(payload):
+                for rule in filters:
+                    value = payload
+                    for key in rule['path'].split('.'):
+                        value = value.get(key) if isinstance(value, dict) else None
+                    if rule['type'] == 'bool':
+                        if value is not True:
+                            return False
+                    elif not isinstance(value, str) or not any(re.fullmatch(pattern, value) for pattern in rule['value']):
+                        return False
+                return True
+            event = {'Success': True, 'Repo': {'FullName': 'ai-platform-portfolio/cluster-deployments'},
+                     'Directory': 'clusters/' + name, 'Workspace': 'default'}
+            assert accepts({'body': event})
+            for change in [{'Success': False}, {'Repo': {'FullName': 'untrusted/repo'}},
+                           {'Directory': 'clusters/other'}, {'Directory': '../clusters/' + name},
+                           {'Workspace': 'other'}]:
+                assert not accepts({'body': {**event, **change}}), 'Invalid apply event must not trigger onboarding'
+            assert not accepts({'body': {}})
+            trigger = sensor['spec']['triggers'][0]
+            assert trigger['retryStrategy']['steps'] == 5
+            job = trigger['template']['k8s']['source']['resource']
+            assert trigger['template']['k8s']['operation'] == 'update'
+            assert job['metadata']['name'] == sensor['metadata']['name']
+            assert job['spec']['ttlSecondsAfterFinished'] == 0 and job['spec']['backoffLimit'] == 2
+            container = job['spec']['template']['spec']['containers'][0]
+            assert container['resources']['requests']['cpu'] == '50m' and 'cpu' not in container['resources']['limits']
+            assert container['env'] == [{'name': 'CLUSTER_NAME', 'value': name}]
+            assert '@sha256:' in container['image']
         settings_map = next(d for d in rendered if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'workload-onboarding-settings')
         assert 'clusterOnboarding' in json.loads(settings_map['data']['values.json'])
         onboarding_aso = next(d for d in rendered if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential' and d['metadata']['namespace'] == 'cluster-onboarding')
@@ -113,7 +147,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
+            'argo-events', 'onboarding-events', 'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -124,6 +158,17 @@ def main():
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
+        onboarding_app = next(app for app in applications if app['metadata']['name'] == 'onboarding-events')
+        event_docs = list(yaml.safe_load_all(onboarding_app['spec']['source']['helm']['valuesObject']['manifests']))
+        source = next(d for d in event_docs if d['kind'] == 'EventSource')
+        assert source['spec']['webhook']['apply']['authSecret'] == {'name': 'onboarding-webhook', 'key': 'token'}
+        bus = next(d for d in event_docs if d['kind'] == 'EventBus')['spec']['jetstream']
+        assert bus['replicas'] == 1 and bus['persistence']['volumeSize'] == '1Gi'
+        sender = next(app for app in applications if app['metadata']['name'] == 'atlantis')['spec']['source']['helm']['valuesObject']
+        assert yaml.safe_load(sender['config'])['webhooks'] == [{
+            'event': 'apply', 'kind': 'http', 'url': 'http://atlantis-eventsource-svc.cluster-onboarding.svc:12000/apply'}]
+        headers = next(e for e in sender['environmentRaw'] if e['name'] == 'ATLANTIS_WEBHOOK_HTTP_HEADERS')
+        assert headers['valueFrom']['secretKeyRef'] == {'name': 'onboarding-webhook', 'key': 'headers'}
         registry_app = next(app for app in applications if app['metadata']['name'] == 'argocd-registry')
         registry_docs = list(yaml.safe_load_all(registry_app['spec']['source']['helm']['valuesObject']['manifests']))
         assert len(registry_docs) == 1 and registry_docs[0]['kind'] == 'Secret', 'Reuse the bootstrap identity; do not provision a second identity/reloader'
@@ -148,6 +193,7 @@ def main():
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
         assert waves['namespaces'] < waves['external-secrets'] < waves['configuration'] < waves['testkube-azure']
+        assert waves['argo-events'] < waves['configuration'] < waves['onboarding-events'] < waves['atlantis']
         assert waves['configuration'] == waves['azure-service-operator']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
@@ -421,7 +467,7 @@ def main():
         workload_names = {a['metadata']['name'] for a in workload}
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
                                               'sonarqube', 'sonarqube-configure', 'crossplane',
-                                              'crossplane-packages', 'crossplane-identity-api', 'argocd-route'}, 'Workload must install every ready package except management services'
+                                              'crossplane-packages', 'crossplane-identity-api', 'argocd-route', 'argo-events', 'onboarding-events'}, 'Workload must install every ready package except management services'
         assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
                 'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
@@ -593,6 +639,13 @@ def main():
                     '--kube-version', '1.34.1', '-f', str(values))
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
+                if name == 'atlantis':
+                    runner = next(d for d in docs if d['kind'] == 'StatefulSet')['spec']['template']['spec']
+                    env = {e['name']: e for e in runner['containers'][0]['env']}
+                    assert env['ATLANTIS_WEBHOOK_HTTP_HEADERS']['valueFrom']['secretKeyRef']['name'] == 'onboarding-webhook'
+                if name == 'argo-events':
+                    assert {'EventBus', 'EventSource', 'Sensor'} <= {d['spec']['names']['kind'] for d in docs if d['kind'] == 'CustomResourceDefinition'}
+                    assert not any(d['kind'] == 'ClusterRoleBinding' for d in docs), 'Keep the controller namespaced'
                 if name == 'testkube':
                     assert not any(d['kind'] in {'StatefulSet', 'Ingress', 'HTTPRoute', 'PersistentVolumeClaim', 'Job'} for d in docs)
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')

@@ -264,6 +264,7 @@ commands serially.
   setup, prerequisites, validation and teardown behavior.
 - [Platform](helm_chart/platform/README.md): package configuration, ownership and
   dependency ordering.
+- [Onboarding events](helm_chart/platform/packages/cluster-onboarding/README.md): Atlantis apply signals, retry/replay and rollout limits.
 - [Federation](helm_chart/federation/README.md): onboarding independent workload
   roots through the management ApplicationSet.
 - [Backstage application](helm_chart/backstage/README.md) and

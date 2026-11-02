@@ -10,10 +10,11 @@
     "clusterOnboarding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "image", "vaultResourceGroup"],
+      "required": ["enabled", "image", "repository", "vaultResourceGroup"],
       "properties": {
         "enabled": {"type": "boolean"},
         "image": {"type": "string"},
+        "repository": {"type": "string", "pattern": "^[a-zA-Z0-9-]+/[a-zA-Z0-9_.-]+$"},
         "vaultResourceGroup": {"type": "string", "minLength": 1}
       },
       "allOf": [{

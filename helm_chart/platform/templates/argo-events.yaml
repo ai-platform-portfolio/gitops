@@ -1,0 +1,73 @@
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+# Shared controller first; event resources are reconciled only after its CRDs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-events
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cluster-onboarding
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-events
+    targetRevision: "2.4.27"
+    helm:
+      releaseName: argo-events
+      valuesObject:
+        controller:
+          rbac:
+            namespaced: true
+          nodeSelector:
+            agentpool: platform
+          resources:
+            requests: {cpu: 20m, memory: 128Mi}
+            limits: {memory: 512Mi}
+        configs:
+          jetstream:
+            streamConfig:
+              replicas: 1
+              maxBytes: 100MB
+              maxAge: 168h
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: onboarding-events
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cluster-onboarding
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/cluster-onboarding/events.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

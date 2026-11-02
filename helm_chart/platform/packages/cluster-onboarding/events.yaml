@@ -1,0 +1,96 @@
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: onboarding
+  namespace: cluster-onboarding
+spec:
+  jetstream:
+    version: 2.10.29
+    replicas: 1
+    nodeSelector:
+      agentpool: platform
+    persistence:
+      storageClassName: managed-csi
+      accessMode: ReadWriteOnce
+      volumeSize: 1Gi
+    containerTemplate:
+      resources:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {memory: 256Mi}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: atlantis
+  namespace: cluster-onboarding
+spec:
+  eventBusName: onboarding
+  template:
+    serviceAccountName: onboarding-event-source
+    nodeSelector:
+      agentpool: platform
+    container:
+      resources:
+        requests: {cpu: 10m, memory: 64Mi}
+        limits: {memory: 256Mi}
+  service:
+    ports:
+      - port: 12000
+        targetPort: 12000
+  webhook:
+    apply:
+      port: "12000"
+      endpoint: /apply
+      method: POST
+      authSecret:
+        name: onboarding-webhook
+        key: token
+---
+# The webhook stays private. Only Atlantis may submit apply notifications.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: onboarding-webhook
+  namespace: cluster-onboarding
+spec:
+  podSelector:
+    matchLabels:
+      eventsource-name: atlantis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: atlantis
+          podSelector:
+            matchLabels:
+              app: atlantis
+      ports:
+        - protocol: TCP
+          port: 12000
+---
+# Apply payloads stay on the private, authenticated bus. Other workloads do
+# not need access to onboarding events or their retained metadata.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: onboarding-eventbus
+  namespace: cluster-onboarding
+spec:
+  podSelector:
+    matchLabels:
+      eventbus-name: onboarding
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: controller
+                operator: In
+                values: [eventsource-controller, sensor-controller]
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: argo-events
+      ports:
+        - protocol: TCP
+          port: 4222
