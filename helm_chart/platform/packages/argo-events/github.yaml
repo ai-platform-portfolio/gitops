@@ -58,6 +58,16 @@ spec:
       # The cached API token is only used by native bounded startup registration;
       # normal deliveries use HMAC. A restarted source reads a fresh ESO token.
       deleteHookOnFinish: false
+
+---
+# Argo Events requires webhook and resource watches in separate EventSources.
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: preview-startup
+  namespace: cluster-onboarding
+spec:
+{{ include "platform.eventDefaults" "platform-event-source" | indent 2 }}
   resource:
     startup:
       namespace: cluster-onboarding
@@ -123,7 +133,7 @@ spec:
           - {path: body.X-GitHub-Event, type: string, value: ['^workflow_run$']}
           - {path: body.action, type: string, value: ['^completed$']}
     - name: startup
-      eventSourceName: github
+      eventSourceName: preview-startup
       eventName: startup
   triggers:
     - template:
