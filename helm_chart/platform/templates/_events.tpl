@@ -1,3 +1,16 @@
+{{/* Shared native defaults, used by both EventSource and Sensor. */}}
+{{- define "platform.eventDefaults" -}}
+eventBusName: platform
+template:
+  serviceAccountName: {{ . }}
+  nodeSelector:
+    agentpool: platform
+  container:
+    resources:
+      requests: {cpu: 10m, memory: 64Mi}
+      limits: {memory: 256Mi}
+{{- end -}}
+
 {{/* Native Argo specs remain the interface; only shared installation defaults live here. */}}
 {{- define "platform.eventSource" -}}
 {{- $spec := deepCopy .spec -}}
@@ -6,7 +19,7 @@
 {{- $_ := required "webhook authSecret.name is required" $webhook.authSecret.name -}}
 {{- $_ := required "webhook authSecret.key is required" $webhook.authSecret.key -}}
 {{- end -}}
-{{- $defaults := dict "eventBusName" "platform" "template" (dict "serviceAccountName" "platform-event-source" "nodeSelector" (dict "agentpool" "platform") "container" (dict "resources" (dict "requests" (dict "cpu" "10m" "memory" "64Mi") "limits" (dict "memory" "256Mi")))) -}}
+{{- $defaults := include "platform.eventDefaults" "platform-event-source" | fromYaml -}}
 apiVersion: argoproj.io/v1alpha1
 kind: EventSource
 metadata:
@@ -19,7 +32,7 @@ spec:
 {{- end -}}
 
 {{- define "platform.eventSensor" -}}
-{{- $defaults := dict "eventBusName" "platform" "template" (dict "serviceAccountName" "platform-event-sensor" "nodeSelector" (dict "agentpool" "platform") "container" (dict "resources" (dict "requests" (dict "cpu" "10m" "memory" "64Mi") "limits" (dict "memory" "256Mi")))) -}}
+{{- $defaults := include "platform.eventDefaults" "platform-event-sensor" | fromYaml -}}
 apiVersion: argoproj.io/v1alpha1
 kind: Sensor
 metadata:

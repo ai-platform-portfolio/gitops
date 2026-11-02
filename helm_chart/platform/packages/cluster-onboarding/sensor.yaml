@@ -7,18 +7,6 @@ dependencies:
         - path: body.metadata.name
           type: string
           value: [{{ printf "^onboard-%s$" (regexQuoteMeta .clusterName) | quote }}]
-        - path: body.data.phase
-          type: string
-          value: ["^applied$"]
-        - path: body.data.repository
-          type: string
-          value: [{{ printf "^%s$" (regexQuoteMeta (required "clusterOnboarding.repository is required" .Values.clusterOnboarding.repository)) | quote }}]
-        - path: body.data.directory
-          type: string
-          value: [{{ printf "^clusters/%s$" (regexQuoteMeta .clusterName) | quote }}]
-        - path: body.data.workspace
-          type: string
-          value: ["^default$"]
         - path: body.data.revision
           type: string
           value: ["^[a-f0-9]{40,64}$"]

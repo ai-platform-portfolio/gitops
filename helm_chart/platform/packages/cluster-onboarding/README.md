@@ -30,9 +30,11 @@ Atlantis shares that pod identity. This does not cryptographically attest that
 Terraform succeeded; the server-owned workflow orders the normal execution path.
 
 The publisher validates repository, default workspace, cluster directory and
-source revision before publishing a fresh request ID. Sensors independently
-filter those fields and the applied phase. Missing/failed/unrelated signals do
-not release a worker. Native Resource EventSource watches ADD/UPDATE, with
+source revision once. The signal contains only the revision and a fresh request
+marker; its ConfigMap name identifies the cluster. Sensors match that name and
+require both fields, so empty or unrelated signals do not release a worker.
+Bash is already included in the pinned Atlantis image. The native Resource
+EventSource watches ADD/UPDATE, with
 `afterStart: false`, so an existing signal is read after watcher startup too.
 
 Each signal holds the latest request. `platform-events` ignores only `/data` on

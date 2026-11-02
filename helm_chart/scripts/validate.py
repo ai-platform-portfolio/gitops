@@ -110,19 +110,12 @@ def main():
                     value = payload
                     for key in rule['path'].split('.'):
                         value = value.get(key) if isinstance(value, dict) else None
-                    if rule['type'] == 'bool':
-                        if value is not True:
-                            return False
-                    elif not isinstance(value, str) or not any(re.fullmatch(pattern, value) for pattern in rule['value']):
+                    if not isinstance(value, str) or not any(re.fullmatch(pattern, value) for pattern in rule['value']):
                         return False
                 return True
-            event = {'phase': 'applied', 'repository': 'ai-platform-portfolio/cluster-deployments',
-                     'directory': 'clusters/' + name, 'workspace': 'default',
-                     'revision': 'a' * 40, 'request': 'b' * 32}
+            event = {'revision': 'a' * 40, 'request': 'b' * 32}
             assert accepts({'body': {'metadata': {'name': 'onboard-' + name}, 'data': event}})
-            for change in [{'phase': 'failed'}, {'repository': 'untrusted/repo'},
-                           {'directory': 'clusters/other'}, {'directory': '../clusters/' + name},
-                           {'workspace': 'other'}, {'revision': 'invalid'}, {'request': ''}]:
+            for change in [{'revision': 'invalid'}, {'request': ''}]:
                 assert not accepts({'body': {'metadata': {'name': 'onboard-' + name}, 'data': {**event, **change}}}), 'Invalid apply event must not trigger onboarding'
             assert not accepts({'body': {'metadata': {'name': 'unrelated'}, 'data': event}})
             assert not accepts({'body': {}})
@@ -174,7 +167,7 @@ def main():
         workflows = yaml.safe_load(sender['repoConfig'])
         assert workflows['repos'][0]['workflow'] == 'platform-onboarding'
         assert workflows['workflows']['platform-onboarding']['apply']['steps'] == [
-            'apply', {'run': '/bin/sh /etc/platform-onboarding/publish-signal.sh'}]
+            'apply', {'run': '/bin/bash /etc/platform-onboarding/publish-signal.sh'}]
         publisher = next(d for d in rendered if d['kind'] == 'Role' and d['metadata']['name'] == 'onboarding-signal-publisher')
         rule = publisher['rules'][0]
         assert rule['resources'] == ['configmaps'] and rule['verbs'] == ['patch']

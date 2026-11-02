@@ -39,7 +39,7 @@ repoConfig: |
       apply:
         steps:
           - apply
-          - run: /bin/sh /etc/platform-onboarding/publish-signal.sh
+          - run: /bin/bash /etc/platform-onboarding/publish-signal.sh
 {{- end }}
 
 environment:

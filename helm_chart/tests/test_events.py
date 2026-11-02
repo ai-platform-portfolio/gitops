@@ -58,9 +58,9 @@ class SignalPublisherTests(unittest.TestCase):
             curl.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, sys
 args = sys.argv[1:]
-payload = args[args.index('--data-binary') + 1][1:]
+payload = json.loads(args[args.index('--data-binary') + 1])
 pathlib.Path(os.environ['SIGNAL_TEST_LOG']).write_text(json.dumps({
-    'headers': sys.stdin.read(), 'args': args, 'payload': json.loads(pathlib.Path(payload).read_text())}))
+    'headers': sys.stdin.read(), 'args': args, 'payload': payload}))
 sys.exit(int(os.environ.get('SIGNAL_TEST_STATUS', '0')))
 ''')
             curl.chmod(0o755)
@@ -74,23 +74,24 @@ sys.exit(int(os.environ.get('SIGNAL_TEST_STATUS', '0')))
             requests = []
             for credential in ['first-test-token', 'rotated-test-token']:
                 token.write_text(credential)
-                result = subprocess.run(['sh', str(PUBLISHER)], env=env, text=True, capture_output=True)
+                result = subprocess.run(['bash', str(PUBLISHER)], env=env, text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 sent = json.loads(log.read_text())
                 self.assertIn('Bearer ' + credential, sent['headers'])
                 self.assertNotIn(credential, ' '.join(sent['args']) + result.stdout + result.stderr)
                 self.assertIn('/configmaps/onboard-aks-second', sent['args'][-1])
+                self.assertEqual(set(sent['payload']['data']), {'revision', 'request'})
                 requests.append(sent['payload']['data']['request'])
             self.assertNotEqual(*requests)
             for override in [{'REPO_REL_DIR': 'clusters/../other'}, {'HEAD_COMMIT': '$(false)'},
                              {'REPO_REL_DIR': 'clusters/aks-second\nother'}, {'HEAD_COMMIT': 'a' * 40 + '\nother'},
                              {'WORKSPACE': 'other'}, {'BASE_REPO_OWNER': 'untrusted'}]:
                 log.unlink()
-                result = subprocess.run(['sh', str(PUBLISHER)], env={**env, **override}, capture_output=True)
+                result = subprocess.run(['bash', str(PUBLISHER)], env={**env, **override}, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(log.exists())
                 log.write_text('{}')
-            result = subprocess.run(['sh', str(PUBLISHER)], env={**env, 'SIGNAL_TEST_STATUS': '22'}, capture_output=True)
+            result = subprocess.run(['bash', str(PUBLISHER)], env={**env, 'SIGNAL_TEST_STATUS': '22'}, capture_output=True)
             self.assertNotEqual(result.returncode, 0, 'API failure must fail the Atlantis step')
 
 
