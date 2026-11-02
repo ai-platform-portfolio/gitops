@@ -1,0 +1,61 @@
+# Reuse the existing App key: native AKS-to-GitHub App federation was not verified
+# as available (2026-11-02), and ESO's GitHub generator requires a PEM Secret.
+# This copies the long-lived key from Key Vault into argocd; token renewal below
+# does not rotate it. App keys do not expire and require explicit rotation/revocation.
+# Revisit native federation or Key Vault remote signing when supported by this flow:
+# https://github.com/github/roadmap/issues/1288
+# Fetch only the App key, not its unrelated credentials.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-github-app
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: azure-kv
+    kind: ClusterSecretStore
+  target:
+    name: argocd-github-app
+  data:
+  - secretKey: private-key
+    remoteRef:
+      key: {{ required "argocd.github.privateKeyRemoteKey is required" .Values.argocd.github.privateKeyRemoteKey | quote }}
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: GithubAccessToken
+metadata:
+  name: argocd-github-api
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '-5'
+spec:
+  appID: {{ required "argocd.github.appId is required" .Values.argocd.github.appId | quote }}
+  installID: {{ required "argocd.github.installationId is required" .Values.argocd.github.installationId | quote }}
+  permissions:
+    actions: read
+    pull_requests: read
+  auth:
+    privateKey:
+      secretRef:
+        name: argocd-github-app
+        key: private-key
+---
+# Installation tokens expire after one hour; ESO renews them before expiry.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-github-api
+  namespace: argocd
+spec:
+  refreshInterval: 15m
+  target:
+    name: argocd-github-api
+  dataFrom:
+  - sourceRef:
+      generatorRef:
+        apiVersion: generators.external-secrets.io/v1alpha1
+        kind: GithubAccessToken
+        name: argocd-github-api

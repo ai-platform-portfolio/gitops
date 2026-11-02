@@ -175,7 +175,7 @@ def main():
         expected = {
             'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
-            'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'plugin-barman-cloud', 'postgres', 'clickhouse',
+            'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
@@ -211,6 +211,27 @@ def main():
         assert len(registry_docs) == 1 and registry_docs[0]['kind'] == 'Secret', 'Reuse the bootstrap identity; do not provision a second identity/reloader'
         assert registry_docs[0]['metadata']['labels']['argocd.argoproj.io/secret-type'] == 'repo-creds'
         assert registry_docs[0]['stringData'] == {'url': 'localacrk8s.azurecr.io', 'type': 'helm', 'enableOCI': 'true', 'useAzureWorkloadIdentity': 'true'}
+        github_app = next(app for app in applications if app['metadata']['name'] == 'argocd-github')
+        github_resources = list(yaml.safe_load_all(github_app['spec']['source']['helm']['valuesObject']['manifests']))
+        assert len(github_resources) == 3 and {d['kind'] for d in github_resources} == {'ExternalSecret', 'GithubAccessToken'}
+        assert all(d['metadata']['namespace'] == 'argocd' for d in github_resources)
+        key_source = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-app')
+        generator = next(d for d in github_resources if d['kind'] == 'GithubAccessToken')
+        token = next(d for d in github_resources if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'argocd-github-api')
+        assert key_source['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
+        assert key_source['spec']['target']['name'] == 'argocd-github-app'
+        assert key_source['spec']['data'] == [{'secretKey': 'private-key', 'remoteRef': {'key': 'ai-platform-clusters-pem-key'}}]
+        assert generator['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read'}
+        assert 'repositories' not in generator['spec'], 'Use the existing installation without per-app access lists'
+        assert all(re.fullmatch(r'[0-9]+', generator['spec'][key]) for key in ['appID', 'installID'])
+        assert generator['spec']['auth'] == {'privateKey': {'secretRef': {'name': 'argocd-github-app', 'key': 'private-key'}}}
+        assert token['spec']['refreshInterval'] == '15m', 'Refresh before the one-hour installation token expiry'
+        assert token['spec']['target'] == {'name': 'argocd-github-api'}
+        assert token['spec']['dataFrom'] == [{'sourceRef': {'generatorRef': {
+            'apiVersion': generator['apiVersion'], 'kind': generator['kind'], 'name': generator['metadata']['name'],
+        }}}]
+        wave = lambda doc: int(doc['metadata'].get('annotations', {}).get('argocd.argoproj.io/sync-wave', 0))
+        assert wave(key_source) < wave(generator) < wave(token)
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
         application_aso = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret'
@@ -230,6 +251,7 @@ def main():
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
         assert waves['namespaces'] < waves['external-secrets'] < waves['configuration'] < waves['testkube-azure']
+        assert waves['configuration'] < waves['argocd-github']
         assert waves['argo-events'] < waves['configuration'] < waves['platform-events'] < waves['atlantis']
         assert waves['configuration'] == waves['azure-service-operator']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
@@ -856,7 +878,7 @@ def main():
                 if name == 'external-secrets':
                     crds = {d['metadata']['name'] for d in docs if d['kind'] == 'CustomResourceDefinition'}
                     assert {'externalsecrets.external-secrets.io', 'clustersecretstores.external-secrets.io',
-                            'passwords.generators.external-secrets.io'} <= crds, 'Secret delivery and password generation APIs must be installed'
+                            'passwords.generators.external-secrets.io', 'githubaccesstokens.generators.external-secrets.io'} <= crds, 'Secret delivery and password generation APIs must be installed'
                     schemas = {d['spec']['names']['kind']: next(v['schema']['openAPIV3Schema'] for v in d['spec']['versions'] if v.get('storage'))
                                for d in docs if d['kind'] == 'CustomResourceDefinition'}
                     for resource in backstage_resources:
@@ -864,6 +886,13 @@ def main():
                             continue
                         properties = schemas[resource['kind']]['properties']['spec']['properties']
                         assert resource['spec'].keys() <= properties.keys(), 'Backstage uses fields absent from pinned ESO CRDs'
+                    for resource in github_resources:
+                        schema = schemas[resource['kind']]['properties']['spec']
+                        assert resource['spec'].keys() <= schema['properties'].keys(), 'GitHub credentials use unsupported ESO fields'
+                        assert set(schema.get('required', [])) <= resource['spec'].keys()
+                    github = schemas['GithubAccessToken']['properties']['spec']['properties']
+                    assert {'permissions', 'auth', 'appID', 'installID'} <= github.keys()
+                    assert 'secretRef' in github['auth']['properties']['privateKey']['properties']
                     es = schemas['ExternalSecret']['properties']['spec']['properties']
                     assert 'CreatedOnce' in es['refreshPolicy']['enum']
                     assert 'immutable' in es['target']['properties']
