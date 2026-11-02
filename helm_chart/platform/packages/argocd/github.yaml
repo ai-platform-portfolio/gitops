@@ -59,3 +59,49 @@ spec:
         apiVersion: generators.external-secrets.io/v1alpha1
         kind: GithubAccessToken
         name: argocd-github-api
+{{- if and (eq .Values.cluster.role "management") .Values.events.enabled .Values.events.github.enabled }}
+
+---
+# Webhook registration gets a separate token; Argo's read-only token is unchanged.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: GithubAccessToken
+metadata:
+  name: github-webhook-api
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '-5'
+spec:
+  appID: {{ .Values.argocd.github.appId | quote }}
+  installID: {{ .Values.argocd.github.installationId | quote }}
+  permissions:
+    organization_hooks: write
+    actions: read
+  auth:
+    privateKey:
+      secretRef: {name: argocd-github-app, key: private-key}
+
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: github-webhook-api
+  namespace: argocd
+spec:
+  refreshInterval: 15m
+  target:
+    name: github-webhook-api
+    template:
+      mergePolicy: Merge
+      metadata:
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: 'true'
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: '^cluster-onboarding$'
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: 'true'
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: '^cluster-onboarding$'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: GithubAccessToken
+          name: github-webhook-api
+{{- end }}

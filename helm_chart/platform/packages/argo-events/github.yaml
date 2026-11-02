@@ -1,0 +1,219 @@
+{{- $github := .Values.events.github -}}
+{{- $hostname := printf "github-events.%s" (required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE) -}}
+---
+# Native GitHub HMAC validation reuses the existing signing secret.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: github-event-auth
+  namespace: cluster-onboarding
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: azure-kv, kind: ClusterSecretStore}
+  target: {name: github-event-auth}
+  data:
+    - secretKey: webhook-secret
+      remoteRef: {key: {{ $github.signingSecretRemoteKey | quote }}}
+
+---
+# A watch emits existing signals on startup; /data remains producer-owned.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: preview-refresh
+  namespace: cluster-onboarding
+  labels:
+    platform.ai-platform-portfolio/preview-refresh-signal: 'true'
+data: {}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: github
+  namespace: cluster-onboarding
+spec:
+{{ include "platform.eventDefaults" "platform-event-source" | indent 2 }}
+  service:
+    ports:
+      - {name: github, port: 12000, targetPort: 12000}
+  github:
+    organization:
+      organizations: [{{ $github.organization | quote }}]
+      webhook:
+        endpoint: /github
+        port: '12000'
+        method: POST
+        url: {{ printf "https://%s" $hostname | quote }}
+        maxPayloadSize: 1048576
+      events: [pull_request, workflow_run]
+      apiToken: {name: github-webhook-api, key: token}
+      webhookSecret: {name: github-event-auth, key: webhook-secret}
+      contentType: json
+      active: true
+      insecure: false
+      # One org subscription persists across disposable cluster/pod restarts.
+      # The cached API token is only used by native bounded startup registration;
+      # normal deliveries use HMAC. A restarted source reads a fresh ESO token.
+      deleteHookOnFinish: false
+  resource:
+    startup:
+      namespace: cluster-onboarding
+      group: ''
+      version: v1
+      resource: configmaps
+      eventTypes: [ADD, UPDATE]
+      filter:
+        afterStart: false
+        labels:
+          - {key: platform.ai-platform-portfolio/preview-refresh-signal, value: 'true'}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: preview-refresh
+  namespace: cluster-onboarding
+
+---
+# RBAC cannot limit patches to annotations; this is a trusted platform Job.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: preview-refresh
+  namespace: argocd
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications, applicationsets]
+    verbs: [get, list, patch]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: preview-refresh
+  namespace: argocd
+subjects:
+  - {kind: ServiceAccount, name: preview-refresh, namespace: cluster-onboarding}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: preview-refresh}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: preview-refresh
+  namespace: cluster-onboarding
+spec:
+{{ include "platform.eventDefaults" "platform-event-sensor" | indent 2 }}
+  dependencies:
+    - name: pr
+      eventSourceName: github
+      eventName: organization
+      filters:
+        data:
+          - {path: body.X-GitHub-Event, type: string, value: ['^pull_request$']}
+          - {path: body.action, type: string, value: ['^(opened|reopened|synchronize|closed)$']}
+    - name: publication
+      eventSourceName: github
+      eventName: organization
+      filters:
+        data:
+          - {path: body.X-GitHub-Event, type: string, value: ['^workflow_run$']}
+          - {path: body.action, type: string, value: ['^completed$']}
+    - name: startup
+      eventSourceName: github
+      eventName: startup
+  triggers:
+    - template:
+        name: refresh-previews
+        conditions: pr || publication || startup
+        k8s:
+          operation: create
+          source:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                generateName: preview-refresh-
+                namespace: cluster-onboarding
+              spec:
+                activeDeadlineSeconds: 60
+                backoffLimit: 2
+                ttlSecondsAfterFinished: 300
+                template:
+                  spec:
+                    serviceAccountName: preview-refresh
+                    automountServiceAccountToken: true
+                    restartPolicy: Never
+                    nodeSelector: {agentpool: platform}
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 65532
+                      runAsGroup: 65532
+                      seccompProfile: {type: RuntimeDefault}
+                    initContainers:
+                      - name: refresh-applicationsets
+                        image: {{ $github.refreshImage | quote }}
+                        args: [annotate, applicationsets.argoproj.io, --namespace=argocd, '--selector=platform.ai-platform-portfolio/preview=true', argocd.argoproj.io/application-set-refresh=true, --overwrite, --cache-dir=/tmp, --request-timeout=15s]
+                        resources:
+                          requests: {cpu: 10m, memory: 32Mi}
+                          limits: {memory: 64Mi}
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities: {drop: [ALL]}
+                        volumeMounts: [{name: tmp, mountPath: /tmp}]
+                    containers:
+                      - name: refresh-applications
+                        image: {{ $github.refreshImage | quote }}
+                        args: [annotate, applications.argoproj.io, --namespace=argocd, '--selector=platform.ai-platform-portfolio/preview=true', argocd.argoproj.io/refresh=hard, --overwrite, --cache-dir=/tmp, --request-timeout=15s]
+                        resources:
+                          requests: {cpu: 10m, memory: 32Mi}
+                          limits: {memory: 64Mi}
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities: {drop: [ALL]}
+                        volumeMounts: [{name: tmp, mountPath: /tmp}]
+                    volumes: [{name: tmp, emptyDir: {}}]
+      retryStrategy: {steps: 3}
+
+---
+# cert-manager owns the per-host Certificate through this ListenerSet annotation.
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: github-events
+  namespace: cluster-onboarding
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-azuredns
+spec:
+  parentRef: {group: gateway.networking.k8s.io, kind: Gateway, name: public, namespace: envoy-gateway-system}
+  listeners:
+    - name: https
+      hostname: {{ $hostname | quote }}
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs: [{name: github-events-tls}]
+      allowedRoutes:
+        namespaces: {from: Same}
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: github-events
+  namespace: cluster-onboarding
+spec:
+  hostnames: [{{ $hostname | quote }}]
+  parentRefs:
+    - {group: gateway.networking.k8s.io, kind: ListenerSet, name: github-events, sectionName: https}
+  rules:
+    - matches:
+        - path: {type: Exact, value: /github}
+      backendRefs:
+        - {name: github-eventsource-svc, port: 12000}

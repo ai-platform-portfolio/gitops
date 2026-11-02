@@ -67,6 +67,63 @@ pre-created signal with a projected service-account token and watch it using a
 Resource EventSource. It requires no webhook password, receiver service or new
 client-certificate machinery. The native source/Sensor maps still apply.
 
+## GitHub preview delivery — optional shared package
+
+`events.github.enabled` defaults to false. When enabled on management, one native
+GitHub EventSource manages an organization webhook for PR and workflow-run events.
+The existing App needs **organization Webhooks write** accepted on its installation;
+repository Webhooks write is insufficient. The organization and existing signing
+secret key are platform settings, not per-app registrations.
+
+ESO mints a separate one-hour installation token with `organization_hooks: write`
+and `actions: read`, refreshing every 15 minutes. The installed Reflector mirrors
+only this token from `argocd` to the exact `cluster-onboarding` namespace. The App
+key remains in `argocd`, and Argo's PR/Actions read-only token is unchanged. The
+receiver projects the existing Key Vault `cluster-github-webhook-secret` for native
+GitHub HMAC validation; GitHub webhooks do not supply OIDC identity. This reuses an
+existing long-lived signing secret, not a new key. Automatic HMAC rotation is not
+implemented; changing it requires coordinated webhook/receiver configuration.
+
+The native GitHub client caches the registration token at startup. Its bounded hook
+registration retries run during the first ten minutes, inside the token's lifetime;
+normal incoming events use HMAC rather than the API token. Source restarts read the
+current mirrored token. `deleteHookOnFinish: false` intentionally retains the one
+organization subscription across disposable pod/cluster restarts, avoiding expired
+shutdown credentials and rolling-delete races. Permanent platform retirement must
+remove that retained organization webhook; individual preview cleanup does not.
+
+The shared Sensor accepts PR open/reopen/push/close and completed workflows. Fixed
+native kubectl Jobs refresh preview-labelled ApplicationSets, then Applications.
+Only `platform.ai-platform-portfolio/preview=true` resources are selected; GitHub
+payloads never supply object names, shell commands or arguments. Jobs have a
+60-second deadline, two retries and five-minute TTL, and reuse the pinned kubectl
+image. A dedicated projected-token ServiceAccount gets get/list/patch on Argo Apps
+and AppSets in `argocd`. Kubernetes RBAC cannot restrict patches to annotations or
+labels, so this is a trusted platform workload; application pods get none of it.
+Refreshes cover all previews on a relevant organization event. This is proportionate
+for the portfolio and keeps routing declarative; it is not a per-repository queue.
+The existing source/Sensor controller and JetStream bus are reused.
+
+At startup, a native resource watch emits the existing `preview-refresh` signal
+ConfigMap (`afterStart: false`) for full catch-up. Its `/data` is producer-owned:
+patch it to request a repeatable catch-up after a missed delivery. GitHub does not
+automatically redeliver failed webhooks; native delivery replay is another recovery
+option. There is no PR polling or timer that discovers missed GitHub events. Failed
+refresh Jobs require retry/replay if their bounded retries expire.
+
+TLS uses `github-events.<DNS_ZONE>/github`, with an annotated ListenerSet and
+cert-manager-generated certificate. No explicit Certificate, extra Gateway or
+anonymous receiver is added. The existing App's Atlantis endpoint is unchanged.
+Before activation, verify installation permissions, mirrored-token freshness,
+certificate/route readiness, actual hook registration, rejected unsigned/invalid
+signatures, PR/workflow events, startup catch-up and duplicate/replay behavior.
+Render/dry-run checks do not prove those live gates. Chart-generated preview labels
+must be installed first; enabling the package alone registers no applications.
+
+Sources: [native GitHub source](https://github.com/argoproj/argo-events/tree/v1.9.11/pkg/eventsources/sources/github),
+[organization webhooks](https://docs.github.com/en/rest/orgs/webhooks),
+[Reflector namespace restrictions](https://github.com/emberstack/kubernetes-reflector#usage).
+
 ## Long-lived credential exception: managed JetStream
 
 **AI-119 exception, approved by the user:** Argo Events 1.9.11's managed JetStream
