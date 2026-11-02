@@ -10,6 +10,10 @@ kind: Gateway
 metadata:
   name: public
   namespace: envoy-gateway-system
+  {{- if .Values.gateway.preview.enabled }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ required "gateway.preview.clusterIssuer is required" .Values.gateway.preview.clusterIssuer | quote }}
+  {{- end }}
 spec:
   gatewayClassName: envoy
   allowedListeners:
@@ -28,3 +32,25 @@ spec:
         selector:
           matchLabels:
             gitops.platform/gateway: public
+  {{- if .Values.gateway.preview.enabled }}
+  {{- $preview := .Values.gateway.preview }}
+  {{- $hostname := tpl (required "gateway.preview.hostname is required" $preview.hostname) . }}
+  {{- if not (regexMatch `^\*\.[a-z0-9]([a-z0-9.-]*[a-z0-9])?$` $hostname) }}
+  {{- fail "gateway.preview.hostname must be a wildcard DNS hostname" }}
+  {{- end }}
+  - name: {{ required "gateway.preview.listenerName is required" $preview.listenerName | quote }}
+    hostname: {{ $hostname | quote }}
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: {{ required "gateway.preview.certificateSecret is required" $preview.certificateSecret | quote }}
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            gitops.platform/gateway: public
+            gitops.platform/preview: "true"
+  {{- end }}

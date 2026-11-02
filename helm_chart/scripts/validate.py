@@ -49,6 +49,37 @@ def main():
         postgres = next(d for d in hba_render if d and d['kind'] == 'Application' and d['metadata']['name'] == 'postgres')
         cluster = next(d for d in yaml.safe_load_all(postgres['spec']['source']['helm']['valuesObject']['manifests']) if d and d['kind'] == 'Cluster')
         assert cluster['spec']['postgresql']['pg_hba'][-2:] == [hba_rule, 'host all all all reject']
+        # Preview TLS is shared infrastructure, with no per-application allowlist.
+        for role in ['management', 'workload']:
+            for preview, hostname in [
+                ({'enabled': False}, None),
+                ({}, '*.preview.alternate.test'),
+                ({'hostname': '*.sandbox.other.test'}, '*.sandbox.other.test'),
+            ]:
+                values.write_text(json.dumps({'runtime': {**runtime, 'DNS_ZONE': 'alternate.test'},
+                                              'cluster': {'name': 'other', 'role': role},
+                                              'gateway': {'preview': preview}}))
+                apps = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
+                app = next(d for d in apps if d and d.get('kind') == 'Application' and d['metadata']['name'] == 'gateway')
+                docs = list(yaml.safe_load_all(app['spec']['source']['helm']['valuesObject']['manifests']))
+                gateway = next(d for d in docs if d['kind'] == 'Gateway')
+                listeners = gateway['spec']['listeners']
+                assert listeners[0]['name'] == 'http' and listeners[0]['protocol'] == 'HTTP'
+                assert not any(d['kind'] in ['Certificate', 'Secret'] for d in docs), 'cert-manager owns the central TLS resources'
+                if hostname is None:
+                    assert len(listeners) == 1 and 'annotations' not in gateway['metadata']
+                else:
+                    assert len(listeners) == 2 and listeners[1]['hostname'] == hostname
+                    labels = listeners[1]['allowedRoutes']['namespaces']['selector']['matchLabels']
+                    assert labels == {'gitops.platform/gateway': 'public', 'gitops.platform/preview': 'true'}
+                    assert gateway['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
+        values.write_text(json.dumps({'runtime': runtime, 'gateway': {'preview': {'hostname': 'not-a-wildcard.test'}}}))
+        try:
+            command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))
+        except subprocess.CalledProcessError as error:
+            assert 'gateway.preview.hostname must be a wildcard DNS hostname' in error.stderr
+        else:
+            raise AssertionError('Invalid preview wildcard hostname was accepted')
         atlantis = {
             'enabled': True, 'github_app_id': '12345', 'github_app_slug': 'platform-atlantis',
             'github_team': 'platform',
@@ -398,7 +429,17 @@ def main():
                 if app['metadata']['name'] == 'gateway':
                     gateway = next(d for d in documents if d['kind'] == 'Gateway')
                     assert gateway['spec']['allowedListeners']['namespaces']['from'] == 'Selector'
-                    assert all(listener['protocol'] == 'HTTP' for listener in gateway['spec']['listeners'])
+                    assert gateway['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
+                    http, https = gateway['spec']['listeners']
+                    assert http['name'] == 'http' and http['protocol'] == 'HTTP' and http['port'] == 80
+                    assert https == {
+                        'name': 'preview-https', 'hostname': '*.preview.example.test',
+                        'protocol': 'HTTPS', 'port': 443,
+                        'tls': {'mode': 'Terminate', 'certificateRefs': [{'name': 'preview-tls'}]},
+                        'allowedRoutes': {'namespaces': {'from': 'Selector', 'selector': {'matchLabels': {
+                            'gitops.platform/gateway': 'public', 'gitops.platform/preview': 'true',
+                        }}}},
+                    }
                 if app['metadata']['name'] == 'routes':
                     listeners = [d for d in documents if d['kind'] == 'ListenerSet']
                     assert len(listeners) == 6
