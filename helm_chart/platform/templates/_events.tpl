@@ -27,6 +27,7 @@ metadata:
   namespace: cluster-onboarding
   annotations:
     argocd.argoproj.io/sync-wave: "30"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
 {{ mergeOverwrite $defaults $spec | toYaml | indent 2 }}
 {{- end -}}
@@ -40,6 +41,7 @@ metadata:
   namespace: cluster-onboarding
   annotations:
     argocd.argoproj.io/sync-wave: "30"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
 {{ mergeOverwrite $defaults (deepCopy .spec) | toYaml | indent 2 }}
 {{- end -}}
