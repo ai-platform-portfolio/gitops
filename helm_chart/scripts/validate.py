@@ -160,6 +160,7 @@ def main():
         assert names == expected, 'A platform Application was omitted or renamed'
         onboarding_app = next(app for app in applications if app['metadata']['name'] == 'onboarding-events')
         event_docs = list(yaml.safe_load_all(onboarding_app['spec']['source']['helm']['valuesObject']['manifests']))
+        assert not any(d['kind'] == 'NetworkPolicy' for d in event_docs), 'Do not restore removed platform NetworkPolicies'
         source = next(d for d in event_docs if d['kind'] == 'EventSource')
         assert source['spec']['webhook']['apply']['authSecret'] == {'name': 'onboarding-webhook', 'key': 'token'}
         bus = next(d for d in event_docs if d['kind'] == 'EventBus')['spec']['jetstream']

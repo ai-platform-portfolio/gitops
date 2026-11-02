@@ -28,7 +28,7 @@ request:
 ## Ownership and operation
 
 GitOps owns the shared Argo Events installation, generated token, event bus,
-network policies, Sensors and Job templates. Terraform still owns AKS; the worker
+Sensors and Job templates. Terraform still owns AKS; the worker
 still uses its dedicated workload identity and existing operator/Argo resources.
 No Terraform state, backend credentials or new per-cluster webhook are required.
 The package is installed only on management when cluster onboarding is enabled.
@@ -36,11 +36,10 @@ The package is installed only on management when cluster onboarding is enabled.
 ESO generates an immutable token once and Reflector copies it only to Atlantis.
 Atlantis reads the JSON Authorization header from the reflected Secret, while the
 EventSource mounts the token. Neither value enters Git or Helm values. The
-ClusterIP endpoint has no public route. Rendered policies restrict its ingress to
-Atlantis pods and bus ingress to event components. **The current bootstrap Argo
-ConfigMap excludes all NetworkPolicies (AI-91), so these policies are not enforced
-on management until that separately reviewed exclusion is removed.** Bearer
-authentication remains required. Native bus credentials and a 1 GiB PVC hold accepted events for
+ClusterIP endpoint has no public route and requires the generated bearer token.
+This change adds no NetworkPolicies; the platform policies were removed under
+AI-91 and the existing Argo exclusion remains. Native bus credentials and a
+1 GiB PVC hold accepted events for
 up to seven days (100 MB stream limit). This is one JetStream replica, not HA.
 Normal pod restarts retain queued messages; cluster teardown does not.
 
