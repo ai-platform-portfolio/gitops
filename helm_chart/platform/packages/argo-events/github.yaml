@@ -88,6 +88,32 @@ metadata:
   namespace: cluster-onboarding
 
 ---
+# kubectl does not infer in-cluster credentials from the mounted ServiceAccount.
+# tokenFile keeps the rotating pod token out of the image, ConfigMap and argv.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: preview-refresh-kubeconfig
+  namespace: cluster-onboarding
+data:
+  config: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - name: cluster
+        cluster:
+          server: https://kubernetes.default.svc
+          certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    users:
+      - name: preview-refresh
+        user:
+          tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    contexts:
+      - name: preview-refresh
+        context: {cluster: cluster, user: preview-refresh}
+    current-context: preview-refresh
+
+---
 # RBAC cannot limit patches to annotations; this is a trusted platform Job.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -167,6 +193,7 @@ spec:
                       - name: refresh-applicationsets
                         image: {{ $github.refreshImage | quote }}
                         args: [annotate, applicationsets.argoproj.io, --namespace=argocd, '--selector=platform.ai-platform-portfolio/preview=true', argocd.argoproj.io/application-set-refresh=true, --overwrite, --cache-dir=/tmp, --request-timeout=15s]
+                        env: [{name: KUBECONFIG, value: /etc/preview-refresh/config}]
                         resources:
                           requests: {cpu: 10m, memory: 32Mi}
                           limits: {memory: 64Mi}
@@ -174,11 +201,12 @@ spec:
                           allowPrivilegeEscalation: false
                           readOnlyRootFilesystem: true
                           capabilities: {drop: [ALL]}
-                        volumeMounts: [{name: tmp, mountPath: /tmp}]
+                        volumeMounts: [{name: tmp, mountPath: /tmp}, {name: kubeconfig, mountPath: /etc/preview-refresh, readOnly: true}]
                     containers:
                       - name: refresh-applications
                         image: {{ $github.refreshImage | quote }}
                         args: [annotate, applications.argoproj.io, --namespace=argocd, '--selector=platform.ai-platform-portfolio/preview=true', argocd.argoproj.io/refresh=hard, --overwrite, --cache-dir=/tmp, --request-timeout=15s]
+                        env: [{name: KUBECONFIG, value: /etc/preview-refresh/config}]
                         resources:
                           requests: {cpu: 10m, memory: 32Mi}
                           limits: {memory: 64Mi}
@@ -186,8 +214,10 @@ spec:
                           allowPrivilegeEscalation: false
                           readOnlyRootFilesystem: true
                           capabilities: {drop: [ALL]}
-                        volumeMounts: [{name: tmp, mountPath: /tmp}]
-                    volumes: [{name: tmp, emptyDir: {}}]
+                        volumeMounts: [{name: tmp, mountPath: /tmp}, {name: kubeconfig, mountPath: /etc/preview-refresh, readOnly: true}]
+                    volumes:
+                      - {name: tmp, emptyDir: {}}
+                      - {name: kubeconfig, configMap: {name: preview-refresh-kubeconfig}}
       retryStrategy: {steps: 3}
 
 ---
