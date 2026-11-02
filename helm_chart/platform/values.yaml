@@ -15,6 +15,12 @@ argocd:
   registry:
     name: localacrk8s
 
+  # Existing all-repository App; its private key stays in Key Vault/ESO.
+  github:
+    appId: "5471830"
+    installationId: "175270905"
+    privateKeyRemoteKey: ai-platform-clusters-pem-key
+
 # Shared preview TLS stays with the Gateway; apps attach exact-host routes.
 gateway:
   preview:

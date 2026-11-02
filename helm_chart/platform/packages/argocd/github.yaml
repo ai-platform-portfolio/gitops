@@ -1,0 +1,55 @@
+# Fetch only the existing App key, not its unrelated credentials.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-github-app
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: azure-kv
+    kind: ClusterSecretStore
+  target:
+    name: argocd-github-app
+  data:
+  - secretKey: private-key
+    remoteRef:
+      key: {{ required "argocd.github.privateKeyRemoteKey is required" .Values.argocd.github.privateKeyRemoteKey | quote }}
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: GithubAccessToken
+metadata:
+  name: argocd-github-api
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '-5'
+spec:
+  appID: {{ required "argocd.github.appId is required" .Values.argocd.github.appId | quote }}
+  installID: {{ required "argocd.github.installationId is required" .Values.argocd.github.installationId | quote }}
+  permissions:
+    actions: read
+    pull_requests: read
+  auth:
+    privateKey:
+      secretRef:
+        name: argocd-github-app
+        key: private-key
+---
+# Installation tokens expire after one hour; ESO renews them before expiry.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-github-api
+  namespace: argocd
+spec:
+  refreshInterval: 15m
+  target:
+    name: argocd-github-api
+  dataFrom:
+  - sourceRef:
+      generatorRef:
+        apiVersion: generators.external-secrets.io/v1alpha1
+        kind: GithubAccessToken
+        name: argocd-github-api
