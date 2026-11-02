@@ -153,7 +153,7 @@ aks = {
       subnet_key = "snet-aks-user-management"
       # Each node supports eight Azure disks; the full chart exceeds one node's limit.
       vm_size    = "Standard_D4as_v4"
-      node_count = 2
+      node_count = 3
     }
   }
 }
