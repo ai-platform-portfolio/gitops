@@ -237,11 +237,15 @@ def main():
         assert github['webhookSecret'] == {'name': 'github-event-auth', 'key': 'webhook-secret'}
         assert 'githubApp' not in github and github['deleteHookOnFinish'] is False
         assert github['insecure'] is False and github['webhook']['maxPayloadSize'] == 1048576
-        assert receiver['spec']['resource']['startup']['filter']['afterStart'] is False
+        assert 'resource' not in receiver['spec']
+        startup_source = next(d for d in delivery if d['kind'] == 'EventSource' and d['metadata']['name'] == 'preview-startup')
+        assert 'github' not in startup_source['spec']
+        assert startup_source['spec']['resource']['startup']['filter']['afterStart'] is False
         hmac = next(d for d in delivery if d['kind'] == 'ExternalSecret')
         assert hmac['spec']['data'] == [{'secretKey': 'webhook-secret', 'remoteRef': {'key': 'cluster-github-webhook-secret'}}]
         refresh = next(d for d in delivery if d['kind'] == 'Sensor' and d['metadata']['name'] == 'preview-refresh')
         dependencies = {d['name']: d for d in refresh['spec']['dependencies']}
+        assert dependencies['startup']['eventSourceName'] == 'preview-startup'
         def matches(dependency, payload):
             for rule in dependency['filters']['data']:
                 value = payload
