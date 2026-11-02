@@ -1,4 +1,10 @@
-# Fetch only the existing App key, not its unrelated credentials.
+# Reuse the existing App key: native AKS-to-GitHub App federation was not verified
+# as available (2026-11-02), and ESO's GitHub generator requires a PEM Secret.
+# This copies the long-lived key from Key Vault into argocd; token renewal below
+# does not rotate it. App keys do not expire and require explicit rotation/revocation.
+# Revisit native federation or Key Vault remote signing when supported by this flow:
+# https://github.com/github/roadmap/issues/1288
+# Fetch only the App key, not its unrelated credentials.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
