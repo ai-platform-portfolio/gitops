@@ -1,86 +1,71 @@
 # Event-driven workload onboarding
 
-Management receives Atlantis's native HTTP `apply` notifications through a private
-Argo Events webhook. A chart-generated Sensor for each reviewed cluster profile
-accepts only successful applies from `clusterOnboarding.repository`, workspace
-`default`, and directory `clusters/<cluster.name>`. The cluster name and immutable
-worker image come from GitOps, never from webhook parameters. Failed applies and
-unknown directories cannot launch an onboarding worker.
-
 ```text
-Atlantis apply -> authenticated EventSource -> persistent JetStream EventBus
-  -> matching cluster Sensor -> onboarding Job -> workload Argo CD/platform
+Successful Atlantis apply -> Kubernetes signal ConfigMap (HTTPS + projected JWT)
+  -> Resource EventSource watch -> shared platform bus -> per-cluster Sensor/Job
 ```
 
-The existing cluster profile is unchanged:
+The server-controlled `platform-onboarding` workflow keeps native Atlantis
+`init`, `plan` and `apply` steps. Its publisher runs only after `apply` succeeds;
+a failed step stops the workflow. Repository-defined workflows and overrides stay
+disabled. The script is mounted read-only from GitOps, outside the checkout.
+Cluster profiles remain unchanged; names, signals and routing derive from them.
+No webhook bearer Secret, generator, reflected credential or receiver is created.
 
-```yaml
-cluster:
-  name: aks-example
-  role: workload
-  location: uksouth
-  resourceGroup: rg-aks-example
+## Authentication and ownership
 
-request:
-  issue: AI-123
-```
+Atlantis explicitly projects an API-audience service-account JWT with a requested
+600-second lifetime, plus the existing Kubernetes API CA. The kubelet handles token
+renewal. The publisher reads the current token on each invocation and sends its
+Authorization header through curl's stdin, not process arguments or PR output.
+The existing Azure federation token has a separate audience and mount.
 
-## Ownership and operation
+RBAC permits Atlantis only to **patch** the exact pre-created onboarding signal
+ConfigMaps in `cluster-onboarding`. It cannot create/read/list signals, read Secrets
+or create Jobs through this role. Its existing ASO readiness permissions remain.
+The source watches ConfigMaps using its own service account; the Sensor separately
+gets/creates/updates Jobs. The worker keeps its existing Entra workload identity.
+The authenticated Atlantis pod is the producer trust boundary: code executed by
+Atlantis shares that pod identity. This does not cryptographically attest that
+Terraform succeeded; the server-owned workflow orders the normal execution path.
 
-GitOps owns the shared Argo Events installation, generated token, event bus,
-Sensors and Job templates. Terraform still owns AKS; the worker
-still uses its dedicated workload identity and existing operator/Argo resources.
-No Terraform state, backend credentials or new per-cluster webhook are required.
-The package is installed only on management when cluster onboarding is enabled.
+The publisher validates repository, default workspace, cluster directory and
+source revision before publishing a fresh request ID. Sensors independently
+filter those fields and the applied phase. Missing/failed/unrelated signals do
+not release a worker. Native Resource EventSource watches ADD/UPDATE, with
+`afterStart: false`, so an existing signal is read after watcher startup too.
 
-ESO generates an immutable token once and Reflector copies it only to Atlantis.
-Atlantis reads the JSON Authorization header from the reflected Secret, while the
-EventSource mounts the token. Neither value enters Git or Helm values. The
-ClusterIP endpoint has no public route and requires the generated bearer token.
-This change adds no NetworkPolicies; the platform policies were removed under
-AI-91 and the existing Argo exclusion remains. Native bus credentials and a
-1 GiB PVC hold accepted events for
-up to seven days (100 MB stream limit). This is one JetStream replica, not HA.
-Normal pod restarts retain queued messages; cluster teardown does not.
+Each signal holds the latest request. `platform-events` ignores only `/data` on
+these exact named ConfigMaps, preserving producer-owned data through GitOps sync.
+Routing labels and all other resources still reconcile normally. Native Job update
+coalesces signals under one stable Job name per cluster; a duplicate during a run
+preserves its UID. Late duplicates/restarts can rerun idempotently after cleanup.
+This is current-intent convergence, not an execution history for every revision.
+If intent changes during an active run, replay after completion when needed.
 
-The Sensor uses native Kubernetes `update`, which creates an absent Job and
-updates an existing Job without starting another execution. One stable Job name
-per cluster coalesces signals while that cluster's onboarding is active; different
-clusters have separate Jobs. The worker reads current reviewed GitOps intent,
-not deployment configuration from the event. Delivery is not exactly-once: a late
-duplicate can start another idempotent run after cleanup.
+Dispatch has five bounded attempts; Jobs have two replacement attempts and an
+eight-hour deadline. Finished Jobs are immediately eligible for TTL cleanup.
+The worker requests 50m CPU/256 MiB memory, no CPU limit and 768 MiB memory limit.
+Its finite readiness retries are unchanged. See the [shared event package](../argo-events/README.md)
+for reusable native webhook/Sensor inputs and the **managed JetStream long-lived
+credential exception**; that is the only new permanent credential exception here.
 
-Job retries are bounded to two replacement attempts, with an eight-hour overall
-deadline. Sensor dispatch retries use five attempts with exponential backoff.
-Finished Jobs are immediately eligible for Kubernetes TTL cleanup, releasing the
-name for the next apply; consult shared logs and `workload-status-<cluster>` in
-`argocd` for results. While a Job is active, changing its immutable pod template
-will fail closed; let it finish before rolling out a different worker template.
+## Rollout and recovery
 
-The worker requests 50m CPU and 256 MiB memory, with no CPU limit and a 768 MiB
-memory limit. For one cluster, controller/bus/source/Sensor request another 60m
-CPU and 320 MiB memory, plus bus sidecars. These are initial small-portfolio
-settings, not measured peak sizing. The persistent bus also needs one available
-Azure disk attachment; check placement before deployment. No node increase or
-system-pool toleration is introduced.
+No Azure deployment is claimed by local tests or CI. Check pod requests and one
+additional disk/PVC placement before deployment. Verify the shared controller,
+bus, source and Sensors are Ready and old CronJob-owned Jobs are gone before
+replaying work. No node increase or system-pool toleration is introduced.
 
-## Rollout, retry and replay
+The publisher retries transient API errors with curl's bounded retry behavior.
+If publishing still fails after Terraform has applied, the Atlantis workflow
+reports failure; the infrastructure apply has not been rolled back. Review the
+actual cluster state before retrying. A stored signal survives watcher downtime;
+manual replay remains available after exhausted retries or an active-run update.
+There is no timer fallback and no claimed exactly-once delivery.
 
-Deploy the controller/CRDs before the event resources, and the generated Secret
-before Atlantis. The chart's Application waves order resource installation; verify the generated
-EventSource/Sensor pods and EventBus are Ready before testing an apply. Before
-initial replay, confirm the old CronJob and its owned Jobs have been pruned so
-an old worker cannot overlap the new Job. Do not replay before the cluster profile
-has reconciled and the matching Sensor exists.
-
-Atlantis 0.48.2 sends an HTTP notification once; it does **not** retry a failed
-HTTP delivery. Event-bus retention starts only after receipt, and a successful
-webhook response confirms receipt, not onboarding success. A sender outage,
-expired event, event received before its Sensor exists or exhausted dispatch/Job
-retries therefore needs explicit operator replay. There is no timer fallback.
-
-After reviewing the current profile and actual cluster state, an operator can
-replay the chart-owned Job without reconstructing a manifest or handling tokens:
+An operator can replay the chart-owned Job without reconstructing a manifest or
+handling a token:
 
 ```sh
 cluster=aks-example
@@ -89,28 +74,9 @@ kubectl -n cluster-onboarding get sensor "onboard-$cluster" \
   kubectl create -f -
 ```
 
-`AlreadyExists` means the stable Job name is still present: inspect its state;
-do not delete an active Job merely to replay. Failed Jobs become eligible for TTL
-cleanup too. If intent changes during an active run, replay after it finishes to
-ensure that run observes the latest intent. Removing a profile removes its Sensor;
-check for an active Job before deleting the corresponding cluster.
-
-The ten-minute CronJob is removed. The existing worker's finite readiness retries
-remain unchanged: this PR replaces scheduled onboarding discovery, not every
-readiness check inside a running onboarding operation. Kubernetes watches for
-those gates would require a separately built and promoted worker image.
-
-## Evidence and sources
-
-The repository validator checks event filters, Job identity/resources, ordering,
-management-only installation, and the actual upstream Atlantis environment render.
-Local native acceptance uses the pinned controller, persistent bus and rendered
-Sensor with a harmless worker; this is not an Azure workload-cluster deployment.
-Deployment acceptance must still exercise an actual Atlantis apply, workload
-identity and onboarding, pod restart/queued delivery and the existing platform's
-capacity/disk headroom.
-
-- [Atlantis apply notifications](https://www.runatlantis.io/docs/sending-notifications-via-webhooks)
-- [Installed Atlantis sender: one HTTP attempt](https://github.com/runatlantis/atlantis/blob/v0.48.2/server/events/webhooks/http.go)
-- [Argo Events webhook authentication](https://argoproj.github.io/argo-events/eventsources/webhook-authentication/)
-- [Native create/update trigger semantics](https://github.com/argoproj/argo-events/blob/v1.9.11/pkg/sensors/triggers/standard-k8s/standard-k8s.go)
+`AlreadyExists` means the stable name remains: inspect it; do not delete an active
+Job just to replay. Consult `workload-status-<cluster>` in `argocd` and shared logs.
+Removing a profile removes its signal/Sensor/write permission; check active work
+before deleting the corresponding cluster. Let active Jobs finish before changing
+their immutable pod template. Existing workload packages continue reconciling
+through their own Argo CD independently of new onboarding signals.

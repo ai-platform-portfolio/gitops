@@ -30,98 +30,12 @@ data:
   profile.yaml: |
 {{ toYaml $profile | indent 4 }}
 {{- if $.Values.clusterOnboarding.enabled }}
+{{- if not $.Values.events.enabled }}
+{{- fail "clusterOnboarding.enabled requires events.enabled on management" }}
+{{- end }}
 ---
-apiVersion: argoproj.io/v1alpha1
-kind: Sensor
-metadata:
-  name: onboard-{{ $name }}
-  namespace: cluster-onboarding
-  annotations:
-    argocd.argoproj.io/sync-wave: "30"
-spec:
-  eventBusName: onboarding
-  template:
-    serviceAccountName: onboarding-sensor
-    nodeSelector:
-      agentpool: platform
-    container:
-      resources:
-        requests: {cpu: 10m, memory: 64Mi}
-        limits: {memory: 256Mi}
-  dependencies:
-    - name: applied
-      eventSourceName: atlantis
-      eventName: apply
-      filters:
-        data:
-          - path: body.Success
-            type: bool
-            value: ["true"]
-          - path: body.Repo.FullName
-            type: string
-            value: [{{ printf "^%s$" (regexQuoteMeta (required "clusterOnboarding.repository is required" $.Values.clusterOnboarding.repository)) | quote }}]
-          - path: body.Directory
-            type: string
-            value: [{{ printf "^clusters/%s$" (regexQuoteMeta $name) | quote }}]
-          - path: body.Workspace
-            type: string
-            value: ["^default$"]
-  triggers:
-    - retryStrategy:
-        steps: 5
-        duration: 1s
-        factor: 2
-      template:
-        name: onboard
-        k8s:
-          # Native update creates an absent Job and preserves an existing one.
-          # One stable name per cluster coalesces signals while onboarding runs.
-          operation: update
-          source:
-            resource:
-              apiVersion: batch/v1
-              kind: Job
-              metadata:
-                name: onboard-{{ $name }}
-                namespace: cluster-onboarding
-                labels:
-                  platform.ai-platform-portfolio/cluster: {{ $name }}
-              spec:
-                activeDeadlineSeconds: 28800
-                backoffLimit: 2
-                # Release the name when finished; logs remain in shared logging.
-                ttlSecondsAfterFinished: 0
-                template:
-                  metadata:
-                    labels:
-                      azure.workload.identity/use: "true"
-                  spec:
-                    serviceAccountName: cluster-onboarding
-                    restartPolicy: Never
-                    nodeSelector:
-                      agentpool: platform
-                    containers:
-                      - name: worker
-                        image: {{ required "clusterOnboarding.image is required" $.Values.clusterOnboarding.image | quote }}
-                        imagePullPolicy: IfNotPresent
-                        env:
-                          - name: CLUSTER_NAME
-                            value: {{ $name | quote }}
-                        securityContext:
-                          allowPrivilegeEscalation: false
-                          readOnlyRootFilesystem: true
-                          runAsNonRoot: true
-                          capabilities:
-                            drop: [ALL]
-                        volumeMounts:
-                          - name: tmp
-                            mountPath: /tmp
-                        resources:
-                          requests: {cpu: 50m, memory: 256Mi}
-                          limits: {memory: 768Mi}
-                    volumes:
-                      - name: tmp
-                        emptyDir: {}
+{{- $spec := tpl ($.Files.Get "packages/cluster-onboarding/sensor.yaml") (dict "Values" $.Values "Template" $.Template "clusterName" $name) | fromYaml }}
+{{ include "platform.eventSensor" (dict "name" (printf "onboard-%s" $name) "spec" $spec) }}
 {{- end }}
 {{- end }}
 {{- end }}

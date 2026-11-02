@@ -18,6 +18,12 @@ argocd:
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
+# Shared management-cluster orchestration. Maps contain native Argo specifications.
+events:
+  enabled: true
+  sources: {}
+  sensors: {}
+
 clusterOnboarding:
   enabled: true
   # Successful applies must match this repo and clusters/<cluster.name>.

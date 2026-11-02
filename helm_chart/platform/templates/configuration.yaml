@@ -54,7 +54,7 @@ spec:
 
 {{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
           ---
-{{ tpl (.Files.Get "packages/cluster-onboarding/credentials.yaml") . | indent 10 }}
+{{ tpl (.Files.Get "packages/atlantis/onboarding-signal.yaml") . | indent 10 }}
 {{- end }}
 
 {{- if .Values.atlantis.enabled }}

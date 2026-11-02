@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: platform
+  namespace: cluster-onboarding
+  annotations:
+    platform.ai-platform-portfolio/credential-exception: "AI-119: native managed JetStream passwords and TLS keys; no projected-token/OIDC support"
+spec:
+  # Long-lived credential exception (AI-119): native Argo Events 1.9.11
+  # generates/reuses bus passwords and ten-year TLS certificates. Its managed
+  # JetStream integration has no projected-token/OIDC authentication option.
+  # Scope: this bus only; not a precedent for webhook/application credentials.
+  # Reassess on an upstream auth/rotation change; do not delete live Secrets to rotate.
+  jetstream:
+    version: 2.10.29
+    replicas: 1
+    nodeSelector:
+      agentpool: platform
+    persistence:
+      storageClassName: managed-csi
+      accessMode: ReadWriteOnce
+      volumeSize: 1Gi
+    containerTemplate:
+      resources:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {memory: 256Mi}

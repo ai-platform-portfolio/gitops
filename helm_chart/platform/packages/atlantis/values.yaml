@@ -20,7 +20,10 @@ disableRepoLocking: false
 defaultTFVersion: "1.17.0"
 repoConfig: |
   repos:
-  - id: github.com/ai-platform-portfolio/cluster-deployments
+  - id: github.com/{{ .Values.clusterOnboarding.repository }}
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+    workflow: platform-onboarding
+{{- end }}
     plan_requirements: [mergeable, undiverged]
     apply_requirements: [mergeable, undiverged]
     allowed_overrides: []
@@ -29,12 +32,14 @@ repoConfig: |
       mode: on_plan
 
 {{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
-# Native notifications run after apply; the Sensor rejects unsuccessful results.
-config: |
-  webhooks:
-    - event: apply
-      kind: http
-      url: http://atlantis-eventsource-svc.cluster-onboarding.svc:12000/apply
+  workflows:
+    platform-onboarding:
+      plan:
+        steps: [init, plan]
+      apply:
+        steps:
+          - apply
+          - run: /bin/sh /etc/platform-onboarding/publish-signal.sh
 {{- end }}
 
 environment:
@@ -50,16 +55,14 @@ environment:
   ARM_TENANT_ID: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
   ARM_SUBSCRIPTION_ID: {{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID | quote }}
   ARM_OIDC_TOKEN_FILE_PATH: /var/run/secrets/azure/tokens/azure-identity-token
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+  SIGNAL_REPOSITORY: {{ .Values.clusterOnboarding.repository | quote }}
+  SIGNAL_NAMESPACE: cluster-onboarding
+  SIGNAL_TOKEN_DIR: /var/run/secrets/platform-signal
+{{- end }}
 
 # ASO creates this ConfigMap in the same namespace after Azure provisioning.
 environmentRaw:
-{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
-  - name: ATLANTIS_WEBHOOK_HTTP_HEADERS
-    valueFrom:
-      secretKeyRef:
-        name: onboarding-webhook
-        key: headers
-{{- end }}
   - name: ARM_CLIENT_ID
     valueFrom:
       configMapKeyRef:
@@ -117,6 +120,22 @@ initContainers:
 # Project a token explicitly: the runtime client ID comes from ASO, so there is
 # no static service-account annotation and no identity-webhook dependency.
 extraVolumes:
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+  - name: onboarding-script
+    configMap:
+      name: onboarding-signal-publisher
+  - name: onboarding-api-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            expirationSeconds: 600
+            path: token
+        - configMap:
+            name: kube-root-ca.crt
+            items:
+              - key: ca.crt
+                path: ca.crt
+{{- end }}
   - name: readiness-api-token
     projected:
       sources:
@@ -139,6 +158,14 @@ extraVolumes:
             expirationSeconds: 3600
             path: azure-identity-token
 extraVolumeMounts:
+{{- if and (eq .Values.cluster.role "management") .Values.clusterOnboarding.enabled }}
+  - name: onboarding-script
+    mountPath: /etc/platform-onboarding
+    readOnly: true
+  - name: onboarding-api-token
+    mountPath: /var/run/secrets/platform-signal
+    readOnly: true
+{{- end }}
   - name: azure-identity-token
     mountPath: /var/run/secrets/azure/tokens
     readOnly: true

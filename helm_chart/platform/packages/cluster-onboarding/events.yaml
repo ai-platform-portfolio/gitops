@@ -1,47 +1,18 @@
-apiVersion: argoproj.io/v1alpha1
-kind: EventBus
-metadata:
-  name: onboarding
-  namespace: cluster-onboarding
-spec:
-  jetstream:
-    version: 2.10.29
-    replicas: 1
-    nodeSelector:
-      agentpool: platform
-    persistence:
-      storageClassName: managed-csi
-      accessMode: ReadWriteOnce
-      volumeSize: 1Gi
-    containerTemplate:
-      resources:
-        requests: {cpu: 20m, memory: 64Mi}
-        limits: {memory: 256Mi}
+{{- if .Values.clusterOnboarding.enabled }}
 ---
-apiVersion: argoproj.io/v1alpha1
-kind: EventSource
+{{- $watch := dict "namespace" "cluster-onboarding" "group" "" "version" "v1" "resource" "configmaps" "eventTypes" (list "ADD" "UPDATE") "filter" (dict "afterStart" false "labels" (list (dict "key" "platform.ai-platform-portfolio/onboarding-signal" "value" "true"))) }}
+{{ include "platform.eventSource" (dict "name" "onboarding" "spec" (dict "resource" (dict "apply" $watch))) }}
+{{- range $path, $contents := .Files.Glob "clusters/*/profile.yaml" }}
+{{- $name := (fromYaml (toString $contents)).cluster.name }}
+---
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: atlantis
+  name: onboard-{{ $name }}
   namespace: cluster-onboarding
-spec:
-  eventBusName: onboarding
-  template:
-    serviceAccountName: onboarding-event-source
-    nodeSelector:
-      agentpool: platform
-    container:
-      resources:
-        requests: {cpu: 10m, memory: 64Mi}
-        limits: {memory: 256Mi}
-  service:
-    ports:
-      - port: 12000
-        targetPort: 12000
-  webhook:
-    apply:
-      port: "12000"
-      endpoint: /apply
-      method: POST
-      authSecret:
-        name: onboarding-webhook
-        key: token
+  labels:
+    platform.ai-platform-portfolio/onboarding-signal: "true"
+# Empty until a successful apply. platform-events ignores /data for this name.
+data: {}
+{{- end }}
+{{- end }}

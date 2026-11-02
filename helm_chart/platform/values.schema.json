@@ -7,6 +7,16 @@
       "additionalProperties": false,
       "properties": {"additionalHba": {"type": "array", "items": {"type": "string", "minLength": 1}}}
     },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "sources", "sensors"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "sources": {"type": "object", "additionalProperties": {"type": "object"}, "propertyNames": {"pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}},
+        "sensors": {"type": "object", "additionalProperties": {"type": "object"}, "propertyNames": {"pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}}
+      }
+    },
     "clusterOnboarding": {
       "type": "object",
       "additionalProperties": false,
