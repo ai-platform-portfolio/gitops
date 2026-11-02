@@ -6,6 +6,13 @@ are maps of **native Argo EventSource/Sensor specifications**, keyed by resource
 name. Onboarding uses these same Helm definitions. Other platform orchestration
 can consume them without copying a receiver or installing another controller.
 
+The controller Application installs its CRDs at wave 0; event resources follow at
+wave 30. Shared EventSource/Sensor templates use `SkipDryRunOnMissingResource=true`
+because Argo validates resources before executing waves, and the child-installed
+CRDs are absent on first install. This avoids blocking the controller installation;
+normal dry-run validation still runs when the CRDs exist. See
+[Argo's missing-resource sync option](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/#skip-dry-run-for-new-custom-resources-types).
+
 The current installation namespace is `cluster-onboarding`. Shared defaults supply
 that namespace, the bus, node placement and small resource requests. The default
 source identity can read/watch ConfigMaps there; the default Sensor identity can

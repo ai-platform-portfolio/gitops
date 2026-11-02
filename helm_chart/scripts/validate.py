@@ -134,6 +134,8 @@ def main():
         sensors = [d for d in rendered if d['kind'] == 'Sensor' and d['metadata']['name'].startswith('onboard-')]
         assert sensors and not any(d['kind'] == 'CronJob' for d in rendered), 'Onboarding must be event-driven'
         for sensor in sensors:
+            assert sensor['metadata']['annotations']['argocd.argoproj.io/sync-options'] == 'SkipDryRunOnMissingResource=true'
+            assert sensor['metadata']['annotations']['argocd.argoproj.io/sync-wave'] == '30'
             name = sensor['metadata']['name'].removeprefix('onboard-')
             filters = sensor['spec']['dependencies'][0]['filters']['data']
             def accepts(payload):
@@ -188,6 +190,8 @@ def main():
         event_docs = [d for d in yaml.safe_load_all(onboarding_app['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert not any(d['kind'] == 'NetworkPolicy' for d in event_docs), 'Do not restore removed platform NetworkPolicies'
         source = next(d for d in event_docs if d['kind'] == 'EventSource')
+        assert source['metadata']['annotations']['argocd.argoproj.io/sync-options'] == 'SkipDryRunOnMissingResource=true'
+        assert source['metadata']['annotations']['argocd.argoproj.io/sync-wave'] == '30'
         assert 'webhook' not in source['spec'] and 'service' not in source['spec']
         watch = source['spec']['resource']['apply']
         assert watch['eventTypes'] == ['ADD', 'UPDATE'] and watch['filter']['afterStart'] is False
