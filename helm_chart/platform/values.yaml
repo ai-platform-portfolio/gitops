@@ -15,6 +15,15 @@ argocd:
   registry:
     name: localacrk8s
 
+# Shared preview TLS stays with the Gateway; apps attach exact-host routes.
+gateway:
+  preview:
+    enabled: true
+    hostname: '*.preview.{{ .Values.runtime.DNS_ZONE }}'
+    listenerName: preview-https
+    certificateSecret: preview-tls
+    clusterIssuer: letsencrypt-azuredns
+
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
