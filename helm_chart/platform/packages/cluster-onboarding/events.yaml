@@ -1,0 +1,18 @@
+{{- if .Values.clusterOnboarding.enabled }}
+---
+{{- $watch := dict "namespace" "cluster-onboarding" "group" "" "version" "v1" "resource" "configmaps" "eventTypes" (list "ADD" "UPDATE") "filter" (dict "afterStart" false "labels" (list (dict "key" "platform.ai-platform-portfolio/onboarding-signal" "value" "true"))) }}
+{{ include "platform.eventSource" (dict "name" "onboarding" "spec" (dict "resource" (dict "apply" $watch))) }}
+{{- range $path, $contents := .Files.Glob "clusters/*/profile.yaml" }}
+{{- $name := (fromYaml (toString $contents)).cluster.name }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: onboard-{{ $name }}
+  namespace: cluster-onboarding
+  labels:
+    platform.ai-platform-portfolio/onboarding-signal: "true"
+# Empty until a successful apply. platform-events ignores /data for this name.
+data: {}
+{{- end }}
+{{- end }}

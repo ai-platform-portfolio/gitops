@@ -1,0 +1,16 @@
+{{- if and (eq .Values.cluster.role "management") .Values.events.enabled }}
+{{- range $name, $spec := .Values.events.sources }}
+{{- if and $.Values.clusterOnboarding.enabled (eq $name "onboarding") }}
+{{- fail "events.sources.onboarding is reserved while cluster onboarding is enabled" }}
+{{- end }}
+---
+{{ include "platform.eventSource" (dict "name" $name "spec" $spec) }}
+{{- end }}
+{{- range $name, $spec := .Values.events.sensors }}
+{{- if and $.Values.clusterOnboarding.enabled (hasPrefix "onboard-" $name) }}
+{{- fail "events.sensors names beginning onboard- are reserved while cluster onboarding is enabled" }}
+{{- end }}
+---
+{{ include "platform.eventSensor" (dict "name" $name "spec" $spec) }}
+{{- end }}
+{{- end }}

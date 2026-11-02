@@ -27,8 +27,16 @@ gateway:
 # The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
 sonarqubeReady: false
 
+# Shared management-cluster orchestration. Maps contain native Argo specifications.
+events:
+  enabled: true
+  sources: {}
+  sensors: {}
+
 clusterOnboarding:
   enabled: true
+  # Successful applies must match this repo and clusters/<cluster.name>.
+  repository: ai-platform-portfolio/cluster-deployments
   image: localacrk8s.azurecr.io/portfolio/cluster-onboarding@sha256:45fae1c039983cd446e5fd61a84cf1043dad97473052a9ad2052ad4c74aa22e9
   vaultResourceGroup: kubernetes
 

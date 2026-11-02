@@ -88,5 +88,35 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: cluster-onboarding
+{{- if gt (len (.Files.Glob "clusters/*/profile.yaml")) 0 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: onboarding-signal-publisher
+  namespace: cluster-onboarding
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames:
+{{- range $path, $contents := .Files.Glob "clusters/*/profile.yaml" }}
+      - onboard-{{ (fromYaml (toString $contents)).cluster.name }}
+{{- end }}
+    verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: onboarding-signal-publisher
+  namespace: cluster-onboarding
+subjects:
+  - kind: ServiceAccount
+    name: atlantis
+    namespace: atlantis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: onboarding-signal-publisher
+{{- end }}
 {{- end }}
 {{- end }}
