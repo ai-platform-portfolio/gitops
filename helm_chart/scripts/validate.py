@@ -197,8 +197,14 @@ def main():
         assert watch['eventTypes'] == ['ADD', 'UPDATE'] and watch['filter']['afterStart'] is False
         bus = next(d for d in event_docs if d['kind'] == 'EventBus')['spec']['jetstream']
         assert bus['replicas'] == 1 and bus['persistence']['volumeSize'] == '1Gi'
-        # Shared GitHub delivery is opt-in; default rendering above keeps it absent.
-        assert not any(d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in event_docs)
+        # GitHub delivery is active; consumers can still disable the shared receiver.
+        assert any(d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in event_docs)
+        disabled_render = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform',
+                           str(HELM_CHART / 'platform'), '-f', str(values),
+                           '--set', 'events.github.enabled=false')) if d]
+        disabled_events = next(d for d in disabled_render if d['metadata']['name'] == 'platform-events')
+        disabled_docs = yaml.safe_load_all(disabled_events['spec']['source']['helm']['valuesObject']['manifests'])
+        assert not any(d and d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in disabled_docs)
         github_values = tmp / 'github-events.json'
         github_values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True,
                                             'events': {'github': {'enabled': True}}}))
@@ -284,9 +290,9 @@ def main():
         publisher = next(d for d in rendered if d['kind'] == 'Role' and d['metadata']['name'] == 'onboarding-signal-publisher')
         rule = publisher['rules'][0]
         assert rule['resources'] == ['configmaps'] and rule['verbs'] == ['patch']
-        assert set(rule['resourceNames']) == {d['metadata']['name'] for d in event_docs if d['kind'] == 'ConfigMap'}
+        assert set(rule['resourceNames']) == {d['metadata']['name'] for d in event_docs if d['kind'] == 'ConfigMap' and d['metadata']['name'] != 'preview-refresh'}
         ignored = [r for r in onboarding_app['spec']['ignoreDifferences'] if r['kind'] == 'ConfigMap']
-        assert {r['name'] for r in ignored} == set(rule['resourceNames'])
+        assert {r['name'] for r in ignored} == set(rule['resourceNames']) | {'preview-refresh'}
         assert all(r['jsonPointers'] == ['/data'] for r in ignored)
         registry_app = next(app for app in applications if app['metadata']['name'] == 'argocd-registry')
         registry_docs = list(yaml.safe_load_all(registry_app['spec']['source']['helm']['valuesObject']['manifests']))
@@ -295,7 +301,7 @@ def main():
         assert registry_docs[0]['stringData'] == {'url': 'localacrk8s.azurecr.io', 'type': 'helm', 'enableOCI': 'true', 'useAzureWorkloadIdentity': 'true'}
         github_app = next(app for app in applications if app['metadata']['name'] == 'argocd-github')
         github_resources = list(yaml.safe_load_all(github_app['spec']['source']['helm']['valuesObject']['manifests']))
-        assert len(github_resources) == 3 and {d['kind'] for d in github_resources} == {'ExternalSecret', 'GithubAccessToken'}
+        assert len(github_resources) == 5 and {d['kind'] for d in github_resources} == {'ExternalSecret', 'GithubAccessToken'}
         assert all(d['metadata']['namespace'] == 'argocd' for d in github_resources)
         key_source = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-app')
         generator = next(d for d in github_resources if d['kind'] == 'GithubAccessToken')
