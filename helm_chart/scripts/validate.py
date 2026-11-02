@@ -267,6 +267,11 @@ def main():
         assert job['spec']['activeDeadlineSeconds'] == 60 and job['spec']['ttlSecondsAfterFinished'] == 300
         pod = job['spec']['template']['spec']
         assert pod['serviceAccountName'] == 'preview-refresh'
+        kubeconfig = next(d for d in delivery if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'preview-refresh-kubeconfig')
+        config = yaml.safe_load(kubeconfig['data']['config'])
+        assert config['users'][0]['user'] == {'tokenFile': '/var/run/secrets/kubernetes.io/serviceaccount/token'}
+        assert config['clusters'][0]['cluster']['certificate-authority'] == '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
+        assert {'name': 'kubeconfig', 'configMap': {'name': 'preview-refresh-kubeconfig'}} in pod['volumes']
         for container, resource, annotation in [
             (pod['initContainers'][0], 'applicationsets.argoproj.io', 'argocd.argoproj.io/application-set-refresh=true'),
             (pod['containers'][0], 'applications.argoproj.io', 'argocd.argoproj.io/refresh=hard'),
@@ -275,6 +280,8 @@ def main():
                 '--selector=platform.ai-platform-portfolio/preview=true', annotation,
                 '--overwrite', '--cache-dir=/tmp', '--request-timeout=15s']
             assert '@sha256:' in container['image'] and container['securityContext']['readOnlyRootFilesystem']
+            assert container['env'] == [{'name': 'KUBECONFIG', 'value': '/etc/preview-refresh/config'}]
+            assert {'name': 'kubeconfig', 'mountPath': '/etc/preview-refresh', 'readOnly': True} in container['volumeMounts']
         refresh_role = next(d for d in delivery if d['kind'] == 'Role')
         assert refresh_role['metadata']['namespace'] == 'argocd'
         assert refresh_role['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['applications', 'applicationsets'], 'verbs': ['get', 'list', 'patch']}]
@@ -294,7 +301,7 @@ def main():
         publisher = next(d for d in rendered if d['kind'] == 'Role' and d['metadata']['name'] == 'onboarding-signal-publisher')
         rule = publisher['rules'][0]
         assert rule['resources'] == ['configmaps'] and rule['verbs'] == ['patch']
-        assert set(rule['resourceNames']) == {d['metadata']['name'] for d in event_docs if d['kind'] == 'ConfigMap' and d['metadata']['name'] != 'preview-refresh'}
+        assert set(rule['resourceNames']) == {d['metadata']['name'] for d in event_docs if d['kind'] == 'ConfigMap' and d['metadata']['name'] not in {'preview-refresh', 'preview-refresh-kubeconfig'}}
         ignored = [r for r in onboarding_app['spec']['ignoreDifferences'] if r['kind'] == 'ConfigMap']
         assert {r['name'] for r in ignored} == set(rule['resourceNames']) | {'preview-refresh'}
         assert all(r['jsonPointers'] == ['/data'] for r in ignored)
