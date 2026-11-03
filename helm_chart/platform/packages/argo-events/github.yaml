@@ -158,20 +158,20 @@ spec:
         data:
           - {path: body.X-GitHub-Event, type: string, value: ['^workflow_run$']}
           - {path: body.action, type: string, value: ['^completed$']}
-    - name: main-push
+    - name: branch-push
       eventSourceName: github
       eventName: organization
       filters:
         data:
           - {path: body.X-GitHub-Event, type: string, value: ['^push$']}
-          - {path: body.ref, type: string, value: ['^refs/heads/main$']}
+          - {path: body.ref, type: string, value: ['^refs/heads/(main|delivery)$']}
     - name: startup
       eventSourceName: preview-startup
       eventName: startup
   triggers:
     - template:
         name: refresh-previews
-        conditions: pr || publication || main-push || startup
+        conditions: pr || publication || branch-push || startup
         k8s:
           operation: create
           source:

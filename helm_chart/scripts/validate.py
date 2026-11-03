@@ -271,12 +271,13 @@ def main():
             assert matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'pull_request', 'action': action}})
         assert matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'completed'}})
         assert not matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'requested'}})
-        assert matches(dependencies['main-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/main'}})
-        assert not matches(dependencies['main-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/feature'}})
+        assert matches(dependencies['branch-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/main'}})
+        assert matches(dependencies['branch-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/delivery'}})
+        assert not matches(dependencies['branch-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/feature'}})
         assert not matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'issues', 'action': 'opened'}})
         assert not matches(dependencies['pr'], {'body': {}})
         trigger = refresh['spec']['triggers'][0]
-        assert trigger['template']['conditions'] == 'pr || publication || main-push || startup'
+        assert trigger['template']['conditions'] == 'pr || publication || branch-push || startup'
         assert not trigger['template']['k8s'].get('parameters'), 'GitHub payloads must not parameterize Kubernetes commands'
         job = trigger['template']['k8s']['source']['resource']
         assert job['spec']['activeDeadlineSeconds'] == 60 and job['spec']['ttlSecondsAfterFinished'] == 300
