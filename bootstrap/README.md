@@ -85,6 +85,31 @@ Teardown deletes the group along with the disposable cluster. Existing same-name
 groups are rejected; adopt an existing group only through deliberate import and
 membership review. No one-off CLI group creation is required.
 
+## Staging and production PostgreSQL foundation
+
+The bootstrap calls the pinned `postgresql-flexible-server` module once. It
+creates one private Azure Flexible Server for both persistent environments,
+using the existing private endpoint subnet and a VNet-linked
+`privatelink.postgres.database.azure.com` zone. Its PostgreSQL version, compute,
+storage, backup retention and name are grouped in `postgres` in
+`terraform.tfvars`. The server accepts Microsoft Entra authentication only.
+The authenticated account context supplies the tenant ID; no tenant ID or
+database password is configured in tfvars.
+
+The existing AKS administrator group is also the server's Microsoft Entra
+administrator. The caller passes the group's object ID directly from
+`module.aks_admin_group`; its display name comes from the same `aks.admin_group`
+configuration. Group membership therefore grants database administration as
+well as AKS administration. Review membership changes with both privileges in
+mind. Application pods will use separate ASO-managed identities and federated
+credentials, with SQL permissions scoped to their own databases.
+
+This foundation creates no staging/production SQL databases, roles or application
+connections yet. They belong to the reusable application delivery templates.
+`make down` cleans Kubernetes consumers first, then Terraform destroys this
+disposable server and its data with the other bootstrap resources. The remote
+Terraform backend remains persistent.
+
 ## Deployment inputs
 
 `terraform.tfvars` is the default deployment configuration. Environment metadata

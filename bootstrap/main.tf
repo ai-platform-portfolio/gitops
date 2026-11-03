@@ -204,6 +204,34 @@ module "foundry" {
   depends_on = [module.network]
 }
 
+# One managed server hosts the staging and production databases. The chart and
+# ASO own their per-environment databases, identities and migration lifecycle.
+module "postgres" {
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/postgresql-flexible-server?ref=4618a6beb4581ec62a8ad71630ad0c41cb0cf153"
+  name                       = var.postgres.name
+  resource_group_name        = azurerm_resource_group.this.name
+  location                   = var.azure.location
+  tenant_id                  = sensitive(data.azurerm_client_config.current.tenant_id)
+  postgres_version           = var.postgres.version
+  sku_name                   = var.postgres.sku_name
+  storage_mb                 = var.postgres.storage_mb
+  backup_retention_days      = var.postgres.backup_retention_days
+  private_endpoint_subnet_id = module.network.subnet_ids[var.postgres.private_endpoint_subnet_key]
+  private_dns_zone_id        = azurerm_private_dns_zone.private["postgres"].id
+
+  entra_administrators = {
+    aks_admins = {
+      object_id      = module.aks_admin_group.object_id
+      principal_name = var.aks.admin_group.display_name
+      principal_type = "Group"
+    }
+  }
+
+  tags = var.azure.tags
+
+  depends_on = [module.network]
+}
+
 # Bootstrap applications share one library call; their choices live in tfvars.
 module "entra_applications" {
   for_each     = var.entra_applications
