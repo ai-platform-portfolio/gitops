@@ -113,6 +113,8 @@ kind: GithubAccessToken
 metadata:
   name: argocd-github-status
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '-5'
 spec:
   appID: {{ .Values.argocd.github.appId | quote }}
   installID: {{ .Values.argocd.github.installationId | quote }}

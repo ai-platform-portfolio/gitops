@@ -312,11 +312,13 @@ def main():
         assert registry_docs[0]['stringData'] == {'url': 'localacrk8s.azurecr.io', 'type': 'helm', 'enableOCI': 'true', 'useAzureWorkloadIdentity': 'true'}
         github_app = next(app for app in applications if app['metadata']['name'] == 'argocd-github')
         github_resources = list(yaml.safe_load_all(github_app['spec']['source']['helm']['valuesObject']['manifests']))
-        assert len(github_resources) == 5 and {d['kind'] for d in github_resources} == {'ExternalSecret', 'GithubAccessToken'}
+        assert len(github_resources) == 7 and {d['kind'] for d in github_resources} == {'ExternalSecret', 'GithubAccessToken'}
         assert all(d['metadata']['namespace'] == 'argocd' for d in github_resources)
         key_source = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-app')
-        generator = next(d for d in github_resources if d['kind'] == 'GithubAccessToken')
+        generator = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-api' and d['kind'] == 'GithubAccessToken')
         token = next(d for d in github_resources if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'argocd-github-api')
+        status_generator = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-status' and d['kind'] == 'GithubAccessToken')
+        status_token = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-status' and d['kind'] == 'ExternalSecret')
         assert key_source['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
         assert key_source['spec']['target']['name'] == 'argocd-github-app'
         assert key_source['spec']['data'] == [{'secretKey': 'private-key', 'remoteRef': {'key': 'ai-platform-clusters-pem-key'}}]
@@ -331,6 +333,14 @@ def main():
         }}}]
         wave = lambda doc: int(doc['metadata'].get('annotations', {}).get('argocd.argoproj.io/sync-wave', 0))
         assert wave(key_source) < wave(generator) < wave(token)
+        assert status_generator['spec']['permissions'] == {'pull_requests': 'read', 'statuses': 'write'}
+        assert status_generator['spec']['auth'] == generator['spec']['auth']
+        assert status_token['spec']['refreshInterval'] == '15m'
+        assert status_token['spec']['target'] == {'name': 'argocd-github-status'}
+        assert status_token['spec']['dataFrom'] == [{'sourceRef': {'generatorRef': {
+            'apiVersion': status_generator['apiVersion'], 'kind': status_generator['kind'], 'name': status_generator['metadata']['name'],
+        }}}]
+        assert wave(key_source) < wave(status_generator) < wave(status_token)
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
         application_aso = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret'
