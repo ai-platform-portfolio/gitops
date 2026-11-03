@@ -104,6 +104,7 @@ variable "postgres" {
 
   type = object({
     name                        = string
+    zone                        = string
     version                     = string
     sku_name                    = string
     storage_mb                  = number

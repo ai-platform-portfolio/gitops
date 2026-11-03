@@ -207,10 +207,11 @@ module "foundry" {
 # One managed server hosts the staging and production databases. The chart and
 # ASO own their per-environment databases, identities and migration lifecycle.
 module "postgres" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/postgresql-flexible-server?ref=4618a6beb4581ec62a8ad71630ad0c41cb0cf153"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/postgresql-flexible-server?ref=1985492e097602a3f4a4367f5802df4972004082"
   name                       = var.postgres.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.azure.location
+  zone                       = var.postgres.zone
   tenant_id                  = sensitive(data.azurerm_client_config.current.tenant_id)
   postgres_version           = var.postgres.version
   sku_name                   = var.postgres.sku_name
