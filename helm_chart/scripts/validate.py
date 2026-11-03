@@ -245,7 +245,7 @@ def main():
         delivery = manifests('platform-events')
         receiver = next(d for d in delivery if d['kind'] == 'EventSource' and d['metadata']['name'] == 'github')
         github = receiver['spec']['github']['organization']
-        assert github['organizations'] == ['ai-platform-portfolio'] and github['events'] == ['pull_request', 'workflow_run']
+        assert github['organizations'] == ['ai-platform-portfolio'] and github['events'] == ['pull_request', 'workflow_run', 'push']
         assert github['apiToken'] == {'name': 'github-webhook-api', 'key': 'token'}
         assert github['webhookSecret'] == {'name': 'github-event-auth', 'key': 'webhook-secret'}
         assert 'githubApp' not in github and github['deleteHookOnFinish'] is False
@@ -271,10 +271,12 @@ def main():
             assert matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'pull_request', 'action': action}})
         assert matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'completed'}})
         assert not matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'requested'}})
+        assert matches(dependencies['main-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/main'}})
+        assert not matches(dependencies['main-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/feature'}})
         assert not matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'issues', 'action': 'opened'}})
         assert not matches(dependencies['pr'], {'body': {}})
         trigger = refresh['spec']['triggers'][0]
-        assert trigger['template']['conditions'] == 'pr || publication || startup'
+        assert trigger['template']['conditions'] == 'pr || publication || main-push || startup'
         assert not trigger['template']['k8s'].get('parameters'), 'GitHub payloads must not parameterize Kubernetes commands'
         job = trigger['template']['k8s']['source']['resource']
         assert job['spec']['activeDeadlineSeconds'] == 60 and job['spec']['ttlSecondsAfterFinished'] == 300
@@ -285,12 +287,13 @@ def main():
         assert config['users'][0]['user'] == {'tokenFile': '/var/run/secrets/kubernetes.io/serviceaccount/token'}
         assert config['clusters'][0]['cluster']['certificate-authority'] == '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
         assert {'name': 'kubeconfig', 'configMap': {'name': 'preview-refresh-kubeconfig'}} in pod['volumes']
-        for container, resource, annotation in [
-            (pod['initContainers'][0], 'applicationsets.argoproj.io', 'argocd.argoproj.io/application-set-refresh=true'),
-            (pod['containers'][0], 'applications.argoproj.io', 'argocd.argoproj.io/refresh=hard'),
+        for container, resource, selector, annotation in [
+            (pod['initContainers'][0], 'applicationsets.argoproj.io', 'platform.ai-platform-portfolio/preview=true', 'argocd.argoproj.io/application-set-refresh=true'),
+            (pod['initContainers'][1], 'applicationsets.argoproj.io', 'platform.ai-platform-portfolio/environment', 'argocd.argoproj.io/application-set-refresh=true'),
+            (pod['containers'][0], 'applications.argoproj.io', 'platform.ai-platform-portfolio/preview=true', 'argocd.argoproj.io/refresh=hard'),
         ]:
             assert container['args'] == ['annotate', resource, '--namespace=argocd',
-                '--selector=platform.ai-platform-portfolio/preview=true', annotation,
+                '--selector=' + selector, annotation,
                 '--overwrite', '--cache-dir=/tmp', '--request-timeout=15s']
             assert '@sha256:' in container['image'] and container['securityContext']['readOnlyRootFilesystem']
             assert container['env'] == [{'name': 'KUBECONFIG', 'value': '/etc/preview-refresh/config'}]
