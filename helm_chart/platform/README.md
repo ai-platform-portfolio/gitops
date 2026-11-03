@@ -62,7 +62,8 @@ files easier to find.
 | 0 | reflector, envoy-gateway, external-secrets, clickhouse-operator, federation | Foundational controllers; federation is installed on each cluster |
 | 5 | cert-manager, testkube-reloader | Envoy has installed Gateway API and ListenerSet CRDs |
 | 10 | argo-rollouts, cloudnative-pg, configuration, azure-service-operator | Gateway API exists for Rollouts; foundation controllers deliver issuers, secret stores and the Atlas token |
-| 20 | atlas-operator, plugin-barman-cloud, external-dns, gateway, testkube-azure, optional atlantis-azure | Operators/configuration are available and the Atlas token is Ready |
+| 15 | kargo-identity (management) | Crossplane's public OIDC API exists before Kargo reads its Entra client ID |
+| 20 | kargo (management), atlas-operator, plugin-barman-cloud, external-dns, gateway, testkube-azure, optional atlantis-azure | Operators/configuration are available and the Atlas token is Ready |
 | 25 | argocd-route | Shared Gateway, issuer and DNS controller are ready |
 | 30 | postgres, clickhouse, loki, grafana, tempo, mimir, testkube-nats | Database operators, backup plugin and shared secrets are ready |
 | 40 | langfuse, opentelemetry-collector, k8s-monitoring, optional Atlantis and backstage-credentials, testkube-storage | Backend services are ready |
@@ -104,6 +105,10 @@ within the running cluster. Application data and backup containers are disposabl
 namespace credentials, Azure ownership boundary and consumer lifecycle.
 
 Atlantis is an opt-in package on each cluster; see its [setup and operation guide](packages/atlantis/README.md). Its ASO-owned dependencies and configuration live in GitOps, with no Atlantis Terraform inputs or PostgreSQL dependency.
+
+[Kargo](packages/kargo/README.md) is a management-cluster package with native Entra
+login. It installs the control plane; application promotion resources are not
+created by this package.
 
 ## Optional Backstage
 

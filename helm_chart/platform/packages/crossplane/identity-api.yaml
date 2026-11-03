@@ -176,3 +176,102 @@ spec:
               - name: tenant-id
                 type: FromFieldPath
                 fromFieldPath: metadata.annotations[platform-tenant]
+---
+# Public OIDC clients use PKCE and never receive an application password.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: publicoidcapplications.identity.platform.ai-platform-portfolio
+spec:
+  scope: Namespaced
+  group: identity.platform.ai-platform-portfolio
+  names:
+    kind: PublicOIDCApplication
+    plural: publicoidcapplications
+  defaultCompositionRef:
+    name: entra-public-oidc
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [displayName, redirectUri, ownerId]
+              properties:
+                displayName: { type: string, minLength: 1 }
+                redirectUri: { type: string, pattern: '^https://' }
+                ownerId: { type: string, minLength: 1 }
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: entra-public-oidc
+spec:
+  compositeTypeRef:
+    apiVersion: identity.platform.ai-platform-portfolio/v1alpha1
+    kind: PublicOIDCApplication
+  mode: Pipeline
+  pipeline:
+    - step: identity
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        writeConnectionSecretToRef:
+          patches:
+            - type: FromCompositeFieldPath
+              fromFieldPath: metadata.name
+              toFieldPath: name
+        resources:
+          - name: application
+            base:
+              apiVersion: applications.azuread.m.upbound.io/v1beta1
+              kind: Application
+              spec:
+                providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+                forProvider:
+                  signInAudience: AzureADMyOrg
+                  preventDuplicateNames: true
+                  singlePageApplication:
+                    redirectUris: []
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.displayName
+                toFieldPath: spec.forProvider.displayName
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.redirectUri
+                toFieldPath: spec.forProvider.singlePageApplication.redirectUris[0]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.ownerId
+                toFieldPath: spec.forProvider.owners[0]
+            connectionDetails:
+              - name: client-id
+                type: FromFieldPath
+                fromFieldPath: status.atProvider.clientId
+
+          - name: principal
+            base:
+              apiVersion: serviceprincipals.azuread.m.upbound.io/v1beta1
+              kind: Principal
+              spec:
+                providerConfigRef: { name: platform, kind: ClusterProviderConfig }
+                forProvider:
+                  appRoleAssignmentRequired: true
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: metadata.name
+                toFieldPath: spec.forProvider.clientIdRef.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.ownerId
+                toFieldPath: spec.forProvider.owners[0]

@@ -175,7 +175,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
+            'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'kargo-identity', 'kargo', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -186,6 +186,19 @@ def main():
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
+        kargo_identity = next(app for app in applications if app['metadata']['name'] == 'kargo-identity')
+        kargo_resources = [d for d in yaml.safe_load_all(kargo_identity['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        kargo_public_client = next(d for d in kargo_resources if d['kind'] == 'PublicOIDCApplication')
+        assert kargo_public_client['spec']['redirectUri'] == 'https://kargo.example.test/login'
+        assert any(d['kind'] == 'RoleAssignment' and d['spec']['forProvider']['resourceObjectIdRef']['name'] == 'kargo-sso'
+                   for d in kargo_resources)
+        identity_api = next(app for app in applications if app['metadata']['name'] == 'crossplane-identity-api')
+        identity_docs = [d for d in yaml.safe_load_all(identity_api['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        public_composition = next(d for d in identity_docs if d['kind'] == 'Composition' and d['metadata']['name'] == 'entra-public-oidc')
+        composed = public_composition['spec']['pipeline'][0]['input']['resources']
+        assert {r['name'] for r in composed} == {'application', 'principal'}, 'Public client must not create a password'
+        assert composed[0]['base']['spec']['forProvider']['singlePageApplication'] == {'redirectUris': []}
+        assert composed[0]['connectionDetails'][0]['name'] == 'client-id'
         onboarding_app = next(app for app in applications if app['metadata']['name'] == 'platform-events')
         event_docs = [d for d in yaml.safe_load_all(onboarding_app['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert not any(d['kind'] == 'NetworkPolicy' for d in event_docs), 'Do not restore removed platform NetworkPolicies'
@@ -355,6 +368,7 @@ def main():
         assert waves['configuration'] < waves['argocd-github']
         assert waves['argo-events'] < waves['configuration'] < waves['platform-events'] < waves['atlantis']
         assert waves['configuration'] == waves['azure-service-operator']
+        assert waves['crossplane-identity-api'] < waves['kargo-identity'] < waves['kargo'] < waves['routes']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
         assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
@@ -617,7 +631,9 @@ def main():
                     }
                 if app['metadata']['name'] == 'routes':
                     listeners = [d for d in documents if d['kind'] == 'ListenerSet']
-                    assert len(listeners) == 6
+                    assert len(listeners) == 7
+                    kargo_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'kargo')
+                    assert kargo_route['spec']['rules'][0]['backendRefs'] == [{'name': 'kargo-api', 'port': 80}]
                     portal_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'backstage')
                     assert portal_route['spec']['rules'][0]['backendRefs'] == [{'name': 'backstage', 'port': 7007}]
                     route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'atlantis')
@@ -637,7 +653,8 @@ def main():
         workload_names = {a['metadata']['name'] for a in workload}
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
                                               'sonarqube', 'sonarqube-configure', 'crossplane',
-                                              'crossplane-packages', 'crossplane-identity-api', 'argocd-route', 'argo-events', 'platform-events'}, 'Workload must install every ready package except management services'
+                                              'crossplane-packages', 'crossplane-identity-api', 'argocd-route', 'argo-events', 'platform-events',
+                                              'kargo-identity', 'kargo'}, 'Workload must install every ready package except management services'
         assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
                 'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
@@ -675,6 +692,7 @@ def main():
         assert waves['argo-rollouts'] < waves['testkube-analysis'] and waves['testkube'] < waves['testkube-analysis']
         assert waves['envoy-gateway'] < waves['argo-rollouts'] < waves['routes'], 'Gateway API must exist before Rollouts starts'
         assert 'argo-rollouts' in {a['metadata']['name'] for a in workload}, 'Each cluster needs its own Rollouts controller'
+        assert not {'kargo', 'kargo-identity'} & {a['metadata']['name'] for a in workload}
 
 
         # Exercise the opt-in package separately so default package ownership
@@ -809,6 +827,15 @@ def main():
                     '--kube-version', '1.34.1', '-f', str(values))
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
+                if name == 'kargo':
+                    api = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'kargo-api')
+                    env = {e['name']: e for e in api['spec']['template']['spec']['containers'][0]['env']}
+                    assert env['OIDC_CLIENT_ID']['valueFrom']['secretKeyRef'] == {'name': 'kargo-sso', 'key': 'client-id'}
+                    config = next(d for d in docs if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'kargo-api')['data']
+                    assert config['OIDC_ENABLED'] == 'true' and 'ADMIN_ACCOUNT_ENABLED' not in config
+                    service = next(d for d in docs if d['kind'] == 'Service' and d['metadata']['name'] == 'kargo-api')
+                    assert service['spec']['ports'][0]['port'] == 80
+                    assert not any(d['kind'] == 'Ingress' for d in docs)
                 if name == 'atlantis':
                     runner = next(d for d in docs if d['kind'] == 'StatefulSet')['spec']['template']['spec']
                     env = {e['name']: e for e in runner['containers'][0]['env']}
