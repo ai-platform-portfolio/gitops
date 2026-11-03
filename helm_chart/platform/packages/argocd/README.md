@@ -51,6 +51,12 @@ configured here. Future PR generators can use `tokenRef` with Secret
 credential. Those application templates and their bindings remain separate work.
 Consumers must reread rotated credentials rather than caching them indefinitely.
 
+Deployed browser status hooks use a separate ESO-generated installation token,
+`argocd-github-status`, with `pull_requests: read` and `statuses: write`. It reuses
+the same App installation and key, remains in `argocd`, and renews every 15
+minutes. No preview namespace receives this token. The App installation already
+grants status write; the generator requests only this narrower scope.
+
 The installed/pinned ESO API accepts `appID` and `installID` strings; it does not
 support the ID Secret-reference fields shown in newer documentation. Reuse the
 native schema rather than adding a token-generation script or controller.
