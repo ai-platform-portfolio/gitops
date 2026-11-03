@@ -27,6 +27,7 @@ crdPattern:
   - managedidentity.azure.com/*
   - authorization.azure.com/*
   - storage.azure.com/*
+  - dbforpostgresql.azure.com/*
 
 azureTargetNamespaces:
 {{- range $targetNamespaces }}

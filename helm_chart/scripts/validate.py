@@ -347,6 +347,8 @@ def main():
         assert not application_aso['spec']['target']['template'].get('metadata'), 'ASO credential target must not be reflected'
         health = configmap['data']['resource.customizations.health.external-secrets.io_ExternalSecret']
         assert 'condition.type == "Ready" and condition.status == "True"' in health
+        database_health = configmap['data']['resource.customizations.health.dbforpostgresql.azure.com_FlexibleServersDatabase']
+        assert 'c.observedGeneration == obj.metadata.generation' in database_health
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
         assert waves['namespaces'] < waves['external-secrets'] < waves['configuration'] < waves['testkube-azure']
@@ -929,7 +931,7 @@ def main():
                     manager = next(c for c in pod['containers'] if c['name'] == 'manager')
                     assert deployment['spec']['replicas'] == 1
                     assert manager['image'].endswith(':v2.21.1')
-                    assert '--crd-pattern=resources.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*' in manager['args']
+                    assert '--crd-pattern=resources.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*;dbforpostgresql.azure.com/*' in manager['args']
                     assert pod['serviceAccountName'] == 'azureserviceoperator-default'
                     assert any(s.get('serviceAccountToken', {}).get('audience') == 'api://AzureADTokenExchange'
                                for v in pod['volumes'] for s in v.get('projected', {}).get('sources', []))

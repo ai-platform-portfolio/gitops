@@ -26,6 +26,7 @@ make the following APIs available to future GitOps consumers:
 | `managedidentity.azure.com/*` | User-assigned managed identities and federated identity credentials |
 | `authorization.azure.com/*` | Role assignments and custom role definitions |
 | `storage.azure.com/*` | Storage accounts, Blob services/containers and other storage child resources |
+| `dbforpostgresql.azure.com/*` | Azure PostgreSQL Flexible Server databases |
 
 The remaining service APIs are already installed by their package operators:
 
@@ -42,10 +43,12 @@ Validation checks these CRDs and CNPG role schema alongside the enabled ASO grou
 Kubernetes Secrets themselves use the built-in API and need no additional CRD.
 
 Enabling these APIs creates no Azure resource instances or credentials. Existing
-PostgreSQL databases and roles use CloudNativePG CRDs; no Azure PostgreSQL group
-is needed for the in-cluster database. Avoid `*`: installing every supported API
-adds unnecessary API-server load. Consumers supply scoped permissions and
-lifecycle tests when they start using an API.
+in-cluster PostgreSQL databases and roles use CloudNativePG CRDs. The Azure
+PostgreSQL group supports separate staging/production databases under the
+Terraform-owned Flexible Server. Consumers must reference that external server
+with `spec.owner.armId`; ASO must not also reconcile the server. Avoid a global
+`*`: installing every supported API adds unnecessary API-server load. Consumers
+supply scoped permissions and lifecycle tests when they start using an API.
 Removing a pattern does not delete existing CRDs; ASO still upgrades installed
 CRDs. These runtime-created CRDs are outside Argo's tracked resource inventory.
 
