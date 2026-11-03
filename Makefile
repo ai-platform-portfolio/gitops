@@ -6,7 +6,7 @@ TERRAFORM ?= terraform
 TFVARS ?= $(BOOTSTRAP_DIR)/terraform.tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
-.PHONY: help init plan up down validate preflight
+.PHONY: help init plan up down context validate preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -23,6 +23,7 @@ help:
 	  'make up    Provision infrastructure, install packages and wait for health' \
 	  'make down  Remove packages and destroy the disposable platform infrastructure' \
 	  'make plan  Preview bootstrap changes' \
+	  'make context  Select the management cluster with Azure CLI authentication' \
 	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
 init:
@@ -37,6 +38,18 @@ plan: init
 up: preflight init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
+	$(MAKE) context
+
+context: preflight init
+	@kubeconfig="$${KUBECONFIG:-$$HOME/.kube/config}" && \
+	  cluster_name="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw cluster_name)" && \
+	  resource_group="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw resource_group_name)" && \
+	  subscription_id="$$(az account show --query id -o tsv --only-show-errors)" && \
+	  az aks get-credentials --subscription "$$subscription_id" --resource-group "$$resource_group" \
+	    --name "$$cluster_name" --context "$$cluster_name" --file "$$kubeconfig" \
+	    --overwrite-existing --only-show-errors && \
+	  kubelogin convert-kubeconfig --kubeconfig "$$kubeconfig" --context "$$cluster_name" -l azurecli && \
+	  kubectl --kubeconfig "$$kubeconfig" config use-context "$$cluster_name"
 
 down: preflight init
 	$(PYTHON) helm_chart/scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)"
