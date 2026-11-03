@@ -37,6 +37,7 @@ spec:
   permissions:
     actions: read
     pull_requests: read
+    statuses: write
   auth:
     privateKey:
       secretRef:

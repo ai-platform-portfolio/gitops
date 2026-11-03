@@ -219,7 +219,7 @@ def main():
         assert webhook_generator['spec']['permissions'] == {'organization_hooks': 'write', 'actions': 'read'}
         assert webhook_generator['spec']['auth']['privateKey']['secretRef'] == {'name': 'argocd-github-app', 'key': 'private-key'}
         readonly = next(d for d in credentials if d['kind'] == 'GithubAccessToken' and d['metadata']['name'] == 'argocd-github-api')
-        assert readonly['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read'}
+        assert readonly['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read', 'statuses': 'write'}
         mirrored = next(d for d in credentials if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'github-webhook-api')
         assert mirrored['spec']['refreshInterval'] == '15m'
         assert mirrored['spec']['target']['template']['mergePolicy'] == 'Merge'
@@ -315,12 +315,12 @@ def main():
         assert len(github_resources) == 5 and {d['kind'] for d in github_resources} == {'ExternalSecret', 'GithubAccessToken'}
         assert all(d['metadata']['namespace'] == 'argocd' for d in github_resources)
         key_source = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-app')
-        generator = next(d for d in github_resources if d['kind'] == 'GithubAccessToken')
+        generator = next(d for d in github_resources if d['metadata']['name'] == 'argocd-github-api' and d['kind'] == 'GithubAccessToken')
         token = next(d for d in github_resources if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'argocd-github-api')
         assert key_source['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
         assert key_source['spec']['target']['name'] == 'argocd-github-app'
         assert key_source['spec']['data'] == [{'secretKey': 'private-key', 'remoteRef': {'key': 'ai-platform-clusters-pem-key'}}]
-        assert generator['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read'}
+        assert generator['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read', 'statuses': 'write'}
         assert 'repositories' not in generator['spec'], 'Use the existing installation without per-app access lists'
         assert all(re.fullmatch(r'[0-9]+', generator['spec'][key]) for key in ['appID', 'installID'])
         assert generator['spec']['auth'] == {'privateKey': {'secretRef': {'name': 'argocd-github-app', 'key': 'private-key'}}}
