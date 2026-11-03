@@ -37,6 +37,7 @@ spec:
   permissions:
     actions: read
     pull_requests: read
+    statuses: write
   auth:
     privateKey:
       secretRef:
@@ -105,38 +106,3 @@ spec:
           kind: GithubAccessToken
           name: github-webhook-api
 {{- end }}
-
----
-# Separate short-lived status token; preview workloads never mount it.
-apiVersion: generators.external-secrets.io/v1alpha1
-kind: GithubAccessToken
-metadata:
-  name: argocd-github-status
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: '-5'
-spec:
-  appID: {{ .Values.argocd.github.appId | quote }}
-  installID: {{ .Values.argocd.github.installationId | quote }}
-  permissions:
-    pull_requests: read
-    statuses: write
-  auth:
-    privateKey:
-      secretRef: {name: argocd-github-app, key: private-key}
-
----
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: argocd-github-status
-  namespace: argocd
-spec:
-  refreshInterval: 15m
-  target: {name: argocd-github-status}
-  dataFrom:
-    - sourceRef:
-        generatorRef:
-          apiVersion: generators.external-secrets.io/v1alpha1
-          kind: GithubAccessToken
-          name: argocd-github-status

@@ -37,25 +37,23 @@ created. This is service configuration, not a bootstrap/Terraform handoff.
 
 1. An ExternalSecret imports only the existing private key from `azure-kv` into
    `Secret/argocd-github-app` (wave -10).
-2. A GithubAccessToken generator references that key and requests only
-   `actions: read` and `pull_requests: read` (wave -5). GitHub also supplies its
+2. A GithubAccessToken generator references that key and requests
+   `actions: read`, `pull_requests: read` and `statuses: write` (wave -5). GitHub also supplies its
    implicit metadata-read permission. Repository access follows the existing App
    installation, without copying its broader write permissions into the token.
 3. An ExternalSecret materializes `Secret/argocd-github-api` with key `token`,
    refreshed every 15 minutes, ahead of GitHub's one-hour token expiry (wave 0).
 
 All resources and both resulting Secrets stay in `argocd`. Consumers receive the
-read-only token, not the App private key. There is no reflection or workload mount
+scoped installation token, not the App private key. There is no reflection or workload mount
 configured here. Future PR generators can use `tokenRef` with Secret
 `argocd-github-api`, key `token`; publication-success gates can use the same API
 credential. Those application templates and their bindings remain separate work.
 Consumers must reread rotated credentials rather than caching them indefinitely.
 
-Deployed browser status hooks use a separate ESO-generated installation token,
-`argocd-github-status`, with `pull_requests: read` and `statuses: write`. It reuses
-the same App installation and key, remains in `argocd`, and renews every 15
-minutes. No preview namespace receives this token. The App installation already
-grants status write; the generator requests only this narrower scope.
+Deployed browser status hooks mount this token in short lived Jobs in `argocd`.
+The App installation already grants status write. No preview namespace receives
+the token; this shared credential now has commit-status write permission.
 
 The installed/pinned ESO API accepts `appID` and `installID` strings; it does not
 support the ID Secret-reference fields shown in newer documentation. Reuse the
