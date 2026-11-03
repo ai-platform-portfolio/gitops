@@ -99,6 +99,11 @@ Deploy the full platform when you are ready:
 make up
 ```
 
+`make up` also selects the management cluster in your kubeconfig and configures
+kubelogin to use the current Azure CLI session. Run `make context` to refresh
+that context later without redeploying. Set `KUBECONFIG` to use a different
+kubeconfig file.
+
 Both commands initialize Terraform automatically and use the authenticated Azure
 CLI account context. There is no separate `terraform init` or environment-variable
 setup to run. `make up` automatically approves Terraform apply; it computes
