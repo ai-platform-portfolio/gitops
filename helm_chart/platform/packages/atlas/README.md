@@ -13,8 +13,8 @@ it executes with the operator's database access.
 | 0 | ESO | Secret APIs/controller available |
 | 10 | Configuration | Atlas bot token and bootstrap password delivered |
 | 30 | PostgreSQL | CNPG server and CA Ready |
-| 35 | Atlas database access | ESO copies the bootstrap URL and CA |
-| 40 | Atlas operator | Required CA volume now exists |
+| 35 | Atlas database access and Azure identity | ESO copies the local URL/CA; ASO creates the managed identity, federation and Flexible Server administrator |
+| 40 | Atlas operator | Local CA and reflected Azure client ID now exist |
 
 `configuration.yaml` reads the existing `ai-platform-portfolio-atlas-bot` Key
 Vault secret via `azure-kv`. ESO generates an alphanumeric bootstrap password
@@ -22,6 +22,16 @@ once per cluster, using the existing portfolio generator pattern. Its immutable
 `postgres/atlas-role-manager` Secret survives removal of the ExternalSecret and
 is removed with its namespace during full teardown. It is not regenerated while
 the cluster still uses it. No token or password enters Git or Helm values.
+
+For managed PostgreSQL, `atlas-azure` uses ASO in `azure-resources` to create
+one dedicated Atlas identity, federates it to the existing operator ServiceAccount
+and adds a separate administrator child under the Terraform-owned Flexible Server.
+The AKS group administrator remains Terraform-owned. ASO exports the identity's
+client ID to a ConfigMap reflected only into `atlas-system`; the workload identity
+webhook injects the projected token, so the operator needs no client secret.
+The identity has server-wide SQL authority: only trusted platform GitOps may
+create Atlas resources. Application identities and databases remain application
+chart resources. Delete their resources before `atlas-azure` on teardown.
 
 CNPG owns the new `atlas_role_manager` bootstrap login with `CREATEROLE`, without
 superuser, database creation or replication privileges. Its HBA rule permits TLS

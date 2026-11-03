@@ -1,3 +1,34 @@
+# The shared Atlas identity and its server-admin child must be ready before
+# the operator starts using managed PostgreSQL token authentication.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: atlas-azure
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "35"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: azure-resources
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/atlas/azure-resources.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
 # PostgreSQL must create its CA before ESO delivers the TLS connection Secret.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
