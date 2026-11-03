@@ -186,3 +186,8 @@ postgres:
     - hostssl samerole /^app_[a-z0-9_]+_migrator$ all cert map=atlas_clients
     # Runtime certificates must identify the exact login; no shared runtime key.
     - hostssl samerole /^app_[a-z0-9_]+_app$ all cert
+
+# The management-cluster Kargo package grants Entra users explicit access.
+kargo:
+  admins:
+    portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575

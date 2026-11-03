@@ -1,0 +1,35 @@
+global:
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    seccompProfile:
+      type: RuntimeDefault
+
+api:
+  host: kargo.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
+  tls:
+    enabled: false
+    terminatedUpstream: true
+  adminAccount:
+    enabled: false
+  oidc:
+    enabled: true
+    issuerURL: https://login.microsoftonline.com/{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}/v2.0
+    clientID: ""
+    additionalScopes: []
+    usernameClaim: preferred_username
+    admins:
+      claims:
+        oid:
+{{- range $name, $objectId := .Values.kargo.admins }}
+          - {{ $objectId | quote }}
+{{- end }}
+  # Explicit env overrides the chart ConfigMap's empty placeholder client ID.
+  env:
+    - name: OIDC_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: kargo-sso
+          key: client-id
