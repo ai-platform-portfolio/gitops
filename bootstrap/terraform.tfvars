@@ -134,6 +134,7 @@ foundry = {
 
 postgres = {
   name                        = "pg-ai-platform-portfolio-management"
+  zone                        = "2"
   version                     = "18"
   sku_name                    = "B_Standard_B1ms"
   storage_mb                  = 32768
