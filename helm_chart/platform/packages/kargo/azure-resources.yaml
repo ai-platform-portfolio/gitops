@@ -1,0 +1,52 @@
+{{- $sub := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $group := required "runtime.CLUSTER_RESOURCE_GROUP is required" .Values.runtime.CLUSTER_RESOURCE_GROUP -}}
+{{- $registryGroup := required "kargo.registryResourceGroup is required" .Values.kargo.registryResourceGroup -}}
+{{- $registry := required "argocd.registry.name is required" .Values.argocd.registry.name -}}
+{{- $identityScope := printf "/subscriptions/%s/resourceGroups/%s" $sub $group -}}
+{{- $registryScope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s" $sub $registryGroup $registry -}}
+{{- $hash := sha256sum (printf "kargo/%s/%s" .Values.cluster.name $registryScope) | trunc 32 -}}
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: kargo-acr
+  namespace: azure-resources
+spec:
+  azureName: id-{{ .Values.cluster.name }}-kargo-acr
+  location: {{ required "kargo.location is required" .Values.kargo.location | quote }}
+  owner: {armId: {{ $identityScope | quote }}}
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: kargo-acr-identity
+        key: clientId
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^kargo$"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^kargo$"
+      principalId: {name: kargo-acr-identity, key: principalId}
+
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: kargo-acr
+  namespace: azure-resources
+spec:
+  owner: {name: kargo-acr}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:kargo:kargo-controller
+
+---
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: kargo-acr-pull
+  namespace: azure-resources
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) | quote }}
+  owner: {armId: {{ $registryScope | quote }}}
+  principalIdFromConfig: {name: kargo-acr-identity, key: principalId}
+  principalType: ServicePrincipal
+  roleDefinitionReference: {wellKnownName: AcrPull}

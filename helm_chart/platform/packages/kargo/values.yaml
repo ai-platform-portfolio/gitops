@@ -7,6 +7,30 @@ global:
     seccompProfile:
       type: RuntimeDefault
 
+controller:
+  # A projected audience-limited token and ASO-reflected client ID let the
+  # Azure SDK use workload federation without a static credential or SA patch.
+  env:
+    - name: AZURE_CLIENT_ID
+      valueFrom:
+        configMapKeyRef: {name: kargo-acr-identity, key: clientId}
+    - name: AZURE_TENANT_ID
+      value: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+    - name: AZURE_FEDERATED_TOKEN_FILE
+      value: /var/run/secrets/azure/tokens/azure-identity-token
+  volumes:
+    - name: azure-identity-token
+      projected:
+        sources:
+          - serviceAccountToken:
+              path: azure-identity-token
+              audience: api://AzureADTokenExchange
+              expirationSeconds: 3600
+  volumeMounts:
+    - name: azure-identity-token
+      mountPath: /var/run/secrets/azure/tokens
+      readOnly: true
+
 api:
   host: kargo.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
   tls:
