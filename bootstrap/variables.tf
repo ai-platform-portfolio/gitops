@@ -99,6 +99,19 @@ variable "foundry" {
 
 }
 
+variable "postgres" {
+  description = "Shared staging and production Azure PostgreSQL Flexible Server choices."
+
+  type = object({
+    name                        = string
+    version                     = string
+    sku_name                    = string
+    storage_mb                  = number
+    backup_retention_days       = number
+    private_endpoint_subnet_key = string
+  })
+}
+
 variable "aks" {
   description = "Management cluster settings and node pools keyed by pool name."
 

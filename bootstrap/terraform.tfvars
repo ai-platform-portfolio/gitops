@@ -107,6 +107,7 @@ private_dns = {
   openai            = { name = "privatelink.openai.azure.com", vnet_link = true }
   cognitiveservices = { name = "privatelink.cognitiveservices.azure.com", vnet_link = true }
   services_ai       = { name = "privatelink.services.ai.azure.com", vnet_link = true }
+  postgres          = { name = "privatelink.postgres.database.azure.com", vnet_link = true }
 }
 
 foundry = {
@@ -129,6 +130,15 @@ foundry = {
       capacity      = 10
     }
   }
+}
+
+postgres = {
+  name                        = "pg-ai-platform-portfolio-management"
+  version                     = "18"
+  sku_name                    = "B_Standard_B1ms"
+  storage_mb                  = 32768
+  backup_retention_days       = 7
+  private_endpoint_subnet_key = "snet-pe-management"
 }
 
 aks = {
