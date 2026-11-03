@@ -120,6 +120,7 @@ data:
   resource.customizations.health.authorization.azure.com_RoleAssignment: *asoHealth
   resource.customizations.health.storage.azure.com_StorageAccountsBlobServicesContainer: *asoHealth
   resource.customizations.health.storage.azure.com_StorageAccountsManagementPolicy: *asoHealth
+  resource.customizations.health.dbforpostgresql.azure.com_FlexibleServersDatabase: *asoHealth
   # Webhook controllers/cert-manager inject their serving CA into these bundles.
   # Ignore only that injected value; keep the rest of each webhook under GitOps.
   resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration: |
