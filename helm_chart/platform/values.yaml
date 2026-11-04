@@ -181,6 +181,19 @@ devlake:
 # Approved extra PostgreSQL access rules go before the terminal reject-all rule.
 # Application registrations and deployment values live outside this chart.
 postgres:
+  # Operator-controlled PITR capacity; disabled until a specific restore is requested.
+  recovery:
+    enabled: false
+    name: ""
+    pointInTimeUTC: ""
+    network:
+      resourceGroup: ""
+      virtualNetwork: ""
+      subnet: ""
+      dnsResourceGroup: ""
+      privateDnsZone: privatelink.postgres.database.azure.com
+    administrators: {}
+
   additionalHba:
     # Only Atlas can map its fixed client identity to generated migration logins.
     - hostssl samerole /^app_[a-z0-9_]+_migrator$ all cert map=atlas_clients

@@ -1,0 +1,102 @@
+{{- $r := .Values.postgres.recovery -}}
+{{- $pg := .Values.atlas.azurePostgres -}}
+{{- $name := required "postgres.recovery.name is required" $r.name -}}
+{{- if eq $name $pg.serverName -}}{{- fail "recovery name must differ from the source server" -}}{{- end -}}
+{{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $group := printf "/subscriptions/%s/resourceGroups/%s" $subscription $pg.serverResourceGroup -}}
+{{- $networkGroup := printf "/subscriptions/%s/resourceGroups/%s" $subscription $r.network.resourceGroup -}}
+{{- $dnsGroup := printf "/subscriptions/%s/resourceGroups/%s" $subscription $r.network.dnsResourceGroup -}}
+apiVersion: dbforpostgresql.azure.com/v20250801
+kind: FlexibleServer
+metadata:
+  name: {{ $name }}
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  azureName: {{ $name }}
+  owner: {armId: {{ $group | quote }}}
+  location: {{ $pg.location | quote }}
+  createMode: PointInTimeRestore
+  pointInTimeUTC: {{ $r.pointInTimeUTC | quote }}
+  sourceServerResourceReference:
+    armId: {{ printf "%s/providers/Microsoft.DBforPostgreSQL/flexibleServers/%s" $group $pg.serverName | quote }}
+  # Azure inherits the source's engine, compute and storage for the restore.
+  authConfig:
+    activeDirectoryAuth: Enabled
+    passwordAuth: Disabled
+    tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+  network:
+    publicNetworkAccess: Disabled
+
+---
+apiVersion: network.azure.com/v20250301
+kind: PrivateEndpoint
+metadata:
+  name: {{ $name }}
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  azureName: {{ $name }}
+  owner: {armId: {{ $group | quote }}}
+  location: {{ $pg.location | quote }}
+  subnet:
+    reference:
+      armId: {{ printf "%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s" $networkGroup $r.network.virtualNetwork $r.network.subnet | quote }}
+  privateLinkServiceConnections:
+    - name: postgres
+      groupIds: [postgresqlServer]
+      privateLinkServiceReference:
+        group: dbforpostgresql.azure.com
+        kind: FlexibleServer
+        name: {{ $name }}
+
+---
+apiVersion: network.azure.com/v20250301
+kind: PrivateEndpointsPrivateDnsZoneGroup
+metadata:
+  name: {{ $name }}
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  azureName: default
+  owner: {name: {{ $name }}}
+  privateDnsZoneConfigs:
+    - name: postgres
+      privateDnsZoneReference:
+        armId: {{ printf "%s/providers/Microsoft.Network/privateDnsZones/%s" $dnsGroup $r.network.privateDnsZone | quote }}
+
+---
+# Reuse Atlas's short-lived workload identity for SQL validation on the copy.
+apiVersion: dbforpostgresql.azure.com/v20250801
+kind: FlexibleServersAdministrator
+metadata:
+  name: {{ $name }}-atlas
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  owner: {name: {{ $name }}}
+  azureNameFromConfig: {name: atlas-postgres-identity, key: principalId}
+  principalName: {{ $pg.identityName | quote }}
+  principalType: ServicePrincipal
+  tenantId: {{ .Values.runtime.AZURE_TENANT_ID | quote }}
+{{- range $key, $admin := $r.administrators }}
+
+---
+apiVersion: dbforpostgresql.azure.com/v20250801
+kind: FlexibleServersAdministrator
+metadata:
+  name: {{ $name }}-{{ $key }}
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  owner: {name: {{ $name }}}
+  azureName: {{ $admin.objectId | quote }}
+  principalName: {{ $admin.principalName | quote }}
+  principalType: {{ $admin.principalType }}
+  tenantId: {{ $.Values.runtime.AZURE_TENANT_ID | quote }}
+{{- end }}

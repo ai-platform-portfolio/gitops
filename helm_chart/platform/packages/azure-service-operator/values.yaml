@@ -28,6 +28,8 @@ crdPattern:
   - authorization.azure.com/*
   - storage.azure.com/*
   - dbforpostgresql.azure.com/*
+  - network.azure.com/PrivateEndpoint
+  - network.azure.com/PrivateEndpointsPrivateDnsZoneGroup
 
 azureTargetNamespaces:
 {{- range $targetNamespaces }}

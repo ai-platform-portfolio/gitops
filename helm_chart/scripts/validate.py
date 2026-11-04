@@ -43,6 +43,43 @@ def main():
     with tempfile.TemporaryDirectory(prefix='platform-render-') as directory:
         tmp = Path(directory)
         values = tmp / 'values.json'
+        recovery = {
+            'enabled': True, 'name': 'example-recovery', 'pointInTimeUTC': '2026-01-01T00:00:00Z',
+            'network': {'resourceGroup': 'network-rg', 'virtualNetwork': 'network', 'subnet': 'private',
+                        'dnsResourceGroup': 'dns-rg', 'privateDnsZone': 'privatelink.postgres.database.azure.com'},
+            'administrators': {'aks-admins': {'objectId': '00000000-0000-0000-0000-000000000002',
+                                              'principalName': 'example-admins', 'principalType': 'Group'}},
+        }
+        recovery_inputs = {'runtime': runtime, 'postgres': {'recovery': recovery}}
+        values.write_text(json.dumps(recovery_inputs))
+        rendered_recovery = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'),
+                                                          '-f', str(values), '--show-only', 'templates/postgres-recovery.yaml')))
+        app = next(d for d in rendered_recovery if d)
+        resources = list(yaml.safe_load_all(app['spec']['source']['helm']['valuesObject']['manifests']))
+        server = next(d for d in resources if d['kind'] == 'FlexibleServer')
+        assert server['spec']['createMode'] == 'PointInTimeRestore'
+        assert server['spec']['network'] == {'publicNetworkAccess': 'Disabled'}
+        assert server['spec']['authConfig']['passwordAuth'] == 'Disabled'
+        assert server['spec']['sourceServerResourceReference']['armId'].endswith('/pg-ai-platform-portfolio-management')
+        assert server['spec']['azureName'] == recovery['name']
+        endpoint = next(d for d in resources if d['kind'] == 'PrivateEndpoint')
+        assert endpoint['spec']['privateLinkServiceConnections'][0]['privateLinkServiceReference']['name'] == recovery['name']
+        dns = next(d for d in resources if d['kind'] == 'PrivateEndpointsPrivateDnsZoneGroup')
+        assert dns['spec']['owner'] == {'name': recovery['name']}
+        assert int(server['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(endpoint['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(dns['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+        admins = [d for d in resources if d['kind'] == 'FlexibleServersAdministrator']
+        assert len(admins) == 2 and all(d['spec']['owner'] == {'name': recovery['name']} for d in admins)
+        # Source-name equality must fail before any Azure resource can be rendered.
+        recovery['name'] = 'pg-ai-platform-portfolio-management'
+        values.write_text(json.dumps(recovery_inputs))
+        rejected = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)],
+                                  text=True, capture_output=True)
+        assert rejected.returncode and 'recovery name must differ' in rejected.stderr
+        recovery.update(name='example-recovery', pointInTimeUTC='')
+        values.write_text(json.dumps(recovery_inputs))
+        rejected = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)],
+                                  text=True, capture_output=True)
+        assert rejected.returncode and 'pointInTimeUTC' in rejected.stderr
         hba_rule = 'hostssl example example_login all scram-sha-256'
         values.write_text(json.dumps({'runtime': runtime, 'postgres': {'additionalHba': [hba_rule]}}))
         hba_render = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
@@ -381,6 +418,9 @@ def main():
         ]
         database_health = configmap['data']['resource.customizations.health.dbforpostgresql.azure.com_FlexibleServersDatabase']
         assert 'c.observedGeneration == obj.metadata.generation' in database_health
+        for kind in ['dbforpostgresql.azure.com_FlexibleServer', 'network.azure.com_PrivateEndpoint',
+                     'network.azure.com_PrivateEndpointsPrivateDnsZoneGroup']:
+            assert configmap['data']['resource.customizations.health.' + kind] == database_health
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
         assert waves['namespaces'] < waves['external-secrets'] < waves['configuration'] < waves['testkube-azure']
@@ -993,7 +1033,7 @@ def main():
                     manager = next(c for c in pod['containers'] if c['name'] == 'manager')
                     assert deployment['spec']['replicas'] == 1
                     assert manager['image'].endswith(':v2.21.1')
-                    assert '--crd-pattern=resources.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*;dbforpostgresql.azure.com/*' in manager['args']
+                    assert '--crd-pattern=resources.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*;dbforpostgresql.azure.com/*;network.azure.com/PrivateEndpoint;network.azure.com/PrivateEndpointsPrivateDnsZoneGroup' in manager['args']
                     assert pod['serviceAccountName'] == 'azureserviceoperator-default'
                     assert any(s.get('serviceAccountToken', {}).get('audience') == 'api://AzureADTokenExchange'
                                for v in pod['volumes'] for s in v.get('projected', {}).get('sources', []))
