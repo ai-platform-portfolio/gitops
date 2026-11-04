@@ -312,6 +312,8 @@ def main():
         assert not any(d['kind'] == 'Certificate' for d in delivery)
         namespace = next(d for d in manifests('namespaces') if d['kind'] == 'Namespace' and d['metadata']['name'] == 'cluster-onboarding')
         assert namespace['metadata']['labels']['gitops.platform/gateway'] == 'public'
+        kargo_namespace = next(d for d in manifests('namespaces') if d['kind'] == 'Namespace' and d['metadata']['name'] == 'kargo')
+        assert kargo_namespace['metadata']['labels']['gitops.platform/gateway'] == 'public'
         assert {'group': '', 'kind': 'ConfigMap', 'name': 'preview-refresh', 'namespace': 'cluster-onboarding',
                 'jsonPointers': ['/data']} in github_apps['platform-events']['spec']['ignoreDifferences']
         sender = next(app for app in applications if app['metadata']['name'] == 'atlantis')['spec']['source']['helm']['valuesObject']
@@ -355,20 +357,28 @@ def main():
         assert wave(key_source) < wave(generator) < wave(token)
         staged_config = next(app for app in applications if app['metadata']['name'] == 'configuration')
         staged_resources = list(yaml.safe_load_all(staged_config['spec']['source']['helm']['valuesObject']['manifests']))
-        application_aso = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret'
+        application_aso = next(doc for doc in staged_resources if doc['kind'] == 'Secret'
                                and doc['metadata']['name'] == 'aso-credential'
                                and doc['metadata']['namespace'] == 'azure-resources')
-        assert application_aso['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
-        assert application_aso['spec']['target']['name'] == 'aso-credential'
-        assert application_aso['spec']['target']['creationPolicy'] == 'Owner'
-        assert application_aso['spec']['target']['template']['data']['USE_WORKLOAD_IDENTITY_AUTH'] == 'true'
-        assert {item['secretKey']: item['remoteRef']['key'] for item in application_aso['spec']['data']} == {
-            'clientId': 'aso-client-id', 'tenantId': 'tenant-id', 'subscriptionId': 'subscription-id',
+        assert application_aso['type'] == 'Opaque'
+        assert {key: base64.b64decode(value).decode() for key, value in application_aso['data'].items()} == {
+            'AZURE_CLIENT_ID': runtime['ASO_CLIENT_ID'],
+            'AZURE_TENANT_ID': runtime['AZURE_TENANT_ID'],
+            'AZURE_SUBSCRIPTION_ID': runtime['AZURE_SUBSCRIPTION_ID'],
+            'USE_WORKLOAD_IDENTITY_AUTH': 'true',
         }
+        assert not any(doc['kind'] == 'ExternalSecret'
+                       and doc['metadata']['name'] == 'aso-credential'
+                       and doc['metadata']['namespace'] == 'azure-resources' for doc in staged_resources)
         assert not application_aso['metadata'].get('annotations'), 'ASO credential source must not be reflected'
-        assert not application_aso['spec']['target']['template'].get('metadata'), 'ASO credential target must not be reflected'
+        assert not application_aso['metadata'].get('labels'), 'ASO credential source must not be reflected'
         health = configmap['data']['resource.customizations.health.external-secrets.io_ExternalSecret']
         assert 'condition.type == "Ready" and condition.status == "True"' in health
+        validating_diff = yaml.safe_load(configmap['data']['resource.customizations.ignoreDifferences.admissionregistration.k8s.io_ValidatingWebhookConfiguration'])
+        assert validating_diff['jqPathExpressions'] == [
+            '.webhooks[]?.clientConfig.caBundle',
+            '.webhooks[]?.namespaceSelector.matchExpressions[]? | select((.key == "control-plane" and .operator == "NotIn" and .values == ["true"]) or (.key == "kubernetes.azure.com/managedby" and .operator == "NotIn" and .values == ["aks"]))',
+        ]
         database_health = configmap['data']['resource.customizations.health.dbforpostgresql.azure.com_FlexibleServersDatabase']
         assert 'c.observedGeneration == obj.metadata.generation' in database_health
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])

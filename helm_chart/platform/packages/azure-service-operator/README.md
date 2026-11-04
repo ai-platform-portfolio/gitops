@@ -89,10 +89,10 @@ Namespace writers can exercise the credential's Azure permissions, even without
 Secret reads. The upstream controller also has broad Kubernetes/CRD permissions;
 the watch filter is not tenant RBAC isolation. Restrict authors accordingly.
 
-The shared `configuration` Application has ESO create an `aso-credential` only
-in the platform-owned `azure-resources` namespace. ESO reads `aso-client-id`,
-`tenant-id` and `subscription-id` from the existing platform Key Vault; the
-resulting Kubernetes Secret is required by ASO's namespace credential API. The
+The shared `configuration` Application creates `aso-credential` only in the
+platform-owned `azure-resources` namespace, using the current authenticated
+bootstrap runtime. This avoids stale Key Vault identity metadata after a cluster
+rebuild. The Kubernetes Secret is required by ASO's namespace credential API. The
 client/tenant/subscription IDs identify the ASO bootstrap identity and account;
 the projected service-account token is the actual login proof. This lets trusted GitOps Applications
 place new application Azure CRs in the namespace ASO already watches, without
@@ -104,13 +104,22 @@ federated credential for each preview namespace and ServiceAccount; its lifecycl
 belongs to the later preview delivery work. The central credential does not
 authorize adopting Terraform-owned Azure resources.
 
-On a fresh cluster, the namespaces Application runs at wave -10 and External
-Secrets at wave 0. The configuration Application at wave 10 creates the
-`azure-kv` ClusterSecretStore and `aso-credential` ExternalSecret. Argo waits
-for the ExternalSecret Ready condition before advancing to Azure resource
-consumers at wave 20. ESO authenticates with its own bootstrap identity, so
-fetching this ASO credential does not depend on ASO. The three Key Vault values
-survive disposable cluster teardown and are fetched again on the next `make up`.
+On a fresh cluster, the namespaces Application runs at wave -10 and the
+configuration Application at wave 10 creates this Secret before Azure resource
+consumers at wave 20. The projected service-account token remains the login
+proof; no password is stored. The existing `azure-kv` ClusterSecretStore remains
+for other platform credentials.
+
+The management root follows `main`, so an existing cluster needs one ownership
+handoff before this PR merges. Pause automated sync of the root `platform` and
+child `configuration` Applications, then remove the old `aso-credential`
+ExternalSecret with orphan propagation, and verify the target Secret no longer
+has an ExternalSecret owner reference. Merge the PR, then sync the new root and
+configuration, and check
+the Secret's four keys against the current runtime without printing their values,
+restart ASO so it reads the current identity, and verify the operator and Azure
+CRs are Ready. Resume automated reconciliation only after the new Secret is
+tracked by Argo. Do not let ESO and Argo manage the same Secret concurrently.
 
 The package policy permits DNS to kube-system, outbound HTTPS/API traffic and
 inbound webhook/probe/secure-metrics ports. It avoids upstream SQL egress rules.
@@ -120,8 +129,8 @@ they are separate from public ListenerSet certificates and need no public route.
 
 ## Validation and operations
 
-`make validate` checks both cluster roles, dependency waves, ExternalSecret
-mapping and health gate, pinned image, enabled CRD groups, projected token,
+`make validate` checks both cluster roles, dependency waves, the current-runtime
+Secret and health gate, pinned image, enabled CRD groups, projected token,
 empty global credential and single replica, alongside every existing pinned chart.
 Rendering does not verify Kubernetes admission, runtime CRD installation or Azure
 authentication. No deployment or Azure CRUD validation was performed for this PR.
