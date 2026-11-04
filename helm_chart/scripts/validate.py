@@ -175,7 +175,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'kargo-identity', 'kargo', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'atlas-azure', 'federation', 'envoy-gateway', 'external-secrets',
+            'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'kargo-acr', 'kargo-identity', 'kargo', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'atlas-azure', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -186,6 +186,11 @@ def main():
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
+        kargo_acr = next(app for app in applications if app['metadata']['name'] == 'kargo-acr')
+        acr_resources = [d for d in yaml.safe_load_all(kargo_acr['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        assert {d['kind'] for d in acr_resources} == {'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
+        assert next(d for d in acr_resources if d['kind'] == 'FederatedIdentityCredential')['spec']['subject'] == 'system:serviceaccount:kargo:kargo-controller'
+        assert next(d for d in acr_resources if d['kind'] == 'RoleAssignment')['spec']['roleDefinitionReference']['wellKnownName'] == 'AcrPull'
         kargo_identity = next(app for app in applications if app['metadata']['name'] == 'kargo-identity')
         kargo_resources = [d for d in yaml.safe_load_all(kargo_identity['spec']['source']['helm']['valuesObject']['manifests']) if d]
         kargo_public_client = next(d for d in kargo_resources if d['kind'] == 'PublicOIDCApplication')
@@ -373,6 +378,7 @@ def main():
         assert waves['argo-events'] < waves['configuration'] < waves['platform-events'] < waves['atlantis']
         assert waves['configuration'] == waves['azure-service-operator']
         assert waves['crossplane-identity-api'] < waves['kargo-identity'] < waves['kargo'] < waves['routes']
+        assert waves['azure-service-operator'] < waves['kargo-acr'] < waves['kargo']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
         assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
@@ -665,7 +671,7 @@ def main():
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
                                               'sonarqube', 'sonarqube-configure', 'crossplane',
                                               'crossplane-packages', 'crossplane-identity-api', 'argocd-route', 'argo-events', 'platform-events',
-                                              'kargo-identity', 'kargo'}, 'Workload must install every ready package except management services'
+                                              'kargo-acr', 'kargo-identity', 'kargo'}, 'Workload must install every ready package except management services'
         assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
                 'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
@@ -703,7 +709,7 @@ def main():
         assert waves['argo-rollouts'] < waves['testkube-analysis'] and waves['testkube'] < waves['testkube-analysis']
         assert waves['envoy-gateway'] < waves['argo-rollouts'] < waves['routes'], 'Gateway API must exist before Rollouts starts'
         assert 'argo-rollouts' in {a['metadata']['name'] for a in workload}, 'Each cluster needs its own Rollouts controller'
-        assert not {'kargo', 'kargo-identity'} & {a['metadata']['name'] for a in workload}
+        assert not {'kargo', 'kargo-acr', 'kargo-identity'} & {a['metadata']['name'] for a in workload}
 
 
         # Exercise the opt-in package separately so default package ownership
@@ -839,6 +845,12 @@ def main():
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
                 if name == 'kargo':
+                    controller = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'kargo-controller')
+                    pod = controller['spec']['template']['spec']
+                    controller_env = {e['name']: e for e in pod['containers'][0]['env']}
+                    assert controller_env['AZURE_CLIENT_ID']['valueFrom']['configMapKeyRef'] == {'name': 'kargo-acr-identity', 'key': 'clientId'}
+                    assert controller_env['AZURE_FEDERATED_TOKEN_FILE']['value'].endswith('/azure-identity-token')
+                    assert any(v['name'] == 'azure-identity-token' for v in pod['volumes'])
                     api = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'kargo-api')
                     env = {e['name']: e for e in api['spec']['template']['spec']['containers'][0]['env']}
                     assert env['OIDC_CLIENT_ID']['valueFrom']['secretKeyRef'] == {'name': 'kargo-sso', 'key': 'client-id'}

@@ -189,6 +189,8 @@ postgres:
 
 # The management-cluster Kargo package grants Entra users explicit access.
 kargo:
+  location: uksouth
+  registryResourceGroup: kubernetes
   admins:
     portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575
 
