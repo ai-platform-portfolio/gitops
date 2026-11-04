@@ -26,7 +26,9 @@ make the following APIs available to future GitOps consumers:
 | `managedidentity.azure.com/*` | User-assigned managed identities and federated identity credentials |
 | `authorization.azure.com/*` | Role assignments and custom role definitions |
 | `storage.azure.com/*` | Storage accounts, Blob services/containers and other storage child resources |
-| `dbforpostgresql.azure.com/*` | Azure PostgreSQL Flexible Server databases |
+| `dbforpostgresql.azure.com/*` | Azure PostgreSQL Flexible Servers, databases and administrators |
+| `network.azure.com/PrivateEndpoint` | Private endpoint connections for service dependencies |
+| `network.azure.com/PrivateEndpointsPrivateDnsZoneGroup` | Connections to existing private DNS zones |
 
 The remaining service APIs are already installed by their package operators:
 

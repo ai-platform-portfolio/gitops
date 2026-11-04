@@ -321,7 +321,7 @@ class Cluster:
             # resources tracked by platform-owned consumer Applications may
             # remain: reverse waves delete them before ASO and its credential.
             owned = {(r.get('group'), r.get('kind'), r.get('namespace'), r.get('name'))
-                     for app in apps if app['metadata']['name'] in {'atlantis-azure', 'atlas-azure', 'holmes-azure', 'testkube-azure'}
+                     for app in apps if app['metadata']['name'] in {'atlantis-azure', 'atlas-azure', 'holmes-azure', 'testkube-azure', 'postgres-recovery'}
                      and app['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true'
                      for r in app.get('status', {}).get('resources', [])}
             # Use ASO's own reserved CRD ownership label. Native AKS ACN APIs

@@ -254,6 +254,27 @@ class TeardownTests(unittest.TestCase):
                                          [package, package + '-azure', 'configuration',
                                           'azure-service-operator', 'platform'])
 
+    def test_recovery_resources_finish_deletion_before_aso(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        def app(name, wave):
+            return {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
+                                 'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
+        resource = {'apiVersion': 'dbforpostgresql.azure.com/v20250801', 'kind': 'FlexibleServer',
+                    'metadata': {'name': 'recovery', 'namespace': 'azure-resources'}}
+        apps = [app('configuration', 10), app('azure-service-operator', 10), app('postgres-recovery', 45)]
+        apps[-1]['status'] = {'resources': [{'group': 'dbforpostgresql.azure.com', 'kind': 'FlexibleServer',
+                                           'namespace': 'azure-resources', 'name': 'recovery'}]}
+        deleted = []
+        cluster.objects = Mock(side_effect=lambda kind, namespace=None: apps if kind == 'applications.argoproj.io'
+                               else ([] if 'postgres-recovery' in deleted else [resource]))
+        cluster.delete = Mock(side_effect=lambda kind, names, namespace=None: deleted.extend(names))
+        with patch('helm_chart.scripts.cluster.run', return_value='flexibleservers.dbforpostgresql.azure.com\n'):
+            cluster.cleanup()
+        self.assertEqual(deleted, ['postgres-recovery', 'configuration', 'azure-service-operator', 'platform'])
+
     def test_azure_resources_block_teardown_before_operator_or_identity_removal(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
