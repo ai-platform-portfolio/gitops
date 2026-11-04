@@ -3,5 +3,6 @@ kind: Namespace
 metadata:
   name: kargo
   labels:
+    gitops.platform/gateway: public
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: latest

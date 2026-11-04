@@ -127,10 +127,12 @@ data:
   resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration: |
     jqPathExpressions:
       - '.webhooks[]?.clientConfig.caBundle'
-  # Apply the same CA-bundle exception to validating admission webhooks.
+  # AKS also injects two namespace exclusions into validating webhooks. Ignore
+  # only those exact entries; keep every other selector and webhook field tracked.
   resource.customizations.ignoreDifferences.admissionregistration.k8s.io_ValidatingWebhookConfiguration: |
     jqPathExpressions:
       - '.webhooks[]?.clientConfig.caBundle'
+      - '.webhooks[]?.namespaceSelector.matchExpressions[]? | select((.key == "control-plane" and .operator == "NotIn" and .values == ["true"]) or (.key == "kubernetes.azure.com/managedby" and .operator == "NotIn" and .values == ["aks"]))'
   # Conversion webhook CA bundles are also injected at runtime into CRDs.
   resource.customizations.ignoreDifferences.apiextensions.k8s.io_CustomResourceDefinition: |
     jqPathExpressions:
