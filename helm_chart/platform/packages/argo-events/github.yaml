@@ -48,7 +48,7 @@ spec:
         method: POST
         url: {{ printf "https://%s" $hostname | quote }}
         maxPayloadSize: 1048576
-      events: [pull_request, workflow_run]
+      events: [pull_request, workflow_run, push]
       apiToken: {name: github-webhook-api, key: token}
       webhookSecret: {name: github-event-auth, key: webhook-secret}
       contentType: json
@@ -158,13 +158,20 @@ spec:
         data:
           - {path: body.X-GitHub-Event, type: string, value: ['^workflow_run$']}
           - {path: body.action, type: string, value: ['^completed$']}
+    - name: branch-push
+      eventSourceName: github
+      eventName: organization
+      filters:
+        data:
+          - {path: body.X-GitHub-Event, type: string, value: ['^push$']}
+          - {path: body.ref, type: string, value: ['^refs/heads/(main|delivery)$']}
     - name: startup
       eventSourceName: preview-startup
       eventName: startup
   triggers:
     - template:
         name: refresh-previews
-        conditions: pr || publication || startup
+        conditions: pr || publication || branch-push || startup
         k8s:
           operation: create
           source:
@@ -193,6 +200,18 @@ spec:
                       - name: refresh-applicationsets
                         image: {{ $github.refreshImage | quote }}
                         args: [annotate, applicationsets.argoproj.io, --namespace=argocd, '--selector=platform.ai-platform-portfolio/preview=true', argocd.argoproj.io/application-set-refresh=true, --overwrite, --cache-dir=/tmp, --request-timeout=15s]
+                        env: [{name: KUBECONFIG, value: /etc/preview-refresh/config}]
+                        resources:
+                          requests: {cpu: 10m, memory: 32Mi}
+                          limits: {memory: 64Mi}
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities: {drop: [ALL]}
+                        volumeMounts: [{name: tmp, mountPath: /tmp}, {name: kubeconfig, mountPath: /etc/preview-refresh, readOnly: true}]
+                      - name: refresh-environments
+                        image: {{ $github.refreshImage | quote }}
+                        args: [annotate, applicationsets.argoproj.io, --namespace=argocd, '--selector=platform.ai-platform-portfolio/environment', argocd.argoproj.io/application-set-refresh=true, --overwrite, --cache-dir=/tmp, --request-timeout=15s]
                         env: [{name: KUBECONFIG, value: /etc/preview-refresh/config}]
                         resources:
                           requests: {cpu: 10m, memory: 32Mi}

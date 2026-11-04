@@ -1,0 +1,53 @@
+{{- $pg := .Values.atlas.azurePostgres -}}
+{{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $identityGroup := printf "/subscriptions/%s/resourceGroups/%s" $subscription $pg.identityResourceGroup -}}
+{{- $server := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers/%s" $subscription $pg.serverResourceGroup $pg.serverName -}}
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: atlas-postgres
+  namespace: azure-resources
+spec:
+  azureName: {{ $pg.identityName | quote }}
+  location: {{ $pg.location | quote }}
+  owner: {armId: {{ $identityGroup | quote }}}
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: atlas-postgres-identity
+        key: clientId
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^atlas-system$"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^atlas-system$"
+      principalId:
+        name: atlas-postgres-identity
+        key: principalId
+
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: atlas-postgres
+  namespace: azure-resources
+spec:
+  owner: {name: atlas-postgres}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:atlas-system:atlas-operator
+
+---
+# The AKS group administrator remains Terraform-owned. This separate child
+# grants the trusted Atlas operator SQL administration without a password.
+apiVersion: dbforpostgresql.azure.com/v20250801
+kind: FlexibleServersAdministrator
+metadata:
+  name: atlas-postgres
+  namespace: azure-resources
+spec:
+  owner: {armId: {{ $server | quote }}}
+  azureNameFromConfig: {name: atlas-postgres-identity, key: principalId}
+  principalName: {{ $pg.identityName | quote }}
+  principalType: ServicePrincipal
+  tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}

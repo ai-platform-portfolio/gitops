@@ -175,7 +175,7 @@ def main():
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'
         expected = {
-            'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'kargo-identity', 'kargo', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'federation', 'envoy-gateway', 'external-secrets',
+            'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'kargo-identity', 'kargo', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'atlas-azure', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
@@ -245,7 +245,7 @@ def main():
         delivery = manifests('platform-events')
         receiver = next(d for d in delivery if d['kind'] == 'EventSource' and d['metadata']['name'] == 'github')
         github = receiver['spec']['github']['organization']
-        assert github['organizations'] == ['ai-platform-portfolio'] and github['events'] == ['pull_request', 'workflow_run']
+        assert github['organizations'] == ['ai-platform-portfolio'] and github['events'] == ['pull_request', 'workflow_run', 'push']
         assert github['apiToken'] == {'name': 'github-webhook-api', 'key': 'token'}
         assert github['webhookSecret'] == {'name': 'github-event-auth', 'key': 'webhook-secret'}
         assert 'githubApp' not in github and github['deleteHookOnFinish'] is False
@@ -271,10 +271,13 @@ def main():
             assert matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'pull_request', 'action': action}})
         assert matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'completed'}})
         assert not matches(dependencies['publication'], {'body': {'X-GitHub-Event': 'workflow_run', 'action': 'requested'}})
+        assert matches(dependencies['branch-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/main'}})
+        assert matches(dependencies['branch-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/delivery'}})
+        assert not matches(dependencies['branch-push'], {'body': {'X-GitHub-Event': 'push', 'ref': 'refs/heads/feature'}})
         assert not matches(dependencies['pr'], {'body': {'X-GitHub-Event': 'issues', 'action': 'opened'}})
         assert not matches(dependencies['pr'], {'body': {}})
         trigger = refresh['spec']['triggers'][0]
-        assert trigger['template']['conditions'] == 'pr || publication || startup'
+        assert trigger['template']['conditions'] == 'pr || publication || branch-push || startup'
         assert not trigger['template']['k8s'].get('parameters'), 'GitHub payloads must not parameterize Kubernetes commands'
         job = trigger['template']['k8s']['source']['resource']
         assert job['spec']['activeDeadlineSeconds'] == 60 and job['spec']['ttlSecondsAfterFinished'] == 300
@@ -285,12 +288,13 @@ def main():
         assert config['users'][0]['user'] == {'tokenFile': '/var/run/secrets/kubernetes.io/serviceaccount/token'}
         assert config['clusters'][0]['cluster']['certificate-authority'] == '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
         assert {'name': 'kubeconfig', 'configMap': {'name': 'preview-refresh-kubeconfig'}} in pod['volumes']
-        for container, resource, annotation in [
-            (pod['initContainers'][0], 'applicationsets.argoproj.io', 'argocd.argoproj.io/application-set-refresh=true'),
-            (pod['containers'][0], 'applications.argoproj.io', 'argocd.argoproj.io/refresh=hard'),
+        for container, resource, selector, annotation in [
+            (pod['initContainers'][0], 'applicationsets.argoproj.io', 'platform.ai-platform-portfolio/preview=true', 'argocd.argoproj.io/application-set-refresh=true'),
+            (pod['initContainers'][1], 'applicationsets.argoproj.io', 'platform.ai-platform-portfolio/environment', 'argocd.argoproj.io/application-set-refresh=true'),
+            (pod['containers'][0], 'applications.argoproj.io', 'platform.ai-platform-portfolio/preview=true', 'argocd.argoproj.io/refresh=hard'),
         ]:
             assert container['args'] == ['annotate', resource, '--namespace=argocd',
-                '--selector=platform.ai-platform-portfolio/preview=true', annotation,
+                '--selector=' + selector, annotation,
                 '--overwrite', '--cache-dir=/tmp', '--request-timeout=15s']
             assert '@sha256:' in container['image'] and container['securityContext']['readOnlyRootFilesystem']
             assert container['env'] == [{'name': 'KUBECONFIG', 'value': '/etc/preview-refresh/config'}]
@@ -377,6 +381,13 @@ def main():
         atlas_app = next(app for app in applications if app['metadata']['name'] == 'atlas-operator')
         assert int(staged_config['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(atlas_app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
         assert waves['configuration'] < waves['postgres'] < waves['atlas-database-access'] < waves['atlas-operator']
+        assert waves['azure-service-operator'] < waves['atlas-azure'] < waves['atlas-operator']
+        azure = next(app for app in applications if app['metadata']['name'] == 'atlas-azure')
+        azure_docs = list(yaml.safe_load_all(azure['spec']['source']['helm']['valuesObject']['manifests']))
+        assert {d['kind'] for d in azure_docs} == {'UserAssignedIdentity', 'FederatedIdentityCredential', 'FlexibleServersAdministrator'}
+        admin = next(d for d in azure_docs if d['kind'] == 'FlexibleServersAdministrator')
+        assert admin['spec']['owner']['armId'].endswith('/flexibleServers/pg-ai-platform-portfolio-management')
+        assert admin['spec']['azureNameFromConfig'] == {'name': 'atlas-postgres-identity', 'key': 'principalId'}
         bootstrap_secret = next(d for d in staged_resources if d['kind'] == 'ExternalSecret'
                                 and d['metadata']['name'] == 'atlas-role-manager')
         assert bootstrap_secret['metadata']['namespace'] == 'postgres'
@@ -941,7 +952,9 @@ def main():
                     assert {name: env[name]['value'] for name in ['PREWARM_DEVDB', 'ALLOW_CUSTOM_CONFIG', 'WATCH_SECRETS']} == {
                         'PREWARM_DEVDB': 'false', 'ALLOW_CUSTOM_CONFIG': 'true', 'WATCH_SECRETS': 'false'}
                     assert env['ATLAS_TOKEN']['valueFrom']['secretKeyRef'] == {'name': 'atlas-token-secret', 'key': 'ATLAS_TOKEN'}
-                    assert len(env) == 4
+                    assert env['AZURE_CLIENT_ID']['valueFrom']['configMapKeyRef'] == {'name': 'atlas-postgres-identity', 'key': 'clientId'}
+                    assert len(env) == 5
+                    assert deployment['spec']['template']['metadata']['labels']['azure.workload.identity/use'] == 'true'
                     assert manager['volumeMounts'] == [{'name': 'postgres-ca', 'mountPath': '/etc/atlas-postgres', 'readOnly': True}]
                     assert pod['volumes'] == [{'name': 'postgres-ca', 'secret': {'secretName': 'atlas-postgres',
                         'defaultMode': 0o640, 'items': [{'key': 'ca.crt', 'path': 'ca.crt'},

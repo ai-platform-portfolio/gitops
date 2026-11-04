@@ -3,12 +3,25 @@ prewarmDevDB: false
 allowCustomConfig: true
 watchNamespaces: [atlas-system]
 
+serviceAccount:
+  annotations:
+    azure.workload.identity/tenant-id: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+
+podLabels:
+  azure.workload.identity/use: "true"
+
 extraEnvs:
   - name: ATLAS_TOKEN
     valueFrom:
       secretKeyRef:
         name: atlas-token-secret
         key: ATLAS_TOKEN
+
+  - name: AZURE_CLIENT_ID
+    valueFrom:
+      configMapKeyRef:
+        name: atlas-postgres-identity
+        key: clientId
 
 # Resource Secret references use the named Role in database-access.yaml.
 # Keep Secret discovery/watches disabled rather than granting namespace-wide reads.

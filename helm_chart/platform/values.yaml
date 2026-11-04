@@ -191,3 +191,13 @@ postgres:
 kargo:
   admins:
     portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575
+
+# One shared Atlas control-plane identity administers SQL on the Terraform-owned
+# Flexible Server. Application identities and databases remain chart-owned.
+atlas:
+  azurePostgres:
+    serverName: pg-ai-platform-portfolio-management
+    serverResourceGroup: rg-management
+    identityName: id-atlas-postgres-management
+    identityResourceGroup: rg-management
+    location: uksouth
