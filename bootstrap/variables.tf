@@ -123,6 +123,7 @@ variable "aks" {
   type = object({
     name               = string
     kubernetes_version = string
+    sku_tier           = optional(string, "Free")
 
     admin_group = object({
       display_name = string
