@@ -78,7 +78,7 @@ platform without Terraform apply. Later package changes are ordinary GitOps PRs.
 | Stage | Owner/resources |
 | --- | --- |
 | Namespace, wave -10 | Package namespace |
-| Configuration, wave 10 | Key Vault-backed App/UI ExternalSecrets, runtime ASO credential, NetworkPolicy and scoped readiness RBAC |
+| Configuration, wave 10 | Key Vault-backed App/UI ExternalSecrets, runtime ASO credential, staged NetworkPolicy and scoped readiness RBAC |
 | ASO, wave 10 | Existing operator, watching Atlantis only when enabled |
 | atlantis-azure, wave 20 | New package ResourceGroup, UserAssignedIdentity, FederatedIdentityCredential and configured RoleAssignments |
 | Atlantis, wave 40 | Runner, service account, disk, Service and read-only readiness init container |
@@ -178,8 +178,10 @@ an apply; execute another reviewed plan.
 For future self-service, Backstage may generate ASO manifests for Argo or Terraform
 projects for Atlantis. Each Azure resource has one owning engine. GitHub-hosted
 plans/comments/logs must fit the company boundary; self-hosting the runner does
-not establish it. NetworkPolicy permits gateway ingress, DNS and HTTPS egress,
-without an FQDN allowlist.
+not establish it. The staged NetworkPolicy describes gateway ingress, DNS and
+HTTPS egress, but is currently excluded from reconciliation and provides no
+enforcement. See the
+[bootstrap status](../../../../bootstrap/README.md#kubernetes-networkpolicy-status).
 
 ## Teardown and acceptance
 

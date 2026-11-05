@@ -7,6 +7,20 @@ clusters have independent roots. Inputs belong in tfvars; declarations stay in
 `variables.tf`, resource lookups and scope aliases in `main.tf`, authentication
 in `provider.tf`.
 
+## Kubernetes NetworkPolicy status
+
+The management Argo instance excludes Kubernetes `NetworkPolicy` resources from
+reconciliation through `argocd-configmap.yaml`. Package policy manifests remain
+staged; their ingress/egress rules are not enforced in this deployment. Namespace
+placement, CIDR values and successful template tests do not establish network
+isolation. AKS-managed policies in `kube-system` are separate from these packages.
+Re-enabling application policies is deferred and requires an explicit decision.
+
+Kubernetes RBAC, application authentication, TLS, Azure NSGs and private endpoints
+remain separate controls. Their presence does not imply pod-network isolation.
+
+## Platform dependencies
+
 The management root also declares a new private Foundry account, one management
 project, a regional Standard chat deployment, three private DNS zones and a
 private endpoint in the dedicated subnet. The independent `private_dns` map
@@ -14,7 +28,13 @@ owns zone definitions; `vnet_link` defaults to `false`, and the reusable network
 module creates links only for zones that opt in. Foundry selects zones by key, so
 other resources can use the same DNS configuration. The account uses
 its own user-assigned identity. Public network access and local key authentication
-are disabled by the pinned module defaults. The existing public `foundry-portfolio`
+are disabled by the pinned module defaults. The approved live operator exception
+enables selected-IP public access with default-deny and 11 IP rules, while local
+authentication remains disabled and the private endpoint remains available. This
+exception is not yet represented in Terraform: a full-root apply would remove it
+and must be reviewed. Actual IP ranges stay out of Git.
+
+The existing public `foundry-portfolio`
 account is outside this root and is not adopted or changed. Model deployment
 capacity, version and region are explicit in `terraform.tfvars`; review quota,
 availability and processing requirements again before apply. Azure model usage

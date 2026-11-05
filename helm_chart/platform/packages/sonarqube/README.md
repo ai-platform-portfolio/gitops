@@ -7,7 +7,7 @@ wave 60 and its configuration job at wave 70, once `sonarqubeReady` is true.
 | --- | --- | --- |
 | `values.yaml` | sonarqube | External PostgreSQL JDBC connection and mounted CA |
 | `database.yaml` | postgres | CNPG-managed SonarQube Database, before SonarQube starts |
-| `network-policy.yaml` | configuration | Restrict traffic to the application and PostgreSQL |
+| `network-policy.yaml` | configuration | Staged application/PostgreSQL rules; currently excluded from reconciliation |
 | `configure-job.yaml`, `configure.sh` | sonarqube-configure | Admin password, permissions, base URL and Entra SAML settings |
 | `networking.yaml` | routes | ListenerSet, HTTPS route and redirect after backend health |
 | `namespace.yaml` | namespaces | Public-gateway label and pod-security settings |

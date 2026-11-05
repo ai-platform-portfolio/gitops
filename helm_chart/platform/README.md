@@ -128,8 +128,10 @@ ConfigMap replication. Installation alone enables no copies; future sources must
 explicitly restrict destination namespaces.
 
 [HolmesGPT](packages/holmes/README.md) is staged as a private investigator on
-each cluster. Model, Kubernetes API and Entra egress stay denied until verified
-destinations are configured; the ASO provisioner credential is also pending.
+each cluster. Verify model authentication and connectivity before use. Its
+NetworkPolicy templates are staged and currently excluded from reconciliation;
+their CIDR settings do not enforce egress restrictions. See the
+[bootstrap status](../../bootstrap/README.md#kubernetes-networkpolicy-status).
 
 [Argo Rollouts](packages/argo-rollouts/README.md) supplies progressive delivery
 and the Gateway API traffic plugin on every cluster. Application-owned analysis

@@ -27,9 +27,10 @@ does not require an Envoy authentication overlay or another Entra application.
 
 Controller metrics are scraped by the existing Grafana collector and sent to
 Mimir. Discovery is restricted to the Rollouts namespace, does not send a bearer
-token and does not depend on Prometheus Operator CRDs. An ingress NetworkPolicy
-allows only the monitoring namespace to reach the metrics port. Egress remains
-available for Kubernetes reconciliation and application-specific analysis providers.
+token and does not depend on Prometheus Operator CRDs. The staged ingress policy
+would limit metrics access to monitoring, but NetworkPolicies are currently
+excluded from reconciliation. That restriction is not enforced; see
+[the bootstrap status](../../../../bootstrap/README.md#kubernetes-networkpolicy-status).
 
 ## Application ownership
 

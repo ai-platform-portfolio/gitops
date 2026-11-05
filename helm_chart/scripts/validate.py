@@ -470,7 +470,7 @@ def main():
             assert 'status.observedGeneration ~= obj.metadata.generation' in health
             assert 'condition.observedGeneration == obj.metadata.generation' in health
         staged_egress = next(doc for doc in staged_resources if doc['kind'] == 'NetworkPolicy' and doc['metadata']['name'] == 'holmes-egress')
-        assert not any('ipBlock' in peer for rule in staged_egress['spec']['egress'] for peer in rule['to']), 'Unknown Holmes egress destinations must stay denied'
+        assert not any('ipBlock' in peer for rule in staged_egress['spec']['egress'] for peer in rule['to']), 'Staged Holmes policy must contain no unverified IP destinations'
         values.write_text(json.dumps({
             'runtime': runtime,
             'holmes': {
@@ -836,7 +836,7 @@ def main():
             values.write_text(json.dumps({'runtime': runtime, 'backstage': invalid}))
             result = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)], text=True, capture_output=True)
             assert result.returncode and 'schema' in result.stderr, 'Unsafe Backstage settings must fail Helm validation'
-        print('Backstage: GitOps configuration, ESO credential gates, shared database and network isolation verified.')
+        print('Backstage: configuration, credential gates, database wiring and staged policy rendering verified; live isolation not checked.')
 
         devlake_apps = {a['metadata']['name']: a for a in applications}
         devlake_resources = [d for a in applications for d in yaml.safe_load_all(

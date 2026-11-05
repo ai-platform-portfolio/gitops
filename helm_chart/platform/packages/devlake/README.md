@@ -16,7 +16,7 @@ is a separate full-platform prerequisite on the current main branch. This packag
 does not duplicate that fix or imply a successful live bootstrap.
 
 Related manifests are grouped by deployment stage: `configuration.yaml` holds
-generated secrets and network policy; `credentials.yaml` holds database/Grafana
+generated secrets and staged network policy; `credentials.yaml` holds database/Grafana
 credential delivery, dashboards and configuration access; `application.yaml` holds
 the UI configuration and workloads; `collection.yaml` holds collection and SSO.
 Namespace, identity, database, configuration Job and public networking remain
@@ -81,12 +81,15 @@ are trusted administrators. Grafana keeps its independent native Entra login and
 reader access. Entra audit/access logs establish gateway user identity; DevLake
 cannot supply equivalent per-user authorization/audit records in this release.
 
-Only the UI has a public backend route. The unauthenticated core is private and
-NetworkPolicy permits port 8080 only from the UI, configure Job and collector pod
-labels within the namespace. Untrusted users must not have pod/Secret write access
-there. The UI strips identity headers, blocks migration confirmation, and requires
-the expected Origin for unsafe administration API methods. Internal HTTP is
-restricted by policies but is not encrypted. Public access uses HTTPS.
+Only the UI has a public backend route. The unauthenticated core has a ClusterIP
+Service. Its staged policy would restrict port 8080 to the UI, configure Job and
+collector, but NetworkPolicies are currently excluded from reconciliation. That
+backend restriction is not enforced; see the
+[bootstrap status](../../../../bootstrap/README.md#kubernetes-networkpolicy-status).
+Untrusted users must not have pod/Secret write access there. The UI strips
+identity headers, blocks migration confirmation, and requires the expected Origin
+for unsafe administration API methods. Internal HTTP is unencrypted. Public
+access uses HTTPS.
 
 The more specific `/api/rest/plugins/webhook/` machine route has **neither OIDC
 redirects nor injected administrator credentials**. It retains DevLake's native

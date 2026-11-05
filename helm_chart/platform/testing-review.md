@@ -32,7 +32,10 @@ Azure lifecycle supplies retention because S3Proxy's S3 lifecycle API is unsuppo
 
 Standalone's enterprise limits are explicit: no native Entra application RBAC,
 public dashboard or enterprise audit guarantee. Private AKS/Kubernetes-authorized
-CLI access and network-scoped machine access are the supported initial paths.
+CLI access and explicitly authorised machine access are the initial paths.
+Kubernetes NetworkPolicies are currently excluded from reconciliation; namespace
+labels do not enforce machine-access isolation. See the
+[bootstrap status](../../bootstrap/README.md#kubernetes-networkpolicy-status).
 The pinned workflow-init client skips TLS certificate verification for presigned
 artifact URLs upstream; do not claim every storage client verifies the CA.
 Management-local gates are provided; workload clusters get Rollouts and require
