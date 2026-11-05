@@ -139,6 +139,10 @@ def main():
         assert bootstrap_values['configs']['params']['server.insecure'] is True
         assert bootstrap_values['configs']['params']['controller.diff.server.side'] is True, 'API-defaulted CRDs require server-side diff'
         assert bootstrap_values['server']['service']['type'] == 'ClusterIP'
+        controller_env = {entry['name']: entry['value'] for entry in bootstrap_values['controller']['env']}
+        assert controller_env['ARGOCD_CLUSTER_CACHE_WATCH_RETRY_USE_BACKOFF'] == 'true'
+        assert controller_env['ARGOCD_CLUSTER_CACHE_LIST_SEMAPHORE'] == '5'
+
         for label, overrides in {
             'app-id': {'github_app_id': ''},
             'team': {'github_team': ''},
@@ -165,6 +169,10 @@ def main():
         version = re.search(r'chart_version\s*=\s*"([^"]+)"', (bootstrap / 'terraform.tfvars').read_text())[1]
         argo = list(yaml.safe_load_all(command('helm', 'template', 'argocd', 'argo-cd', '--repo',
             'https://argoproj.github.io/argo-helm', '--version', version, '--namespace', 'argocd', '-f', str(argo_values))))
+        controller = next(d for d in argo if d and d['kind'] == 'StatefulSet'
+                          and d['metadata']['name'] == 'argocd-application-controller')
+        rendered_env = {entry['name']: entry.get('value') for entry in controller['spec']['template']['spec']['containers'][0]['env']}
+        assert all(rendered_env.get(name) == value for name, value in controller_env.items()), 'Argo must receive the request-recovery settings'
         maps = [d for d in argo if d and d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'argocd-cm']
         assert len(maps) == 1 and maps[0]['data'] == configmap['data'], 'Helm must install exactly the file-defined Argo ConfigMap'
         rendered = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]

@@ -17,7 +17,9 @@ jobs:
     with:
       image: platform/argocd
       context: bootstrap/argocd-image
-      tag: argocd-v3.5.5-ai116-${{ github.sha }}
+      revision: ${{ github.event.pull_request.head.sha || github.sha }}
+      publish-preview: true
+      tag: ${{ github.event_name == 'pull_request' && format('preview-argocd-v3.5.5-ai167-{0}', github.event.pull_request.head.sha) || format('argocd-v3.5.5-ai167-{0}', github.sha) }}
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}

@@ -237,3 +237,60 @@ Run this root with Terraform 1.9+ (CI pins 1.9.8), using the existing Azure back
 Do not apply a whole-root plan without reviewing unrelated drift, including any
 explicit operator access exceptions on Foundry. The library commit is pinned in
 each module call. Review the plan for zero management-network replacements.
+
+
+## Argo API request recovery
+
+The controller image retains the delete-hook race backport and adds an adaptation
+of [upstream watch backoff PR29886](https://github.com/argoproj/argo-cd/pull/29886)
+to the pinned3.5.5 source (upstream proposal head
+`d774715c74dde47687f02dc561e1db0d8829341d`). The upstream proposal is unmerged; this is a temporary
+maintained backport, not a released native capability. Remove each patch only
+when the selected upstream release includes its fix and regression tests pass.
+
+### Released-image alternatives checked
+
+Source comparison on 2026-11-05 covered upstream 3.6.1, 3.5.7, 3.4.13,
+3.3.19, 3.2.12 and 2.14.21. All retain the flat one-second RetryWatcher path,
+and their selected client-go versions bypass QPS limiting for WATCH requests.
+Downgrading these images would therefore retain the observed retry storm.
+
+| Versions | Deletion-hook behaviour in inspected source |
+| --- | --- |
+| 3.3.19–3.6.1 listed above | `AlreadyExists` is skipped without checking the live hook; the existing cleanup patch remains relevant. |
+| 3.2.12 and 2.14.21 | Creation conflicts return an error instead of silently completing; the watch-retry issue remains. |
+
+This was source verification, not a live downgrade/compatibility test. No inspected
+released image resolves both requirements, which is why this image retains the
+existing cleanup fix and adds watch backoff. Reassess when the upstream fixes ship.
+See [older engine retry code](https://github.com/argoproj/gitops-engine/blob/c08b0a72c1f1/pkg/cache/cluster.go),
+[older client WATCH limiter bypass](https://github.com/kubernetes/client-go/blob/v0.31.0/rest/request.go),
+[3.4.13 hook handling](https://github.com/argoproj/argo-cd/blob/v3.4.13/controller/hook.go)
+and [3.2.12 hook handling](https://github.com/argoproj/argo-cd/blob/v3.2.12/controller/hook.go).
+
+### Recovery settings and acceptance
+
+`ARGOCD_CLUSTER_CACHE_WATCH_RETRY_USE_BACKOFF=true` backs off qualifying watch
+connection failures with a base delay increasing from one to thirty seconds,
+plus 10% jitter. Retry state resets after a two-minute stable watch window. Retryable failures preserve
+the latest delivered resource version; an expired version still performs the
+normal fresh LIST. client-go consumes bookmarks internally, so quiet resources
+can still require relisting after expiry. Active-stream errors handled internally
+by client-go are outside the connection-failure interception; this is not a
+blanket rate limit on every watch operation.
+
+`ARGOCD_CLUSTER_CACHE_LIST_SEMAPHORE=5` bounds initial/recovery LIST concurrency
+(upstream50). Five is a conservative starting limit, not a demonstrated optimum.
+WATCH reconnects bypass client-go's normal QPS limiter, so lowering QPS alone
+does not address this failure. Neither setting disables watch/event delivery,
+server-side diff, admission validation or dependency health gates.
+
+Azure ResourceHealth recorded control-plane overload and automatic restart on
+2026-11-05. Argo logs then showed a watch retry storm. Regression tests establish
+backoff/resource-version behaviour; rendered configuration and CI publication
+are separate from live acceptance. Terraform owns this Argo Helm release: merging
+a PR does not by itself apply bootstrap values. Review the infrastructure plan
+before activation, preserving unrelated live settings. Verify API process uptime,
+request/retry rates, controller leases and automatic registration reconciliation
+under comparable startup/recovery load before claiming the reliability fix works.
+No AKS tier or worker-size change is part of this repair.

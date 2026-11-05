@@ -11,23 +11,28 @@ RUN tar -xzf /tmp/argocd.tar.gz --strip-components=1 && rm /tmp/argocd.tar.gz
 COPY delete-hook-race.patch /tmp/delete-hook-race.patch
 RUN git apply --check /tmp/delete-hook-race.patch && git apply /tmp/delete-hook-race.patch
 
+# Adapt upstream #29886 to this pinned cache layout; preserve the delete-hook fix.
+COPY watch-retry-backoff.patch /tmp/watch-retry-backoff.patch
+RUN git apply --check /tmp/watch-retry-backoff.patch && git apply /tmp/watch-retry-backoff.patch
+
 ENV GOMAXPROCS=2 CGO_ENABLED=0
 
 # Includes upstream's AlreadyExists ownership, health and retry regressions.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    go test -p 2 ./controller -run '^TestFinalizeAppDeletion' -count=1
+    go test -p 2 ./controller -run '^TestFinalizeAppDeletion' -count=1 && \
+    go test -p 2 github.com/argoproj/argo-cd/gitops-engine/pkg/cache -count=1
 
 ARG TARGETOS
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     make argocd-all GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_FLAG=0 \
-      GOFLAGS='-p=2 -trimpath' VERSION=3.5.5-ai116 \
+      GOFLAGS='-p=2 -trimpath' VERSION=3.5.5-ai167 \
       GIT_COMMIT=a5038b0e2bbac1715754380ae0084df8e3d5b48c \
-      GIT_TAG=v3.5.5-ai116 GIT_TREE_STATE=dirty
+      GIT_TAG=v3.5.5-ai167 GIT_TREE_STATE=dirty
 
 FROM quay.io/argoproj/argocd:v3.5.5@sha256:13db7b10db23283b1b36f855046602e18539a8a8204c9f6f039e8896c8897518
 
-LABEL org.opencontainers.image.version="v3.5.5-ai116" \
-      org.opencontainers.image.description="Argo CD 3.5.5 with the reviewed delete-hook race backport from argoproj/argo-cd#29687"
+LABEL org.opencontainers.image.version="v3.5.5-ai167" \
+      org.opencontainers.image.description="Argo CD 3.5.5 with delete-hook and watch-retry backports (#29687, #29886)"
 
 COPY --from=build --chown=0:0 --chmod=0555 /src/dist/argocd /usr/local/bin/argocd
