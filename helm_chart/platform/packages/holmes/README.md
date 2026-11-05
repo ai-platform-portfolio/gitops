@@ -6,10 +6,9 @@ private API Deployment and Service in the `holmes` namespace. Its operator,
 Robusta platform, GitHub MCP server and Kubernetes remediation MCP server are
 disabled. No database, persistent disk or public route is added. The package
 is enabled in GitOps for each cluster's next deployment.
-[Bootstrap PR #48](https://github.com/ai-platform-portfolio/gitops/pull/48)
-has merged, but its private management Foundry account and model have not been
-applied, and the AKS cluster is torn down. Do not expect a healthy investigation
-service until the dependencies below are established.
+Model authentication and connectivity require live validation; Helm/Argo health
+alone does not establish a working investigation service. Current deployment
+state belongs in lifecycle evidence rather than these package instructions.
 
 ## Enablement requirements
 
@@ -25,7 +24,7 @@ Kubernetes data sources. ASO and Holmes install on each cluster.
 Each instance investigates its own cluster. Its Kubernetes tools use the local
 API, and its LGTM URLs are local services. The instances do not aggregate data
 across clusters. Each cluster needs its own ASO authority, private Foundry route,
-OIDC issuer and verified egress destinations before Holmes can operate there.
+OIDC issuer and verified connectivity before Holmes can operate there.
 
 `holmes.enabled` is already `true`. Complete these remaining GitOps values and
 validate the deployed model before using the service:
@@ -35,9 +34,9 @@ validate the deployed model before using the service:
 | `model` | Preconfigured as `azure/chat`; verify the deployed name. |
 | `modelEndpoint` | Preconfigured HTTPS Foundry endpoint; verify private DNS resolution. |
 | `modelApiVersion` | Preconfigured from current Holmes documentation; confirm with a live model request. |
-| `modelCidrs` | Private endpoint address range. Empty until the endpoint exists; egress remains denied. |
-| `apiCidrs` | AKS Kubernetes API endpoint address range. Empty until verified; egress remains denied. |
-| `entraCidrs` | Entra token endpoint ranges, or a tested private/proxy route. Empty until verified; egress remains denied. Maintain ranges as Microsoft changes them. |
+| `modelCidrs` | Address inputs for the staged model egress policy; currently unenforced. |
+| `apiCidrs` | Address inputs for the staged Kubernetes API egress policy; currently unenforced. |
+| `entraCidrs` | Address inputs for the staged Entra egress policy; currently unenforced. |
 | `azure.foundryResourceGroupName` / `foundryResourceName` | Preconfigured new management account; verify it exists before enabling. |
 
 The package's Azure resources are GitOps owned by ASO: a managed identity in
@@ -66,17 +65,17 @@ The Helm chart enables exception telemetry by default; `enableTelemetry: false`
 and empty Sentry DSN disable that path. Internet, shell, Robusta, remediation,
 GitHub and the alpha operator are explicitly disabled. The service account may
 read workload kinds, logs and Argo applications across the cluster. It cannot
-read Kubernetes Secrets or ConfigMaps or mutate resources. Its ingress policy
-permits only same-namespace pods; API key middleware is enabled. Egress allows
-DNS, existing LGTM backends, and selected AKS API/Foundry/Entra CIDRs. Verify
-CNI handling of AKS API routing, private endpoint DNS and Entra token exchange
-in a live test. IP ranges alone do not restrict hostname or TLS server identity;
-company firewall and DNS policy must enforce approved destinations.
+read Kubernetes Secrets or ConfigMaps or mutate resources. API key middleware is
+enabled and no public route is configured. Kubernetes NetworkPolicies are
+currently excluded from reconciliation: staged same-namespace ingress and
+DNS/LGTM/API/Foundry/Entra egress rules provide no enforcement. Namespace placement
+and CIDR settings do not establish isolation. See the
+[bootstrap status](../../../../bootstrap/README.md#kubernetes-networkpolicy-status).
 
 The toolsets query existing Mimir, Loki and Tempo directly. Those backends have
-no native tenant authentication in this portfolio, so namespace/network
-controls are part of access control. The AKS cluster is currently torn down;
-no model call, cluster API call or alert delivery has been tested. The values
+no native tenant authentication in this portfolio. Namespace placement currently
+provides no NetworkPolicy access boundary. Verify access, model calls and alert
+delivery separately before treating the investigator as ready. The values
 request 1 GiB and limit memory to 2 GiB. Measure real use before relying on it
 on the small portfolio node pool.
 

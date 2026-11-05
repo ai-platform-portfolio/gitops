@@ -102,9 +102,12 @@ Kubernetes authorization for `pods/portforward` or service proxy access. This
 controls tunnel access; it does not create Testkube users or authorization roles.
 An Envoy login alone cannot supply those missing application features.
 
-The API permits ingress from its own trusted namespace and opted-in application
-namespaces/pods carrying `gitops.platform/testkube-client: "true"`, plus monitoring.
-There is no per-user authorization inside that network boundary. Application
+The staged API ingress policy selects its own namespace, monitoring and opted-in
+application namespaces/pods carrying `gitops.platform/testkube-client: "true"`.
+NetworkPolicies are currently excluded from reconciliation, so those labels do
+not enforce a network boundary. There is no per-user authorization. See the
+[bootstrap status](../../../../bootstrap/README.md#kubernetes-networkpolicy-status).
+Application
 release Jobs have no Kubernetes token and finite deadlines. Workflow defaults
 use a dedicated tokenless service account, restricted security context, read-only
 root filesystem and resource requests/limits. Defaults are not an admission

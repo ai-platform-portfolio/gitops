@@ -97,7 +97,9 @@ size. The local publisher is intentionally an initial, bounded implementation.
 There are no configured remote catalog URLs, hosted AI endpoints or SaaS analytics.
 No private documentation/identity data is checked in. Mounted integration config
 may add only company-approved endpoints; an empty `{}` keeps Git publishing
-unconfigured. Network egress must also explicitly allow the approved endpoint IPs.
+unconfigured. Kubernetes NetworkPolicies are currently excluded from
+reconciliation; configured endpoint lists do not enforce an egress allowlist.
+See the [bootstrap status](../../bootstrap/README.md#kubernetes-networkpolicy-status).
 Do not put customer data or secrets into template parameters or task logs.
 Future AI should consume scoped catalog/runbook context and propose validated
 changes through bounded workers. This PR adds no AI inference or MCP tools.

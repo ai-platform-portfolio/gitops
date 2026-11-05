@@ -158,8 +158,10 @@ Terraform. Teardown refuses to stop ASO while Azure custom resources remain.
 Loki, Grafana, Tempo and Mimir values share `helm_chart/platform/packages/lgtm/values.yaml`.
 Each explicit Application selects its values by name. Other packages keep their
 own values, including ClickHouse's independently ordered operator and database.
-Package-specific ingress and policies live beside their values; the shared
-configuration and routes Applications preserve readiness gates.
+Package-specific ingress and staged policy manifests live beside their values;
+the shared configuration and routes Applications preserve readiness gates.
+Kubernetes NetworkPolicies are currently excluded from reconciliation; see
+[the bootstrap status](../bootstrap/README.md#kubernetes-networkpolicy-status).
 
 CNPG owns SonarQube's role and Database declaratively. Argo waits for the current
 Database generation before installing SonarQube. The lifecycle prepares its

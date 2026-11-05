@@ -17,8 +17,8 @@ data:
   admin.enabled: "true"
   users.anonymous.enabled: "false"
 
-  # AI-91: temporarily stop reconciling Kubernetes NetworkPolicies while the
-  # management cluster runs without them. Remove this block to restore them.
+  # AI-91: Kubernetes NetworkPolicies are currently excluded from reconciliation.
+  # Staged package policies provide no enforcement until explicitly re-enabled.
   resource.exclusions: |
     - apiGroups:
         - networking.k8s.io

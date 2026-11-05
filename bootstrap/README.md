@@ -7,6 +7,20 @@ clusters have independent roots. Inputs belong in tfvars; declarations stay in
 `variables.tf`, resource lookups and scope aliases in `main.tf`, authentication
 in `provider.tf`.
 
+## Kubernetes NetworkPolicy status
+
+The management Argo instance excludes Kubernetes `NetworkPolicy` resources from
+reconciliation through `argocd-configmap.yaml`. Package policy manifests remain
+staged; their ingress/egress rules are not enforced in this deployment. Namespace
+placement, CIDR values and successful template tests do not establish network
+isolation. AKS-managed policies in `kube-system` are separate from these packages.
+Re-enabling application policies is deferred and requires an explicit decision.
+
+Kubernetes RBAC, application authentication, TLS, Azure NSGs and private endpoints
+remain separate controls. Their presence does not imply pod-network isolation.
+
+## Platform dependencies
+
 The management root also declares a new private Foundry account, one management
 project, a regional Standard chat deployment, three private DNS zones and a
 private endpoint in the dedicated subnet. The independent `private_dns` map
@@ -14,7 +28,13 @@ owns zone definitions; `vnet_link` defaults to `false`, and the reusable network
 module creates links only for zones that opt in. Foundry selects zones by key, so
 other resources can use the same DNS configuration. The account uses
 its own user-assigned identity. Public network access and local key authentication
-are disabled by the pinned module defaults. The existing public `foundry-portfolio`
+are disabled by the pinned module defaults. The approved live operator exception
+enables selected-IP public access with default-deny and 11 IP rules, while local
+authentication remains disabled and the private endpoint remains available. This
+exception is not yet represented in Terraform: a full-root apply would remove it
+and must be reviewed. Actual IP ranges stay out of Git.
+
+The existing public `foundry-portfolio`
 account is outside this root and is not adopted or changed. Model deployment
 capacity, version and region are explicit in `terraform.tfvars`; review quota,
 availability and processing requirements again before apply. Azure model usage
@@ -155,3 +175,65 @@ storage account. `platform_settings.runtime` carries its client ID and the clust
 resource-group name; GitOps supplies namespace credentials and owns service
 identities/resources. This resolves the circular dependency of ASO provisioning
 its own first credential. See [Testkube sequencing](../helm_chart/platform/packages/testkube/README.md).
+
+## Model gateway foundation
+
+`model_gateway` in `terraform.tfvars` deploys private Standard v2 API Management
+in UK West, with its own delegated integration subnet and managed identity. The
+same reusable network module creates both VNets; a `moved` block preserves the
+existing management network addresses in state. Existing AKS and Foundry stay in
+UK South. The gateway creates no APIs or subscriptions for application callers.
+Publisher contact values are demo metadata; replace the unmonitored example
+address before production use.
+
+**Why UK West:** Microsoft's availability table currently marks new APIM v2
+instances in UK South temporarily unavailable. Standard v2's integration VNet
+must be in the same region as APIM, so the gateway uses a separate UK West VNet.
+This does not relocate the existing cluster or Foundry account.
+[Regional availability](https://learn.microsoft.com/en-us/azure/api-management/api-management-region-availability)
+and [integration requirements](https://learn.microsoft.com/en-us/azure/api-management/integrate-vnet-outbound).
+
+The private endpoint uses `privatelink.azure-api.net`. Azure requires creating
+that endpoint before public access can be disabled, so the module orders a small
+AzAPI property update after endpoint creation. AzureRM owns the service and
+ignores only that property; AzAPI owns its final Disabled value. No inference
+routes exist during the initial public provisioning window. APIM provisioning
+and teardown can each take hours; its fixed running charge and Private Link/DNS
+charges continue until teardown completes. Microsoft retail pricing checked on
+2026-11-05 lists the UK West Standard v2 first unit at USD 0.9589/hour
+(about USD 23/day or USD 700 per 730-hour month), excluding other charges, tax
+and agreement discounts. Recheck pricing before each deployment.
+[Retail pricing API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices).
+
+A failed apply can leave APIM public
+until the ordered final update succeeds; do not publish APIs before that gate.
+
+This is the original foundation port, **not working model routing**. No VNet
+peering, Google private transport, provider APIs, token exchange, model aliases,
+caller authorisation, token quotas or inference runtime validation are delivered
+here. The isolated gateway is not yet reachable from the management VNet; adding
+that connectivity belongs with the reviewed routing stage.
+
+The reusable `modules/gcp/workload-identity` module is available in the Terraform
+library. The intended project is the existing GCP project with display name
+**Main**. This port does not call it from bootstrap: the original gateway root
+also had no GCP caller, and its dedicated Entra audience/role and APIM token
+exchange are not implemented yet. Resolve Main to its actual project ID when
+that stage is implemented; do not choose a project solely by a display-name match.
+No Google provider or service-account key is required by this bootstrap stage.
+
+When that consumer is implemented, it supplies the custom role ID, title,
+description and exact Gemini permissions (including `aiplatform.endpoints.predict`
+and any required API-usage permission). Those are deployment choices; the library
+contains no model-specific role names or permission defaults.
+
+Follow-up discussion: wire the existing Foundry backend and Google Gemini route,
+configure keyless federation through the existing Entra ownership layer, select
+approved models/regions, define caller permissions and consumption controls, then
+prove streaming, token renewal, denied access and ordered cleanup. Foundation
+validation alone must not be reported as successful inference.
+
+Run this root with Terraform 1.9+ (CI pins 1.9.8), using the existing Azure backend.
+Do not apply a whole-root plan without reviewing unrelated drift, including any
+explicit operator access exceptions on Foundry. The library commit is pinned in
+each module call. Review the plan for zero management-network replacements.

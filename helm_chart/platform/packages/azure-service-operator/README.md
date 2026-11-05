@@ -3,7 +3,8 @@
 Each cluster root installs the official chart **2.21.1**, running **v2.21.1**,
 verified as the latest stable release on 2026-10-23. The explicit Application in
 `../../templates/azure-service-operator.yaml` runs at wave 10, after cert-manager
-at wave 5. Every root includes the operator, its namespace and network policy.
+at wave 5. Every root includes the operator and its namespace. The package
+NetworkPolicy is staged and currently excluded from reconciliation.
 One replica with upstream 200m CPU/256Mi memory requests and 500m/512Mi limits
 fits the initial non-HA portfolio; its disruption budget is disabled so a single
 replica does not block node maintenance. Upgrades use the upstream Recreate strategy
@@ -123,10 +124,10 @@ restart ASO so it reads the current identity, and verify the operator and Azure
 CRs are Ready. Resume automated reconciliation only after the new Secret is
 tracked by Argo. Do not let ESO and Argo manage the same Secret concurrently.
 
-The package policy permits DNS to kube-system, outbound HTTPS/API traffic and
-inbound webhook/probe/secure-metrics ports. It avoids upstream SQL egress rules.
-HTTPS destinations are unrestricted; this policy does not implement a company
-data perimeter. Internal cert-manager Certificates serve ASO webhooks/metrics;
+The staged policy describes DNS, HTTPS/API, webhook/probe and secure-metrics
+traffic, but provides no enforcement while NetworkPolicies are excluded. See
+[the bootstrap status](../../../../bootstrap/README.md#kubernetes-networkpolicy-status).
+Internal cert-manager Certificates serve ASO webhooks/metrics;
 they are separate from public ListenerSet certificates and need no public route.
 
 ## Validation and operations

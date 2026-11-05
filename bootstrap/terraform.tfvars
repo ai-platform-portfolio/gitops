@@ -104,6 +104,11 @@ network = {
 }
 
 private_dns = {
+  apim = {
+    name      = "privatelink.azure-api.net"
+    vnet_link = true
+  }
+
   openai            = { name = "privatelink.openai.azure.com", vnet_link = true }
   cognitiveservices = { name = "privatelink.cognitiveservices.azure.com", vnet_link = true }
   services_ai       = { name = "privatelink.services.ai.azure.com", vnet_link = true }
@@ -228,6 +233,12 @@ platform = {
 }
 
 identities = {
+  model_gateway = {
+    name                  = "id-management-model-gateway"
+    federated_credentials = {}
+    role_assignments      = {}
+  }
+
   cluster_onboarding = {
     name = "id-management-cluster-onboarding"
 
@@ -382,6 +393,75 @@ identities = {
       registry = {
         scope                = "registry_platform"
         role_definition_name = "AcrPull"
+      }
+    }
+  }
+}
+
+# UK South currently blocks new APIM v2 instances; integration VNet must share
+# APIM's region. The existing AKS/Foundry deployment stays in UK South.
+model_gateway = {
+  name                        = "apim-management-portfolio"
+  location                    = "ukwest"
+  sku_name                    = "StandardV2_1"
+  integration_subnet_key      = "snet-apim-management"
+  private_endpoint_subnet_key = "snet-pe-model-gateway"
+  private_dns_zone_key        = "apim"
+
+  publisher = {
+    name  = "AI Platform Portfolio"
+    email = "platform@example.invalid"
+  }
+
+  network = {
+    name          = "vnet-model-gateway"
+    address_space = ["10.60.0.0/16"]
+
+    subnets = {
+      snet-apim-management = {
+        address_prefixes = ["10.60.0.0/24"]
+        delegations = {
+          apim = { service = "Microsoft.Web/serverFarms" }
+        }
+
+        security_rules = {
+          key-vault = {
+            description                = "APIM platform dependency"
+            priority                   = 100
+            direction                  = "Outbound"
+            access                     = "Allow"
+            protocol                   = "Tcp"
+            source_port_range          = "*"
+            destination_port_ranges    = ["443"]
+            source_address_prefix      = "VirtualNetwork"
+            destination_address_prefix = "AzureKeyVault"
+          }
+          entra = {
+            description                = "Managed identity authentication"
+            priority                   = 110
+            direction                  = "Outbound"
+            access                     = "Allow"
+            protocol                   = "Tcp"
+            source_port_range          = "*"
+            destination_port_ranges    = ["443"]
+            source_address_prefix      = "VirtualNetwork"
+            destination_address_prefix = "AzureActiveDirectory"
+          }
+          deny-other-outbound = {
+            priority                   = 4096
+            direction                  = "Outbound"
+            access                     = "Deny"
+            protocol                   = "*"
+            source_port_range          = "*"
+            destination_port_ranges    = ["*"]
+            source_address_prefix      = "*"
+            destination_address_prefix = "*"
+          }
+        }
+      }
+
+      snet-pe-model-gateway = {
+        address_prefixes = ["10.60.4.0/24"]
       }
     }
   }

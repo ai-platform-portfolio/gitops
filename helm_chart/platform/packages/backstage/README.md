@@ -65,14 +65,13 @@ not configured; use a controlled credential replacement before expiry.
 
 ## Networking and exposure
 
-The default-deny policy permits Gateway ingress, cluster DNS, the existing CNPG
-pods and HTTPS to Microsoft's published AzureActiveDirectory service-tag IPv4
-ranges. `entra-prefixes.yaml` records the retrieved ranges and date. Refresh this
-data when Microsoft updates the tag; the authentication hosts can resolve to
-different addresses over time. The range union is preserved exactly. This is IP
-filtering, not FQDN enforcement or a private company perimeter. Additional approved
-integration destinations belong in the explicit `backstage.egress` list; blanket
-internet egress remains rejected by the values schema.
+The staged policy describes Gateway ingress, DNS, CNPG and approved HTTPS
+endpoints. `entra-prefixes.yaml` and `backstage.egress` supply its address inputs.
+Kubernetes NetworkPolicies are currently excluded from reconciliation, so these
+inputs do not enforce an egress allowlist or namespace isolation. The values
+schema still rejects blanket internet egress entries, but schema validation is
+not a runtime traffic control. See the
+[bootstrap status](../../../../bootstrap/README.md#kubernetes-networkpolicy-status).
 
 The current portal uses a public HTTPS Gateway. Do not add private company data,
 external analytics or AI endpoints without the separately required company
@@ -98,7 +97,8 @@ Vault under `backstage-github-app-id`, `ai-platform-clusters-pem-key`,
 Atlantis through separate namespace Secrets. ESO projects them to the portal; no key is
 checked into Git. Add approved GitHub API CIDRs to `backstage.egress` with TCP
 443. The values schema requires an explicit egress entry when cluster requests
-are enabled. Confirm the App can read the target repo and open a PR before
+are enabled; the staged NetworkPolicy does not currently enforce that list.
+Confirm the App can read the target repo and open a PR before
 accepting a request.
 
 The template opens both a private Terraform PR and a GitOps profile PR. A trusted

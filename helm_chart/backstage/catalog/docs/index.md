@@ -30,6 +30,7 @@ backups and explicit RPO/RTO.
 
 Catalog metadata, task logs and prompts can be sensitive. Use only approved
 company-controlled OIDC and repository endpoints. No external AI, SaaS analytics
-or runtime documentation builds are configured. Kubernetes egress is deny-by-
-default and must explicitly allow approved internal endpoints. Public portfolio
-CI must not receive private configs, secrets or runtime logs.
+or runtime documentation builds are configured. Kubernetes NetworkPolicies are
+currently excluded from reconciliation, so approved endpoint configuration does
+not enforce a pod-network allowlist. Public portfolio CI must not receive private
+configs, secrets or runtime logs.

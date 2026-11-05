@@ -10,7 +10,7 @@ health gate so custom resources are applied after their operators are ready.
 | `cluster.yaml` | Single PostgreSQL instance, workload identity, TLS and managed SonarQube role |
 | `pooler.yaml` | Single PgBouncer instance |
 | `object-store.yaml`, `backups.yaml` | Azure backup destination and daily backup demonstration |
-| `network-policy.yaml` | Database/client traffic restrictions |
+| `network-policy.yaml` | Staged database/client rules; currently excluded from reconciliation |
 | `storage-class.yaml` | Azure Premium disk class for database storage |
 | `namespace.yaml`, `operator-namespace.yaml` | Database and operator namespaces |
 

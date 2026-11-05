@@ -72,3 +72,13 @@ output "platform_settings" {
     }
   }
 }
+
+output "model_gateway" {
+  sensitive = true
+
+  description = "Private APIM foundation references, not a working inference API."
+  value = {
+    id          = module.model_gateway.id
+    gateway_url = module.model_gateway.gateway_url
+  }
+}
