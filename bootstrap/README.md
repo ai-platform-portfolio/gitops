@@ -248,6 +248,28 @@ to the pinned3.5.5 source (upstream proposal head
 maintained backport, not a released native capability. Remove each patch only
 when the selected upstream release includes its fix and regression tests pass.
 
+### Released-image alternatives checked
+
+Source comparison on 2026-11-05 covered upstream 3.6.1, 3.5.7, 3.4.13,
+3.3.19, 3.2.12 and 2.14.21. All retain the flat one-second RetryWatcher path,
+and their selected client-go versions bypass QPS limiting for WATCH requests.
+Downgrading these images would therefore retain the observed retry storm.
+
+| Versions | Deletion-hook behaviour in inspected source |
+| --- | --- |
+| 3.3.19–3.6.1 listed above | `AlreadyExists` is skipped without checking the live hook; the existing cleanup patch remains relevant. |
+| 3.2.12 and 2.14.21 | Creation conflicts return an error instead of silently completing; the watch-retry issue remains. |
+
+This was source verification, not a live downgrade/compatibility test. No inspected
+released image resolves both requirements, which is why this image retains the
+existing cleanup fix and adds watch backoff. Reassess when the upstream fixes ship.
+See [older engine retry code](https://github.com/argoproj/gitops-engine/blob/c08b0a72c1f1/pkg/cache/cluster.go),
+[older client WATCH limiter bypass](https://github.com/kubernetes/client-go/blob/v0.31.0/rest/request.go),
+[3.4.13 hook handling](https://github.com/argoproj/argo-cd/blob/v3.4.13/controller/hook.go)
+and [3.2.12 hook handling](https://github.com/argoproj/argo-cd/blob/v3.2.12/controller/hook.go).
+
+### Recovery settings and acceptance
+
 `ARGOCD_CLUSTER_CACHE_WATCH_RETRY_USE_BACKOFF=true` backs off qualifying watch
 connection failures with a base delay increasing from one to thirty seconds,
 plus 10% jitter. Retry state resets after a two-minute stable watch window. Retryable failures preserve
