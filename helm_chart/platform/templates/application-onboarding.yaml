@@ -1,0 +1,89 @@
+{{- if and (eq .Values.cluster.role "management") .Values.argocd.onboarding.enabled -}}
+{{- if not (and .Values.events.enabled .Values.events.github.enabled) -}}
+{{- fail "Application onboarding requires GitHub events; repository polling is disabled" -}}
+{{- end -}}
+{{- $onboarding := .Values.argocd.onboarding -}}
+{{- $pg := .Values.atlas.azurePostgres -}}
+{{- range $profile := list "previews" "environments" }}
+---
+# Discover intent, never an application list. Each repository keeps its own values.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: {{ printf "application-%s" $profile }}
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/onboarding: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "80"
+spec:
+  goTemplate: true
+  goTemplateOptions: [missingkey=error]
+  generators:
+    - scmProvider:
+        requeueAfterSeconds: 0
+        cloneProtocol: https
+        github:
+          organization: {{ $.Values.events.github.organization | quote }}
+          allBranches: false
+          tokenRef: {secretName: argocd-github-api, key: token}
+        filters:
+          - pathsExist: [{{ printf "deploy/%s.yaml" $profile | quote }}]
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  template:
+    metadata:
+      finalizers: [resources-finalizer.argocd.argoproj.io]
+      name: {{ printf `{{regexReplaceAll "[^a-z0-9-]" (.repository | lower) "-" | trunc 28 | trimSuffix "-"}}-{{printf "%%s/%%s" .organization .repository | lower | sha256sum | trunc 12}}-%s-registration` $profile | quote }}
+      labels:
+        platform.ai-platform-portfolio/registration: "true"
+    spec:
+      project: default
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: argocd
+      sources:
+        - repoURL: {{ $onboarding.chartRepository | quote }}
+          targetRevision: {{ required "argocd.onboarding.chartRevision must pin the registration chart" $onboarding.chartRevision | quote }}
+          path: .
+          helm:
+            releaseName: onboarding
+            valueFiles: [{{ printf "$intent/deploy/%s.yaml" $profile | quote }}]
+            valuesObject:
+              platform:
+                argocd:
+                  repository: {{ "{{.url}}" | quote }}
+                  chartRepository: {{ $onboarding.chartRepository | quote }}
+                  chartRevision: {{ $onboarding.chartRevision | quote }}
+                  previews:
+                    registry: {{ printf "%s.azurecr.io" $.Values.argocd.registry.name | quote }}
+                    domain: {{ printf "preview.%s" $.Values.runtime.DNS_ZONE | quote }}
+                    sharedListener: {{ $.Values.gateway.preview.listenerName | quote }}
+                  environments:
+                    registry: {{ printf "%s.azurecr.io" $.Values.argocd.registry.name | quote }}
+                kargo:
+                  github:
+                    {{- toYaml $.Values.argocd.github | nindent 20 }}
+                postgres:
+                  azure:
+                    serverName: {{ $pg.serverName | quote }}
+                    serverResourceGroup: {{ $pg.serverResourceGroup | quote }}
+                atlas:
+                  azureAdminUser: {{ $pg.identityName | quote }}
+                azure:
+                  tenantId: {{ $.Values.runtime.AZURE_TENANT_ID | quote }}
+                  subscriptionId: {{ $.Values.runtime.AZURE_SUBSCRIPTION_ID | quote }}
+                  oidcIssuerUrl: {{ $.Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+                  location: {{ $pg.location | quote }}
+                  identityResourceGroup: {{ $pg.identityResourceGroup | quote }}
+        - repoURL: {{ "{{.url}}" | quote }}
+          targetRevision: {{ "{{.sha}}" | quote }}
+          ref: intent
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        retry:
+          limit: 10
+          backoff: {duration: 10s, factor: 2, maxDuration: 3m}
+        syncOptions: [ServerSideApply=true, PruneLast=true, RespectIgnoreDifferences=true]
+{{- end }}
+{{- end }}

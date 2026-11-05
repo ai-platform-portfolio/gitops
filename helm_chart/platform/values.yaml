@@ -12,6 +12,11 @@ runtime: {}
 
 # Prefix credentials for private release charts; Argo reuses its bootstrap identity.
 argocd:
+  onboarding:
+    enabled: true
+    chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
+    chartRevision: 47b878c366ad88a9d819180e096c35bc180ee942
+
   registry:
     name: localacrk8s
 

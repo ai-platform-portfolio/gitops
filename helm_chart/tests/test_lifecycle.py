@@ -161,6 +161,32 @@ class PlatformInputTests(unittest.TestCase):
         self.assertEqual(json.loads(run.call_args.args[-1]),
                          {'status': {'operationState': {'phase': 'Terminating'}}})
 
+    def test_startup_waits_for_discovery_and_registration_but_not_failed_prs(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.settings = {'cluster': {'role': 'management'}}
+        cluster.resume_stale_root_sync = Mock()
+        names = ['platform', 'sonarqube', 'sonarqube-configure', 'argocd-route']
+        apps = [{'metadata': {'name': name}, 'spec': {}, 'status': {
+            'sync': {'status': 'Synced'}, 'health': {'status': 'Healthy'}}} for name in names]
+        apps[0]['status']['resources'] = [{'kind': 'Application', 'name': n} for n in names[1:]] + [
+            {'kind': 'ApplicationSet', 'name': 'application-previews'}]
+        registration = {'metadata': {'name': 'example-previews-registration', 'labels': {
+            'platform.ai-platform-portfolio/registration': 'true'}}, 'spec': {}, 'status': {
+                'sync': {'status': 'Synced'}, 'health': {'status': 'Healthy'}}}
+        failed_pr = {'metadata': {'name': 'example-pr-20'}, 'spec': {}, 'status': {
+            'sync': {'status': 'OutOfSync'}, 'health': {'status': 'Degraded'}}}
+        ready_set = {'metadata': {'name': 'application-previews'}, 'status': {'conditions': [
+            {'type': kind, 'status': state} for kind, state in [
+                ('ParametersGenerated', 'True'), ('ResourcesUpToDate', 'True'), ('ErrorOccurred', 'False')]]}}
+        pending = {**registration, 'status': {'sync': {'status': 'OutOfSync'}}}
+        cluster.objects = Mock(side_effect=[
+            [*apps, failed_pr], [],
+            [*apps, pending, failed_pr], [ready_set],
+            [*apps, registration, failed_pr], [ready_set]])
+        with patch('helm_chart.scripts.cluster.time.sleep'):
+            cluster.ready()
+        self.assertEqual(cluster.objects.call_count, 6)
+
 
 class TeardownTests(unittest.TestCase):
     def test_database_consumers_are_cleaned_before_platform_teardown(self):

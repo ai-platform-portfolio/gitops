@@ -221,6 +221,18 @@ spec:
                           readOnlyRootFilesystem: true
                           capabilities: {drop: [ALL]}
                         volumeMounts: [{name: tmp, mountPath: /tmp}, {name: kubeconfig, mountPath: /etc/preview-refresh, readOnly: true}]
+                      - name: refresh-onboarding
+                        image: {{ $github.refreshImage | quote }}
+                        args: [annotate, applicationsets.argoproj.io, --namespace=argocd, '--selector=platform.ai-platform-portfolio/onboarding=true', argocd.argoproj.io/application-set-refresh=true, --overwrite, --cache-dir=/tmp, --request-timeout=15s]
+                        env: [{name: KUBECONFIG, value: /etc/preview-refresh/config}]
+                        resources:
+                          requests: {cpu: 10m, memory: 32Mi}
+                          limits: {memory: 64Mi}
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities: {drop: [ALL]}
+                        volumeMounts: [{name: tmp, mountPath: /tmp}, {name: kubeconfig, mountPath: /etc/preview-refresh, readOnly: true}]
                     containers:
                       - name: refresh-applications
                         image: {{ $github.refreshImage | quote }}

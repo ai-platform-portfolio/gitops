@@ -256,7 +256,7 @@ def main():
         assert any(d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in event_docs)
         disabled_render = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform',
                            str(HELM_CHART / 'platform'), '-f', str(values),
-                           '--set', 'events.github.enabled=false')) if d]
+                           '--set', 'events.github.enabled=false', '--set', 'argocd.onboarding.enabled=false')) if d]
         disabled_events = next(d for d in disabled_render if d['metadata']['name'] == 'platform-events')
         disabled_docs = yaml.safe_load_all(disabled_events['spec']['source']['helm']['valuesObject']['manifests'])
         assert not any(d and d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in disabled_docs)
@@ -274,7 +274,7 @@ def main():
         assert webhook_generator['spec']['permissions'] == {'organization_hooks': 'write', 'actions': 'read'}
         assert webhook_generator['spec']['auth']['privateKey']['secretRef'] == {'name': 'argocd-github-app', 'key': 'private-key'}
         readonly = next(d for d in credentials if d['kind'] == 'GithubAccessToken' and d['metadata']['name'] == 'argocd-github-api')
-        assert readonly['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read', 'statuses': 'write'}
+        assert readonly['spec']['permissions'] == {'actions': 'read', 'contents': 'read', 'pull_requests': 'read', 'statuses': 'write'}
         mirrored = next(d for d in credentials if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'github-webhook-api')
         assert mirrored['spec']['refreshInterval'] == '15m'
         assert mirrored['spec']['target']['template']['mergePolicy'] == 'Merge'
@@ -333,6 +333,7 @@ def main():
         for container, resource, selector, annotation in [
             (pod['initContainers'][0], 'applicationsets.argoproj.io', 'platform.ai-platform-portfolio/preview=true', 'argocd.argoproj.io/application-set-refresh=true'),
             (pod['initContainers'][1], 'applicationsets.argoproj.io', 'platform.ai-platform-portfolio/environment', 'argocd.argoproj.io/application-set-refresh=true'),
+            (pod['initContainers'][2], 'applicationsets.argoproj.io', 'platform.ai-platform-portfolio/onboarding=true', 'argocd.argoproj.io/application-set-refresh=true'),
             (pod['containers'][0], 'applications.argoproj.io', 'platform.ai-platform-portfolio/preview=true', 'argocd.argoproj.io/refresh=hard'),
         ]:
             assert container['args'] == ['annotate', resource, '--namespace=argocd',
@@ -381,7 +382,7 @@ def main():
         assert key_source['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
         assert key_source['spec']['target']['name'] == 'argocd-github-app'
         assert key_source['spec']['data'] == [{'secretKey': 'private-key', 'remoteRef': {'key': 'ai-platform-clusters-pem-key'}}]
-        assert generator['spec']['permissions'] == {'actions': 'read', 'pull_requests': 'read', 'statuses': 'write'}
+        assert generator['spec']['permissions'] == {'actions': 'read', 'contents': 'read', 'pull_requests': 'read', 'statuses': 'write'}
         assert 'repositories' not in generator['spec'], 'Use the existing installation without per-app access lists'
         assert all(re.fullmatch(r'[0-9]+', generator['spec'][key]) for key in ['appID', 'installID'])
         assert generator['spec']['auth'] == {'privateKey': {'secretRef': {'name': 'argocd-github-app', 'key': 'private-key'}}}

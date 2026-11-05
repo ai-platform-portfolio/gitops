@@ -36,6 +36,8 @@ spec:
   installID: {{ required "argocd.github.installationId is required" .Values.argocd.github.installationId | quote }}
   permissions:
     actions: read
+    # Native SCM discovery reads intent paths, including in private repositories.
+    contents: read
     pull_requests: read
     statuses: write
   auth:
