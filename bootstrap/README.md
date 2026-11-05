@@ -86,6 +86,26 @@ State uses the external Azure Blob backend configured by ignored
 [configuration and lifecycle guide](../helm_chart/README.md) for prerequisites,
 backend setup and validation.
 
+## AKS control-plane tier
+
+`aks.sku_tier` selects the existing AKS module's control-plane tier. The caller
+sets `Standard`; omitting the input preserves the module's `Free` default for
+other deployments. This choice does not change worker sizes or node counts.
+
+Azure ResourceHealth reported that this controller-heavy platform overloaded its
+Free control plane and triggered automatic restarts. The native AKS diagnostic
+also reported low inflight-request limits and recommended Standard for additional
+control-plane replicas/resources. Worker scaling does not directly enlarge the
+managed API server. Standard adds capacity and availability headroom; the Argo
+WATCH backoff and bounded LIST settings below remain necessary, and successful
+reconciliation must be verified after activation.
+
+UK South Standard management retail pricing checked 2026-11-05: GBP0.0752 per
+cluster-hour, approximately GBP54.90 for 730 hours, excluding tax and any
+subscription discounts. Worker, storage and network charges are separate.
+See [AKS tiers](https://learn.microsoft.com/en-us/azure/aks/free-standard-pricing-tiers)
+and [retail pricing](https://azure.microsoft.com/en-us/pricing/details/kubernetes-service/).
+
 ## AKS administrator group
 
 `aks.admin_group` configures the Terraform library's `entra-group` module.

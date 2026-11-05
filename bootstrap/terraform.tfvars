@@ -150,6 +150,7 @@ postgres = {
 aks = {
   name               = "aks-management"
   kubernetes_version = "1.36.5"
+  sku_tier           = "Standard"
 
   admin_group = {
     display_name = "aks-platform-admins"

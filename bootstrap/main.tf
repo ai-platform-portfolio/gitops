@@ -117,6 +117,7 @@ module "aks" {
   resource_group_name    = azurerm_resource_group.this.name
   tenant_id              = sensitive(data.azurerm_client_config.current.tenant_id)
   kubernetes_version     = var.aks.kubernetes_version
+  sku_tier               = var.aks.sku_tier
   admin_group_object_ids = [module.aks_admin_group.object_id]
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
   container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
