@@ -126,6 +126,30 @@ revision after the lifecycle starts waiting.
 During readiness checks, brief Kubernetes command failures are retried. Six
 consecutive failures still stop the deployment; teardown checks remain fail-closed.
 
+Application registration is reconstructed automatically after shared dependencies
+are ready. Native SCM ApplicationSets discover `deploy/previews.yaml` and
+`deploy/environments.yaml` on repositories' default branches in the configured
+GitHub organization. Repository intent is consumed with the pinned shared
+application chart; GitOps contains no per-application registration list. The
+existing GitHub installation token needs Contents read access to inspect private
+intent paths. No new credential is introduced.
+
+SCM polling is disabled. Initial reconciliation discovers existing intent, and
+existing GitHub push/startup events refresh discovery and delivery ApplicationSets.
+Kargo resumes each environment from its existing `delivery` branch release pin;
+startup does not select new Freight or reset those files. Preview applications
+resume from current PR publication identity. A failed publication remains blocked
+and must not be reported as a passing browser check. Startup waits for discovery
+and registration reconciliation, while failed individual PRs remain CI failures
+rather than preventing the shared platform from starting. Missing/changed
+registrations and blocking package health are printed during that wait.
+
+Removing a registration intent file removes its registration Application through
+native Argo ownership and finalizers; generated applications retain their normal
+ordered cleanup. Review such removal as an environment deletion. An API outage
+still stops readiness: bounded waits do not repair the managed AKS control plane.
+Full clean rebuild/reapply evidence is required before claiming unattended startup.
+
 There is no foundations profile or separate ingress deployment step. Configure
 packages in `helm_chart/platform/` before applying. SonarQube SSO and application
 prerequisites must be configured for the full deployment. Backstage uses the

@@ -65,11 +65,11 @@ class Cluster:
 
     def objects(self, kind, namespace=None):
         scope = ['-n', namespace] if namespace else ['-A']
-        return json.loads(run(*self.kube, 'get', kind, *scope, '-o', 'json', capture=True))['items']
+        return json.loads(run(*self.kube, 'get', kind, *scope, '--request-timeout=15s', '-o', 'json', capture=True))['items']
 
     def object(self, kind, name, namespace, kube=None):
         value = run(*(kube or self.kube), 'get', kind, name, '-n', namespace,
-                    '--ignore-not-found', '-o', 'json', capture=True)
+                    '--ignore-not-found', '--request-timeout=15s', '-o', 'json', capture=True)
         return json.loads(value) if value.strip() else None
 
     def manifest(self, doc, kube=None):
@@ -196,6 +196,16 @@ class Cluster:
                  retry_command_errors=True)
 
     def ready(self):
+        started = time.monotonic()
+        last_report = None
+
+        def report(blockers):
+            nonlocal last_report
+            summary = tuple(sorted(blockers))
+            if summary != last_report:
+                print(f'[{int(time.monotonic() - started)}s] Waiting: ' + ', '.join(summary), flush=True)
+                last_report = summary
+
         def current(app):
             status = app.get('status', {})
             compared = status.get('sync', {}).get('comparedTo', {})
@@ -211,16 +221,39 @@ class Cluster:
             if root:
                 self.resume_stale_root_sync(root)
             if not root or not root.get('status', {}).get('resources'):
+                report(['platform: resource inventory not ready'])
                 return False
             expected = {r['name'] for r in root['status']['resources'] if r['kind'] == 'Application'}
             required = {'sonarqube', 'sonarqube-configure'}
             if self.settings['cluster']['role'] == 'management':
                 required.add('argocd-route')
             if not required <= expected:
+                report(['platform: required package inventory incomplete'])
                 return False
             found = {a['metadata']['name']: a for a in apps}
-            return bool(expected) and expected <= found.keys() and all(
-                current(a) for a in [root, *(found[n] for n in expected)])
+            blockers = []
+            for name in sorted(expected | {'platform'}):
+                app = found.get(name)
+                if not app or not current(app):
+                    status = (app or {}).get('status', {})
+                    blockers.append(f"{name}: {status.get('sync', {}).get('status', 'Missing')}/"
+                                    f"{status.get('health', {}).get('status', 'Unknown')}")
+
+            discovery_names = {r['name'] for r in root['status']['resources']
+                               if r['kind'] == 'ApplicationSet'}
+            if discovery_names:
+                sets = {a['metadata']['name']: a for a in self.objects('applicationsets.argoproj.io', 'argocd')}
+                for name in sorted(discovery_names):
+                    conditions = {c['type']: c for c in sets.get(name, {}).get('status', {}).get('conditions', [])}
+                    if any(conditions.get(kind, {}).get('status') != state for kind, state in [
+                            ('ParametersGenerated', 'True'), ('ResourcesUpToDate', 'True'), ('ErrorOccurred', 'False')]):
+                        blockers.append(f'{name}: repository discovery not reconciled')
+                for app in apps:
+                    if app['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/registration') == 'true' and not current(app):
+                        blockers.append(f"{app['metadata']['name']}: registration not reconciled")
+            report(blockers)
+            return bool(expected) and not blockers
+
         wait_for(reconciled, 'Waiting for every platform Application to be Synced and Healthy',
                  retry_command_errors=True)
 

@@ -117,8 +117,10 @@ anonymous receiver is added. The existing App's Atlantis endpoint is unchanged.
 Before activation, verify installation permissions, mirrored-token freshness,
 certificate/route readiness, actual hook registration, rejected unsigned/invalid
 signatures, PR/workflow events, startup catch-up and duplicate/replay behavior.
-Render/dry-run checks do not prove those live gates. Chart-generated preview labels
-must be installed first; enabling the package alone registers no applications.
+Render/dry-run checks do not prove those live gates. The shared SCM discovery ApplicationSets carry the onboarding label and are
+refreshed by the same Job. They recreate repository-owned registrations before
+ordinary preview/environment reconciliation. The event package alone still
+registers no applications; organization discovery is owned by the platform template.
 
 Sources: [native GitHub source](https://github.com/argoproj/argo-events/tree/v1.9.11/pkg/eventsources/sources/github),
 [organization webhooks](https://docs.github.com/en/rest/orgs/webhooks),
