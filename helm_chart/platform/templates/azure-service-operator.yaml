@@ -20,7 +20,7 @@ spec:
   source:
     repoURL: https://raw.githubusercontent.com/Azure/azure-service-operator/main/v2/charts
     chart: azure-service-operator
-    targetRevision: "2.21.1"
+    targetRevision: "2.22.0"
     helm:
       releaseName: azure-service-operator
       valuesObject:

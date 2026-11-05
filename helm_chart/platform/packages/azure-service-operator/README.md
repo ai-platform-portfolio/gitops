@@ -1,7 +1,7 @@
 # Azure Service Operator
 
-Each cluster root installs the official chart **2.21.1**, running **v2.21.1**,
-verified as the latest stable release on 2026-10-23. The explicit Application in
+Each cluster root installs the official chart **2.22.0**, running **v2.22.0**,
+verified as the latest stable release on 2026-11-05. The explicit Application in
 `../../templates/azure-service-operator.yaml` runs at wave 10, after cert-manager
 at wave 5. Every root includes the operator and its namespace. The package
 NetworkPolicy is staged and currently excluded from reconciliation.
@@ -9,6 +9,14 @@ One replica with upstream 200m CPU/256Mi memory requests and 500m/512Mi limits
 fits the initial non-HA portfolio; its disruption budget is disabled so a single
 replica does not block node maintenance. Upgrades use the upstream Recreate strategy
 and briefly interrupt reconciliation and admission for ASO resources.
+
+Version 2.22.0 includes the upstream [delete-retry fix](https://github.com/Azure/azure-service-operator/pull/5778).
+The PostgreSQL recovery drill on 2.21.1 hit transient Azure child-delete errors
+followed by a roughly 48-minute retry delay, leaving Kubernetes finalizers pending
+after the Azure parents were gone. The fix classifies these delete errors for the
+normal slow retry (about three minutes), rather than the hour-long backoff.
+Normal ASO finalizers still govern cleanup. Azure restore failures and Kubernetes
+API availability remain separate operational concerns.
 
 ## Ownership and CRDs
 
@@ -161,7 +169,7 @@ policy if Azure resources must survive. Never place Terraform state resources
 under disposable ASO ownership. The operator does not remove CRDs on uninstall;
 they remain on a retained cluster and disappear with a destroyed AKS cluster.
 
-Sources: [release](https://github.com/Azure/azure-service-operator/releases/tag/v2.21.1),
+Sources: [release](https://github.com/Azure/azure-service-operator/releases/tag/v2.22.0),
 [Helm installation](https://azure.github.io/azure-service-operator/guide/installing-from-helm/),
 [CRD management](https://azure.github.io/azure-service-operator/guide/crd-management/),
 [credential scope](https://azure.github.io/azure-service-operator/guide/authentication/credential-scope/),

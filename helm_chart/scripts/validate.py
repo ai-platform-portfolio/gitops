@@ -1032,7 +1032,7 @@ def main():
                     pod = deployment['spec']['template']['spec']
                     manager = next(c for c in pod['containers'] if c['name'] == 'manager')
                     assert deployment['spec']['replicas'] == 1
-                    assert manager['image'].endswith(':v2.21.1')
+                    assert manager['image'].endswith(':v2.22.0')
                     assert '--crd-pattern=resources.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*;storage.azure.com/*;dbforpostgresql.azure.com/*;network.azure.com/PrivateEndpoint;network.azure.com/PrivateEndpointsPrivateDnsZoneGroup' in manager['args']
                     assert pod['serviceAccountName'] == 'azureserviceoperator-default'
                     assert any(s.get('serviceAccountToken', {}).get('audience') == 'api://AzureADTokenExchange'
