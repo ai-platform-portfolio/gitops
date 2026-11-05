@@ -82,7 +82,7 @@ module "network" {
     model_gateway = merge(var.model_gateway.network, { location = var.model_gateway.location })
   })
 
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=717f2fcdd4233d273350354a2a7d8967d53d28bd"
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=990e4654ed4273f6949be2aa4cb907a1ba7140f3"
   name                = each.value.name
   resource_group_name = azurerm_resource_group.this.name
   location            = each.value.location
@@ -327,7 +327,7 @@ module "argocd" {
 
 # Foundation only: no APIs, inference routes or GCP runtime trust are activated.
 module "model_gateway" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/apim?ref=717f2fcdd4233d273350354a2a7d8967d53d28bd"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/apim?ref=990e4654ed4273f6949be2aa4cb907a1ba7140f3"
   name                       = var.model_gateway.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.model_gateway.location
