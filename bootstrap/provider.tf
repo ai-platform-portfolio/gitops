@@ -1,11 +1,16 @@
 terraform {
-  required_version = ">= 1.5.0, < 2.0.0"
+  required_version = ">= 1.9, < 2.0.0"
 
   backend "azurerm" {
     use_azuread_auth = true
   }
 
   required_providers {
+    azapi = {
+      source  = "Azure/azapi"
+      version = "~> 2.13"
+    }
+
     azuread = {
       source  = "hashicorp/azuread"
       version = "~> 3.0"
@@ -43,3 +48,6 @@ provider "helm" {
     }
   }
 }
+
+# Uses the caller authentication context; no stored client secret is required.
+provider "azapi" {}

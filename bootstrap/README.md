@@ -155,3 +155,60 @@ storage account. `platform_settings.runtime` carries its client ID and the clust
 resource-group name; GitOps supplies namespace credentials and owns service
 identities/resources. This resolves the circular dependency of ASO provisioning
 its own first credential. See [Testkube sequencing](../helm_chart/platform/packages/testkube/README.md).
+
+## Model gateway foundation
+
+`model_gateway` in `terraform.tfvars` deploys private Standard v2 API Management
+in UK West, with its own delegated integration subnet and managed identity. The
+same reusable network module creates both VNets; a `moved` block preserves the
+existing management network addresses in state. Existing AKS and Foundry stay in
+UK South. The gateway creates no APIs or subscriptions for application callers.
+Publisher contact values are demo metadata; replace the unmonitored example
+address before production use.
+
+**Why UK West:** Microsoft's availability table currently marks new APIM v2
+instances in UK South temporarily unavailable. Standard v2's integration VNet
+must be in the same region as APIM, so the gateway uses a separate UK West VNet.
+This does not relocate the existing cluster or Foundry account.
+[Regional availability](https://learn.microsoft.com/en-us/azure/api-management/api-management-region-availability)
+and [integration requirements](https://learn.microsoft.com/en-us/azure/api-management/integrate-vnet-outbound).
+
+The private endpoint uses `privatelink.azure-api.net`. Azure requires creating
+that endpoint before public access can be disabled, so the module orders a small
+AzAPI property update after endpoint creation. AzureRM owns the service and
+ignores only that property; AzAPI owns its final Disabled value. No inference
+routes exist during the initial public provisioning window. APIM provisioning
+and teardown can each take hours; its fixed running charge and Private Link/DNS
+charges continue until teardown completes. Microsoft retail pricing checked on
+2026-11-05 lists the UK West Standard v2 first unit at USD 0.9589/hour
+(about USD 23/day or USD 700 per 730-hour month), excluding other charges, tax
+and agreement discounts. Recheck pricing before each deployment.
+[Retail pricing API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices).
+
+A failed apply can leave APIM public
+until the ordered final update succeeds; do not publish APIs before that gate.
+
+This is the original foundation port, **not working model routing**. No VNet
+peering, Google private transport, provider APIs, token exchange, model aliases,
+caller authorisation, token quotas or inference runtime validation are delivered
+here. The isolated gateway is not yet reachable from the management VNet; adding
+that connectivity belongs with the reviewed routing stage.
+
+The reusable `modules/gcp/workload-identity` module is available in the Terraform
+library. The intended project is the existing GCP project with display name
+**Main**. This port does not call it from bootstrap: the original gateway root
+also had no GCP caller, and its dedicated Entra audience/role and APIM token
+exchange are not implemented yet. Resolve Main to its actual project ID when
+that stage is implemented; do not choose a project solely by a display-name match.
+No Google provider or service-account key is required by this bootstrap stage.
+
+Follow-up discussion: wire the existing Foundry backend and Google Gemini route,
+configure keyless federation through the existing Entra ownership layer, select
+approved models/regions, define caller permissions and consumption controls, then
+prove streaming, token renewal, denied access and ordered cleanup. Foundation
+validation alone must not be reported as successful inference.
+
+Run this root with Terraform 1.9+ (CI pins 1.9.8), using the existing Azure backend.
+Do not apply a whole-root plan without reviewing unrelated drift, including any
+explicit operator access exceptions on Foundry. The library commit is pinned in
+each module call. Review the plan for zero management-network replacements.

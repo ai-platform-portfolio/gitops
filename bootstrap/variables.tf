@@ -51,6 +51,10 @@ variable "network" {
       address_prefixes            = list(string)
       service_endpoints           = optional(list(string), [])
       network_security_group_name = optional(string)
+      delegations = optional(map(object({
+        service = string
+        actions = optional(list(string), ["Microsoft.Network/virtualNetworks/subnets/action"])
+      })), {})
       security_rules = optional(map(object({
         description                = optional(string)
         priority                   = number
@@ -236,4 +240,44 @@ variable "platform" {
     condition     = alltrue([for key in ["postgres", "loki_chunks", "loki_ruler", "mimir_blocks", "mimir_ruler", "mimir_alertmanager", "tempo_traces"] : contains(keys(var.platform.storage.containers), key)])
     error_message = "Define the PostgreSQL and observability containers."
   }
+}
+
+variable "model_gateway" {
+  description = "Private APIM foundation; Gemini routing and GCP runtime trust are separate follow-up work."
+  type = object({
+    name                        = string
+    location                    = string
+    sku_name                    = string
+    integration_subnet_key      = string
+    private_endpoint_subnet_key = string
+    private_dns_zone_key        = string
+    publisher = object({
+      name  = string
+      email = string
+    })
+    network = object({
+      name          = string
+      address_space = list(string)
+      subnets = map(object({
+        address_prefixes            = list(string)
+        service_endpoints           = optional(list(string), [])
+        network_security_group_name = optional(string)
+        delegations = optional(map(object({
+          service = string
+          actions = optional(list(string), ["Microsoft.Network/virtualNetworks/subnets/action"])
+        })), {})
+        security_rules = optional(map(object({
+          description                = optional(string)
+          priority                   = number
+          direction                  = string
+          access                     = string
+          protocol                   = string
+          source_port_range          = string
+          destination_port_ranges    = list(string)
+          source_address_prefix      = string
+          destination_address_prefix = string
+        })))
+      }))
+    })
+  })
 }

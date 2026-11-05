@@ -71,21 +71,31 @@ resource "azurerm_private_dns_zone" "private" {
   tags                = var.azure.tags
 }
 
+# Keep each network one module instance; the caller owns repetition and regions.
+moved {
+  from = module.network
+  to   = module.network["management"]
+}
+
 module "network" {
-  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=3e9ad053553667fd5e35ae9f6e418309081c19c8"
-  name                = var.network.name
+  for_each = merge({ management = merge(var.network, { location = var.azure.location }) }, {
+    model_gateway = merge(var.model_gateway.network, { location = var.model_gateway.location })
+  })
+
+  source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=717f2fcdd4233d273350354a2a7d8967d53d28bd"
+  name                = each.value.name
   resource_group_name = azurerm_resource_group.this.name
-  location            = var.azure.location
-  address_space       = var.network.address_space
-  subnets             = var.network.subnets
+  location            = each.value.location
+  address_space       = each.value.address_space
+  subnets             = each.value.subnets
   tags                = var.azure.tags
 
   private_dns_zone_links = {
     for key, zone in var.private_dns : key => {
-      name                  = var.network.name
+      name                  = each.value.name
       resource_group_name   = azurerm_resource_group.this.name
       private_dns_zone_name = azurerm_private_dns_zone.private[key].name
-    } if zone.vnet_link
+    } if zone.vnet_link && (each.key == "management" || key == var.model_gateway.private_dns_zone_key)
   }
 }
 
@@ -110,7 +120,7 @@ module "aks" {
   admin_group_object_ids = [module.aks_admin_group.object_id]
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
   container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
-  vnet_subnet_id         = module.network.subnet_ids[var.aks.system_node_pool.subnet_key]
+  vnet_subnet_id         = module.network["management"].subnet_ids[var.aks.system_node_pool.subnet_key]
 
   system_node_pool = {
     vm_size         = var.aks.system_node_pool.vm_size
@@ -123,7 +133,7 @@ module "aks" {
       vm_size         = pool.vm_size
       node_count      = pool.node_count
       os_disk_size_gb = pool.os_disk_size_gb
-      vnet_subnet_id  = module.network.subnet_ids[pool.subnet_key]
+      vnet_subnet_id  = module.network["management"].subnet_ids[pool.subnet_key]
     }
   }
 
@@ -195,13 +205,13 @@ module "foundry" {
   location                   = var.foundry.location
   managed_identity_id        = module.identities["foundry"].identity_id
   private_endpoint_location  = var.azure.location
-  private_endpoint_subnet_id = module.network.subnet_ids[var.foundry.private_endpoint_subnet_key]
+  private_endpoint_subnet_id = module.network["management"].subnet_ids[var.foundry.private_endpoint_subnet_key]
   private_dns_zone_ids       = [for key in var.foundry.private_dns_zone_keys : azurerm_private_dns_zone.private[key].id]
   projects                   = var.foundry.projects
   deployments                = var.foundry.deployments
   tags                       = var.azure.tags
 
-  depends_on = [module.network]
+  depends_on = [module.network["management"]]
 }
 
 # One managed server hosts the staging and production databases. The chart and
@@ -217,7 +227,7 @@ module "postgres" {
   sku_name                   = var.postgres.sku_name
   storage_mb                 = var.postgres.storage_mb
   backup_retention_days      = var.postgres.backup_retention_days
-  private_endpoint_subnet_id = module.network.subnet_ids[var.postgres.private_endpoint_subnet_key]
+  private_endpoint_subnet_id = module.network["management"].subnet_ids[var.postgres.private_endpoint_subnet_key]
   private_dns_zone_id        = azurerm_private_dns_zone.private["postgres"].id
 
   entra_administrators = {
@@ -230,7 +240,7 @@ module "postgres" {
 
   tags = var.azure.tags
 
-  depends_on = [module.network]
+  depends_on = [module.network["management"]]
 }
 
 # Bootstrap applications share one library call; their choices live in tfvars.
@@ -313,4 +323,20 @@ module "argocd" {
   ]
 
   depends_on = [terraform_data.aks_api_ready, module.entra_applications]
+}
+
+# Foundation only: no APIs, inference routes or GCP runtime trust are activated.
+module "model_gateway" {
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/apim?ref=717f2fcdd4233d273350354a2a7d8967d53d28bd"
+  name                       = var.model_gateway.name
+  resource_group_name        = azurerm_resource_group.this.name
+  location                   = var.model_gateway.location
+  sku_name                   = var.model_gateway.sku_name
+  publisher_name             = var.model_gateway.publisher.name
+  publisher_email            = var.model_gateway.publisher.email
+  managed_identity_id        = module.identities["model_gateway"].identity_id
+  integration_subnet_id      = module.network["model_gateway"].subnet_ids[var.model_gateway.integration_subnet_key]
+  private_endpoint_subnet_id = module.network["model_gateway"].subnet_ids[var.model_gateway.private_endpoint_subnet_key]
+  private_dns_zone_id        = azurerm_private_dns_zone.private[var.model_gateway.private_dns_zone_key].id
+  tags                       = var.azure.tags
 }
