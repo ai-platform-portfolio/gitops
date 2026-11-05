@@ -202,6 +202,11 @@ exchange are not implemented yet. Resolve Main to its actual project ID when
 that stage is implemented; do not choose a project solely by a display-name match.
 No Google provider or service-account key is required by this bootstrap stage.
 
+When that consumer is implemented, it supplies the custom role ID, title,
+description and exact Gemini permissions (including `aiplatform.endpoints.predict`
+and any required API-usage permission). Those are deployment choices; the library
+contains no model-specific role names or permission defaults.
+
 Follow-up discussion: wire the existing Foundry backend and Google Gemini route,
 configure keyless federation through the existing Entra ownership layer, select
 approved models/regions, define caller permissions and consumption controls, then
