@@ -146,8 +146,11 @@ credentials, with SQL permissions scoped to their own databases.
 
 This foundation creates no staging/production SQL databases, roles or application
 connections yet. They belong to the reusable application delivery templates.
-`make down` stops root reconciliation and drains its tracked onboarding
-ApplicationSets with foreground cascading deletion. It records descendants using
+`make down` stops root reconciliation, then removes its directly tracked Sensors
+before their EventBus and Argo Events controller. Each Sensor requires an exact
+root tracking annotation; normal finalizers are awaited, including on retry.
+Sensors outside the root inventory are untouched. The lifecycle then drains its
+tracked onboarding ApplicationSets with foreground cascading deletion. It records descendants using
 native owner references and Argo tracking, then waits for their Application UIDs
 to disappear as well: nested ApplicationSets can be gone while application
 PostDelete hooks still run. Their registration Applications remove consumer
