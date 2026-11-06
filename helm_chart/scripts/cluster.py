@@ -455,10 +455,23 @@ class Cluster:
             # External consumer CRs must finish deletion first. Only exact Azure
             # resources tracked by platform-owned consumer Applications may
             # remain: reverse waves delete them before ASO and its credential.
-            owned = {(r.get('group'), r.get('kind'), r.get('namespace'), r.get('name'))
-                     for app in apps if app['metadata']['name'] in {'atlantis-azure', 'atlas-azure', 'holmes-azure', 'testkube-azure', 'postgres-recovery'}
-                     and app['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true'
-                     for r in app.get('status', {}).get('resources', [])}
+            root = next((a for a in apps if a['metadata']['name'] == 'platform'), {})
+            packages = {r['name'] for r in root.get('status', {}).get('resources', [])
+                        if r.get('group') == 'argoproj.io' and r.get('kind') == 'Application'
+                        and r.get('namespace') == 'argocd'}
+            owned = {}
+            for app in apps:
+                metadata = app['metadata']
+                name = metadata['name']
+                tracking = metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id')
+                if (name not in packages
+                        or metadata.get('labels', {}).get('platform.ai-platform-portfolio/managed') != 'true'
+                        or tracking != f'platform:argoproj.io/Application:argocd/{name}'):
+                    continue
+                for resource in app.get('status', {}).get('resources', []):
+                    key = (resource.get('group'), resource.get('kind'), resource.get('namespace'), resource.get('name'))
+                    owned[key] = f'{name}:{key[0]}/{key[1]}:{key[2]}/{key[3]}'
+
             # Use ASO's own reserved CRD ownership label. Native AKS ACN APIs
             # also end in .azure.com and must not be treated as ASO resources.
             aso_resources = run(*self.kube, 'get', 'customresourcedefinitions.apiextensions.k8s.io',
@@ -469,8 +482,10 @@ class Cluster:
                 for obj in self.objects(resource):
                     key = (obj.get('apiVersion', '').split('/')[0], obj.get('kind'),
                            obj['metadata'].get('namespace'), obj['metadata']['name'])
-                    if key not in owned:
-                        raise RuntimeError('Remove ASO Azure resources and wait for finalizers before teardown')
+                    tracking = obj['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id')
+                    if key not in owned or tracking != owned[key]:
+                        raise RuntimeError('Remove ASO Azure resources and wait for finalizers before teardown: '
+                                           f'unverified ownership for {key[1]} {key[2]}/{key[3]}')
         managed = [a for a in self.objects('applications.argoproj.io', 'argocd')
                    if a['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true']
         suspend(managed)

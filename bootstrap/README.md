@@ -155,9 +155,12 @@ delivery definitions and run existing application PostDelete cleanup while Atlas
 ASO, credentials, PostgreSQL and routing remain available. No per-repository cleanup list or application values are required.
 The lifecycle then checks for remaining Atlas/database/Rollout/ASO consumers.
 Atlas hooks already marked for deletion get a bounded finalizer wait; active
-Atlas leftovers still fail immediately. Unowned resources, API read errors or
-stuck finalizers stop teardown before
-platform dependencies are deleted. Retrying resumes with the remaining resources.
+Atlas leftovers still fail immediately. The ASO guard derives platform ownership
+from the root Application inventory, managed package label and exact Argo tracking
+on both the package and Azure resource. Shared packages need no name allowlist;
+unrelated Azure resources remain blockers. API read errors or stuck finalizers
+stop teardown before platform dependencies are deleted. Retrying resumes with the
+remaining resources.
 
 Platform packages are then removed in reverse wave order before Terraform
 destroys this disposable server and the other bootstrap resources. The remote
