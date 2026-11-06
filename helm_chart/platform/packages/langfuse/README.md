@@ -1,12 +1,33 @@
 # LLM observability
 
 [The Application](../../templates/langfuse.yaml) installs Langfuse at wave 40.
-`values.yaml` references the cluster-local credential Secrets prepared before
-Argo reconciliation, including encryption keys and credentials for bundled
-PostgreSQL, Redis, ClickHouse and S3-compatible storage. These bundled stores are
-separate from the standalone PostgreSQL/ClickHouse packages and are disposable.
-They are not protected by CNPG backups. Existing Secrets are reused in the running
-cluster to keep application credentials stable.
+`values.yaml` disables bundled PostgreSQL and connects directly to the shared CNPG
+primary. The postgres Application (wave 30) owns the dedicated `langfuse` database,
+restricted login role and client Certificate. The credential Application (wave 35)
+delivers only the client keystore and server CA before Langfuse starts at wave 40.
+The database participates in the existing CNPG physical backup configuration;
+restore testing of this database is separate acceptance work.
+
+Authentication uses the `langfuse` client certificate with a 30-day lifetime,
+renewal seven days before expiry and a new private key on renewal. cert-manager
+issues it in `postgres`; scoped ESO access copies its PKCS#12 keystore and the
+server CA into `langfuse`. The signing CA private key stays in `postgres`.
+Reloader restarts both web and worker when the delivered Secret changes.
+Prisma verifies the server certificate and hostname (`sslaccept=strict`).
+
+Prisma requires a PKCS#12 identity and cert-manager requires a non-empty keystore
+password. `changeit` is an explicitly public format-wrapping value, not a database
+credential or a security boundary. Kubernetes Secret RBAC protects the client
+private key; CNPG accepts the dedicated certificate identity, with no database
+password or superuser access. No new long-lived authentication secret is added.
+
+Redis, ClickHouse and S3-compatible storage remain bundled and disposable.
+`values.yaml` references their existing cluster-local Secrets, plus Langfuse's
+application encryption/session keys. Those stores are separate from shared CNPG
+and are not covered by its backups. Existing Secrets are reused within a running
+cluster. Switching this unused installation requires no data migration; the old
+bundled PostgreSQL PVC may be retained by its chart and can be removed during
+normal disposable teardown.
 
 `networking.yaml` contains the application-owned HTTPS ListenerSet, route and
 redirect. The routes Application applies these after backend readiness;
