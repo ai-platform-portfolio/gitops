@@ -390,6 +390,47 @@ class Cluster:
                  retry_command_errors=True)
         print('Argo CD: https://' + hostname, flush=True)
 
+    def cancel_node_upgrades(self):
+        """Release rolling-upgrade locks only after disposable workloads are gone."""
+        scope = ['--subscription', self.connection['subscription_id'], '--only-show-errors']
+        cluster = json.loads(run('az', 'aks', 'show', '-g', self.connection['resource_group'],
+            '-n', self.connection['name'], *scope, '-o', 'json', capture=True, timeout=30))
+        group = cluster['nodeResourceGroup']
+        owner = json.loads(run('az', 'group', 'show', '-n', group, *scope,
+                              '--query', 'managedBy', '-o', 'json', capture=True, timeout=30))
+        if not owner or owner.lower() != cluster['id'].lower():
+            raise RuntimeError('AKS node resource group ownership is unverified; teardown stopped')
+        pools = {pool['name'] for pool in cluster['agentPoolProfiles']}
+        scales = json.loads(run('az', 'vmss', 'list', '-g', group, *scope,
+                                '-o', 'json', capture=True, timeout=30))
+        if any(scale.get('tags', {}).get('aks-managed-poolName') not in pools for scale in scales):
+            raise RuntimeError('Unverified scale set in AKS node resource group; teardown stopped')
+
+        def status(name):
+            result = subprocess.run(['az', 'vmss', 'rolling-upgrade', 'get-latest',
+                '-g', group, '-n', name, *scope, '-o', 'json'],
+                text=True, capture_output=True, timeout=30)
+            if result.returncode:
+                # No upgrade history, or a scale set already removed by AKS.
+                if result.stderr.startswith(('ERROR: (NotFound)', 'ERROR: (ResourceNotFound)')):
+                    return None
+                raise RuntimeError('Cannot read AKS scale set rolling upgrade; teardown stopped')
+            code = json.loads(result.stdout)['runningStatus']['code']
+            if code not in {'RollingForward', 'Completed', 'Cancelled', 'Faulted'}:
+                raise RuntimeError('Unknown AKS scale set rolling upgrade status; teardown stopped')
+            return code
+
+        for scale in scales:
+            name = scale['name']
+            if status(name) != 'RollingForward':
+                continue
+            print(f'Cancelling rolling upgrade before deleting AKS scale set {name}', flush=True)
+            # Use the native long-running-operation wait, bounded locally as well.
+            run('az', 'vmss', 'rolling-upgrade', 'cancel', '-g', group, '-n', name,
+                *scope, '-o', 'none', capture=True, timeout=180)
+            if status(name) == 'RollingForward':
+                raise RuntimeError('AKS scale set rolling upgrade is still active; teardown stopped')
+
     def cleanup(self):
         # Detach hub onboarding before suspending the local root. Workload packages
         # are retained if management is unavailable; teardown then fails closed.
@@ -615,6 +656,7 @@ def main():
         cluster = Cluster(args.infra_dir.resolve(), Path(directory) / 'kubeconfig')
         if args.action == 'down':
             cluster.cleanup()
+            cluster.cancel_node_upgrades()
             return
         runtime = {**cluster.settings['runtime'],
                    'AZURE_TENANT_ID': cluster.account['tenant_id'],

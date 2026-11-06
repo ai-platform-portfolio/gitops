@@ -180,6 +180,19 @@ Platform packages are then removed in reverse wave order before Terraform
 destroys this disposable server and the other bootstrap resources. The remote
 Terraform backend remains persistent.
 
+After package cleanup, native teardown checks the AKS node resource group's
+`managedBy` link and requires every scale set's `aks-managed-poolName` tag to
+match an AKS-reported pool. It cancels active rolling upgrades through the native
+Azure Compute command before Terraform destroys the node pools. Azure platform
+VM Agent upgrades can otherwise reject deletion with `OperationNotAllowed`.
+Cancellation uses Azure CLI's operation wait with a three-minute local timeout;
+completed, cancelled, faulted or absent upgrades need no cancellation. Ownership,
+permission, status-read and cancellation errors stop teardown. This Compute action
+is limited to disposable teardown, not normal AKS maintenance or node changes.
+No upgrade policy is disabled. A new platform upgrade starting after the check
+can still race with deletion; this is not an atomic maintenance lock.
+See [the native cancellation API](https://learn.microsoft.com/en-us/rest/api/compute/virtual-machine-scale-set-rolling-upgrades/cancel).
+
 A repeated `make down` after completed destruction reads owner/zone/group inputs
 through native Terraform console with the same `TFVARS`. It requires empty state
 and an absent disposable resource group before cleaning stale DNS. Only the
