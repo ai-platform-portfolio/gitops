@@ -57,7 +57,7 @@ spec:
                   chartRevision: {{ $onboarding.chartRevision | quote }}
                   previews:
                     registry: {{ printf "%s.azurecr.io" $.Values.argocd.registry.name | quote }}
-                    domain: {{ printf "preview.%s" $.Values.runtime.DNS_ZONE | quote }}
+                    domain: {{ tpl $.Values.gateway.preview.hostname $ | trimPrefix "*." | quote }}
                     sharedListener: {{ $.Values.gateway.preview.listenerName | quote }}
                   environments:
                     registry: {{ printf "%s.azurecr.io" $.Values.argocd.registry.name | quote }}

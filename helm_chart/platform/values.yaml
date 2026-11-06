@@ -30,7 +30,7 @@ argocd:
 gateway:
   preview:
     enabled: true
-    hostname: '*.preview.{{ .Values.runtime.DNS_ZONE }}'
+    hostname: '*.previews.{{ .Values.runtime.DNS_ZONE }}'
     listenerName: preview-https
     certificateSecret: preview-tls
     clusterIssuer: letsencrypt-azuredns
