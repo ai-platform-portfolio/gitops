@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main
+from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main, teardown_connection
 from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
 
 
@@ -881,6 +881,122 @@ class TeardownTests(unittest.TestCase):
         self.assertIn('--ignore-not-found', run.call_args.args)
 
 
+class PartialTeardownTests(unittest.TestCase):
+    def setUp(self):
+        self.account = {'subscription_id': 'test-subscription', 'tenant_id': 'test-tenant'}
+        self.values = {'id': '/subscriptions/test-subscription/resourceGroups/example/providers/Microsoft.ContainerService/managedClusters/test',
+                       'name': 'test', 'resource_group_name': 'example', 'private_key': 'never-log-this'}
+        self.aks = {'type': 'azurerm_kubernetes_cluster', 'mode': 'managed', 'values': self.values}
+
+    def state(self, resources):
+        return json.dumps({'values': {'root_module': {'child_modules': [{'resources': resources}]}}})
+
+    def test_recovers_only_connection_metadata_from_nested_state(self):
+        with patch('helm_chart.scripts.cluster.run', return_value=self.state([self.aks])) as run:
+            connection = teardown_connection(['terraform'])
+        self.assertEqual(connection, {'id': self.values['id'], 'name': 'test', 'resource_group': 'example'})
+        self.assertEqual(run.call_args.args, ('terraform', 'show', '-json'))
+        self.assertEqual(run.call_args.kwargs, {'capture': True, 'timeout': 60})
+        self.assertNotIn('never-log-this', str(connection))
+
+    def test_ambiguous_or_incomplete_state_and_tracked_kubernetes_are_rejected(self):
+        incomplete = {**self.aks, 'values': {'name': 'test'}}
+        for resources in [[self.aks, self.aks], [incomplete],
+                          [self.aks, {'mode': 'managed', 'type': 'helm_release'}],
+                          [self.aks, {'mode': 'managed', 'type': 'kubernetes_manifest'}]]:
+            with self.subTest(resources=resources), \
+                 patch('helm_chart.scripts.cluster.run', return_value=self.state(resources)):
+                with self.assertRaises(RuntimeError):
+                    teardown_connection(['terraform'])
+
+    def test_partial_constructor_validates_account_and_hub_without_recreating_outputs(self):
+        for fault in ['none', 'account', 'hub']:
+            account = {**self.account, 'subscription_id': 'another' if fault == 'account' else 'test-subscription'}
+            with self.subTest(fault=fault), \
+                 patch.dict('os.environ', {'HUB_KUBECONFIG': '/hub' if fault == 'hub' else ''}), \
+                 patch('helm_chart.scripts.cluster.current_account', return_value=account), \
+                 patch('helm_chart.scripts.cluster.run', side_effect=['{}', self.state([self.aks]), '', '']) as run:
+                if fault != 'none':
+                    with self.assertRaisesRegex(RuntimeError, 'authenticated account|hub detachment'):
+                        Cluster(Path('/bootstrap'), Path('/temporary/kubeconfig'), teardown=True)
+                    self.assertEqual(run.call_count, 2)
+                else:
+                    cluster = Cluster(Path('/bootstrap'), Path('/temporary/kubeconfig'), teardown=True)
+                    self.assertIsNone(cluster.settings)
+                    self.assertEqual(cluster.connection['name'], 'test')
+                    self.assertEqual(run.call_count, 4)
+            self.assertFalse(any('apply' in c.args or 'refresh' in c.args for c in run.call_args_list))
+
+    def test_complete_outputs_retain_normal_cleanup_settings(self):
+        connection = {'name': 'test', 'resource_group': 'example'}
+        settings = {'cluster': {'name': 'test', 'role': 'management'}}
+        outputs = {'aks_connection': {'value': connection}, 'platform_settings': {'value': settings}}
+        with patch('helm_chart.scripts.cluster.current_account', return_value=self.account), \
+             patch('helm_chart.scripts.cluster.run', side_effect=[json.dumps(outputs), '', '']), \
+             patch('helm_chart.scripts.cluster.teardown_connection') as recovery:
+            cluster = Cluster(Path('/bootstrap'), Path('/temporary/kubeconfig'), teardown=True)
+        self.assertEqual(cluster.settings, settings)
+        recovery.assert_not_called()
+
+    def test_no_aks_remaining_needs_no_kubernetes_or_upgrade_commands(self):
+        with patch.dict('os.environ', {'HUB_KUBECONFIG': ''}), \
+             patch('helm_chart.scripts.cluster.current_account', return_value=self.account), \
+             patch('helm_chart.scripts.cluster.run', side_effect=['{}', self.state([])]) as run:
+            cluster = Cluster(Path('/bootstrap'), Path('/temporary/kubeconfig'), teardown=True)
+            cluster.cleanup()
+            cluster.cancel_node_upgrades()
+        self.assertEqual(run.call_count, 2)
+        self.assertIsNone(cluster.connection)
+
+    def test_consumer_checks_accept_only_drained_cluster_and_system_workloads(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.connection, cluster.settings, cluster.kube = {}, None, ['kubectl']
+        kinds = ['applications.argoproj.io', 'atlasmigrations.db.atlasgo.io', 'databaseroles.postgresql.cnpg.io']
+        aso = 'widgets.resources.azure.com'
+        crd = {'metadata': {'name': aso, 'labels': {'app.kubernetes.io/name': 'azure-service-operator'}}}
+        for leftover in [None, 'deployments.apps', *kinds, aso]:
+            def objects(kind):
+                if kind == 'customresourcedefinitions.apiextensions.k8s.io':
+                    return [crd]
+                if kind == leftover:
+                    return [{'metadata': {'namespace': 'default'}}]
+                if kind == 'pods':
+                    return [{'metadata': {'namespace': 'kube-system'}}]
+                return []
+            cluster.objects = Mock(side_effect=objects)
+            with self.subTest(leftover=leftover), \
+                 patch('helm_chart.scripts.cluster.run', return_value='\n'.join([*kinds, 'appprojects.argoproj.io'])) as run:
+                if leftover:
+                    with self.assertRaisesRegex(RuntimeError, 'remain'):
+                        cluster.cleanup()
+                else:
+                    cluster.cleanup()
+            self.assertEqual(run.call_count, 1)  # Discovery only; no cleanup mutation.
+            self.assertNotIn('appprojects.argoproj.io', [c.args[0] for c in cluster.objects.call_args_list])
+
+    def test_unreadable_state_discovery_and_consumer_apis_fail_closed(self):
+        error = subprocess.CalledProcessError(1, ['read'])
+        with patch('helm_chart.scripts.cluster.run', side_effect=error):
+            with self.assertRaises(subprocess.CalledProcessError):
+                teardown_connection(['terraform'])
+        cluster = Cluster.__new__(Cluster)
+        cluster.connection, cluster.settings, cluster.kube = {}, None, ['kubectl']
+        cluster.objects = Mock(side_effect=error)
+        with patch('helm_chart.scripts.cluster.run', side_effect=error):
+            with self.assertRaises(subprocess.CalledProcessError):
+                cluster.cleanup()
+        with patch('helm_chart.scripts.cluster.run', return_value='applications.argoproj.io'):
+            with self.assertRaises(subprocess.CalledProcessError):
+                cluster.cleanup()
+
+    def test_startup_does_not_use_state_recovery(self):
+        with patch('helm_chart.scripts.cluster.run', side_effect=subprocess.CalledProcessError(1, ['output'])), \
+             patch('helm_chart.scripts.cluster.teardown_connection') as recovery:
+            with self.assertRaises(subprocess.CalledProcessError):
+                Cluster(Path('/bootstrap'), Path('/temporary/kubeconfig'))
+        recovery.assert_not_called()
+
+
 class NodeUpgradeTeardownTests(unittest.TestCase):
     def setUp(self):
         self.cluster = Cluster.__new__(Cluster)
@@ -1070,6 +1186,10 @@ class DNSLifecycleTests(unittest.TestCase):
                         cleanup.assert_called_once_with(self.account, self.config)
                         self.assertIn('-var-file=/inputs/custom.tfvars', subprocess_run.call_args.args[0])
                         self.assertIn('ARM_TENANT_ID', subprocess_run.call_args.kwargs['env'])
+                    elif fault == 'state':
+                        self.assertFalse(already_down(Path('/bootstrap'), Path('/inputs/custom.tfvars')))
+                        cleanup.assert_not_called()
+                        subprocess_run.assert_not_called()
                     else:
                         with self.assertRaises(RuntimeError):
                             already_down(Path('/bootstrap'), Path('/inputs/custom.tfvars'))

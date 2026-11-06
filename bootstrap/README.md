@@ -193,6 +193,21 @@ No upgrade policy is disabled. A new platform upgrade starting after the check
 can still race with deletion; this is not an atomic maintenance lock.
 See [the native cancellation API](https://learn.microsoft.com/en-us/rest/api/compute/virtual-machine-scale-set-rolling-upgrades/cancel).
 
+If an interrupted Terraform destroy has already removed bootstrap outputs,
+`make down` reads connection metadata internally from Terraform's remaining
+state. It refuses ambiguous AKS state or any still-tracked Helm/Kubernetes
+resources. For a remaining AKS cluster, the authenticated account must match;
+live checks require no workloads outside `kube-system`, no Argo/Atlas/CNPG/Upbound
+consumers and no ASO-labelled custom resources before infrastructure-only cleanup
+can continue. Empty namespaces and retained Argo AppProjects are harmless.
+Read failures stop teardown.
+If AKS is already absent from state, no cluster access or upgrade cancellation is
+needed. Hub-connected teardown cannot use this fallback without outputs.
+This recovery performs no Terraform apply or state edit, never logs raw state,
+and is unavailable to startup. Terraform state contains sensitive values; its
+JSON is captured internally, with only connection metadata retained.
+
+
 A repeated `make down` after completed destruction reads owner/zone/group inputs
 through native Terraform console with the same `TFVARS`. It requires empty state
 and an absent disposable resource group before cleaning stale DNS. Only the
