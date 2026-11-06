@@ -102,7 +102,7 @@ def already_down(infra, tfvars):
     if 'aks_connection' in outputs:
         return False
     if run(*tf, 'state', 'list', capture=True).strip():
-        raise RuntimeError('Bootstrap outputs missing beside existing state; cannot skip cluster cleanup')
+        return False  # Partial destruction must pass the teardown-only recovery checks.
     account = current_account()
     env = {**os.environ, 'ARM_SUBSCRIPTION_ID': account['subscription_id'], 'ARM_TENANT_ID': account['tenant_id']}
     # Terraform owns input parsing and TFVARS precedence, even after outputs vanish.
@@ -121,12 +121,51 @@ def already_down(infra, tfvars):
     return True
 
 
+def teardown_connection(tf):
+    # State can contain secrets: capture internally and retain only connection metadata.
+    state = json.loads(run(*tf, 'show', '-json', capture=True, timeout=60))
+    modules = [state['values']['root_module']]
+    resources = []
+    while modules:
+        module = modules.pop()
+        resources.extend(r for r in module.get('resources', []) if r.get('mode') == 'managed')
+        modules.extend(module.get('child_modules', []))
+    if any(r['type'].startswith(('helm_', 'kubernetes_')) for r in resources):
+        raise RuntimeError('Bootstrap outputs missing with tracked Helm/Kubernetes resources; cannot recover teardown')
+    clusters = [r['values'] for r in resources if r['type'] == 'azurerm_kubernetes_cluster']
+    if len(clusters) > 1:
+        raise RuntimeError('Ambiguous AKS state; cannot recover teardown')
+    if not clusters:
+        return None  # Terraform already removed AKS, or never created it.
+    cluster = clusters[0]
+    if not all(cluster.get(k) for k in ['id', 'name', 'resource_group_name']):
+        raise RuntimeError('Incomplete AKS state; cannot recover teardown')
+    return {'id': cluster['id'], 'name': cluster['name'], 'resource_group': cluster['resource_group_name']}
+
+
 class Cluster:
-    def __init__(self, infra, kubeconfig):
+    def __init__(self, infra, kubeconfig, teardown=False):
         self.tf = [os.environ.get('TERRAFORM', 'terraform'), f'-chdir={infra}']
-        self.connection = json.loads(run(*self.tf, 'output', '-json', 'aks_connection', capture=True))
-        self.settings = json.loads(run(*self.tf, 'output', '-json', 'platform_settings', capture=True))
+        if teardown:
+            outputs = json.loads(run(*self.tf, 'output', '-json', capture=True, timeout=30))
+            complete = {'aks_connection', 'platform_settings'} <= outputs.keys()
+            self.connection = outputs['aks_connection']['value'] if complete else teardown_connection(self.tf)
+            self.settings = outputs['platform_settings']['value'] if complete else None
+        else:
+            self.connection = json.loads(run(*self.tf, 'output', '-json', 'aks_connection', capture=True))
+            self.settings = json.loads(run(*self.tf, 'output', '-json', 'platform_settings', capture=True))
         self.account = current_account()
+        if self.settings is None:
+            if os.environ.get('HUB_KUBECONFIG'):
+                raise RuntimeError('Cannot verify hub detachment without bootstrap outputs; teardown stopped')
+            if self.connection is None:
+                self.kube, self.hub = None, None
+                return
+            expected = (f"/subscriptions/{self.account['subscription_id']}/resourceGroups/"
+                        f"{self.connection['resource_group']}/providers/Microsoft.ContainerService/"
+                        f"managedClusters/{self.connection['name']}")
+            if self.connection['id'].lower() != expected.lower():
+                raise RuntimeError('AKS state does not match authenticated account; teardown stopped')
         self.connection.update(self.account)
         connection = self.connection
         run('az', 'aks', 'get-credentials', '--subscription', connection['subscription_id'],
@@ -392,6 +431,8 @@ class Cluster:
 
     def cancel_node_upgrades(self):
         """Release rolling-upgrade locks only after disposable workloads are gone."""
+        if self.connection is None:
+            return
         scope = ['--subscription', self.connection['subscription_id'], '--only-show-errors']
         cluster = json.loads(run('az', 'aks', 'show', '-g', self.connection['resource_group'],
             '-n', self.connection['name'], *scope, '-o', 'json', capture=True, timeout=30))
@@ -431,7 +472,29 @@ class Cluster:
             if status(name) == 'RollingForward':
                 raise RuntimeError('AKS scale set rolling upgrade is still active; teardown stopped')
 
+    def verify_drained(self):
+        if self.connection is None:
+            return
+        apis = set(run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines())
+        # Empty namespaces may remain after Helm uninstall; workloads may not.
+        for kind in ['pods', 'deployments.apps', 'statefulsets.apps', 'daemonsets.apps', 'jobs.batch', 'cronjobs.batch']:
+            if any(obj['metadata']['namespace'] != 'kube-system' for obj in self.objects(kind)):
+                raise RuntimeError('Workloads remain without bootstrap outputs; teardown stopped')
+        # Argo's AppProjects can survive Helm uninstall; they are configuration.
+        consumers = {kind for kind in apis if kind != 'appprojects.argoproj.io' and kind.endswith(
+            ('.argoproj.io', '.db.atlasgo.io', '.postgresql.cnpg.io', '.upbound.io'))}
+        crds = self.objects('customresourcedefinitions.apiextensions.k8s.io')
+        consumers.update(crd['metadata']['name'] for crd in crds
+                         if crd['metadata'].get('labels', {}).get('app.kubernetes.io/name') == 'azure-service-operator')
+        for kind in sorted(consumers):
+            if self.objects(kind):
+                raise RuntimeError(f'Operator/application consumers remain ({kind}); teardown stopped')
+        print('Partial teardown: live workloads and application/operator consumers are drained.', flush=True)
+
     def cleanup(self):
+        if self.settings is None:
+            self.verify_drained()
+            return
         # Detach hub onboarding before suspending the local root. Workload packages
         # are retained if management is unavailable; teardown then fails closed.
         if self.settings['cluster']['role'] == 'workload' and not self.hub:
@@ -653,7 +716,7 @@ def main():
     if args.action == 'down' and already_down(infra, tfvars):
         return
     with tempfile.TemporaryDirectory(prefix='platform-aks-') as directory:
-        cluster = Cluster(args.infra_dir.resolve(), Path(directory) / 'kubeconfig')
+        cluster = Cluster(args.infra_dir.resolve(), Path(directory) / 'kubeconfig', teardown=args.action == 'down')
         if args.action == 'down':
             cluster.cleanup()
             cluster.cancel_node_upgrades()
