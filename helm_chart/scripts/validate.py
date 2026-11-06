@@ -90,7 +90,7 @@ def main():
         for role in ['management', 'workload']:
             for preview, hostname in [
                 ({'enabled': False}, None),
-                ({}, '*.preview.alternate.test'),
+                ({}, '*.previews.alternate.test'),
                 ({'hostname': '*.sandbox.other.test'}, '*.sandbox.other.test'),
             ]:
                 values.write_text(json.dumps({'runtime': {**runtime, 'DNS_ZONE': 'alternate.test'},
@@ -110,6 +110,13 @@ def main():
                     labels = listeners[1]['allowedRoutes']['namespaces']['selector']['matchLabels']
                     assert labels == {'gitops.platform/gateway': 'public', 'gitops.platform/preview': 'true'}
                     assert gateway['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
+                    if role == 'management':
+                        registrations = [d for d in apps if d and d.get('kind') == 'ApplicationSet']
+                        assert len(registrations) == 2
+                        for registration in registrations:
+                            source = registration['spec']['template']['spec']['sources'][0]
+                            previews = source['helm']['valuesObject']['platform']['argocd']['previews']
+                            assert previews['domain'] == hostname.removeprefix('*.'), 'Preview routes must match the shared certificate domain'
         values.write_text(json.dumps({'runtime': runtime, 'gateway': {'preview': {'hostname': 'not-a-wildcard.test'}}}))
         try:
             command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))
@@ -718,7 +725,7 @@ def main():
                     http, https = gateway['spec']['listeners']
                     assert http['name'] == 'http' and http['protocol'] == 'HTTP' and http['port'] == 80
                     assert https == {
-                        'name': 'preview-https', 'hostname': '*.preview.example.test',
+                        'name': 'preview-https', 'hostname': '*.previews.example.test',
                         'protocol': 'HTTPS', 'port': 443,
                         'tls': {'mode': 'Terminate', 'certificateRefs': [{'name': 'preview-tls'}]},
                         'allowedRoutes': {'namespaces': {'from': 'Selector', 'selector': {'matchLabels': {
