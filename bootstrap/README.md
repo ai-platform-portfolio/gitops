@@ -65,6 +65,12 @@ chart. This includes Envoy Gateway, cert-manager, ExternalDNS, databases,
 observability, federation and enabled applications. Argo is exposed through its
 own issuer-annotated ListenerSet and HTTPRoutes.
 
+On a resumed startup, Argo may detect a newer Git revision after the root is
+seeded. The existing PostgreSQL readiness wait also checks for a superseded root
+sync, so the lifecycle can end the old operation and let Argo reconcile the new
+revision before PostgreSQL is available. Current-revision syncs are left running;
+database readiness, credential preservation and TLS checks still apply.
+
 The URL is `https://<argocd.dns_label>.<dns.zone.name>`, built directly from the
 required tfvars label and zone. Terraform supplies the same URL to
 Argo's ConfigMap and the GitOps route. The lifecycle checks DNS ownership before

@@ -56,6 +56,8 @@ def prepare(cluster):
 
 def prepare_sonarqube(cluster, run, wait):
     def ready():
+        # Argo may compare a newer revision after the initial root seed.
+        cluster.resume_stale_root_sync()
         try:
             api = run(*cluster.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
             if 'clusters.postgresql.cnpg.io' not in api:
