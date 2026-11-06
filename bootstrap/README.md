@@ -147,12 +147,16 @@ credentials, with SQL permissions scoped to their own databases.
 This foundation creates no staging/production SQL databases, roles or application
 connections yet. They belong to the reusable application delivery templates.
 `make down` stops root reconciliation and drains its tracked onboarding
-ApplicationSets with foreground cascading deletion. Their registration
-Applications remove consumer delivery definitions and run existing application
-PostDelete cleanup while Atlas, ASO, credentials, PostgreSQL and routing remain
-available. No per-repository cleanup list or application values are required.
-The lifecycle then checks for remaining Atlas/database/Rollout/ASO consumers;
-unowned resources, API read errors or stuck finalizers stop teardown before
+ApplicationSets with foreground cascading deletion. It records descendants using
+native owner references and Argo tracking, then waits for their Application UIDs
+to disappear as well: nested ApplicationSets can be gone while application
+PostDelete hooks still run. Their registration Applications remove consumer
+delivery definitions and run existing application PostDelete cleanup while Atlas,
+ASO, credentials, PostgreSQL and routing remain available. No per-repository cleanup list or application values are required.
+The lifecycle then checks for remaining Atlas/database/Rollout/ASO consumers.
+Atlas hooks already marked for deletion get a bounded finalizer wait; active
+Atlas leftovers still fail immediately. Unowned resources, API read errors or
+stuck finalizers stop teardown before
 platform dependencies are deleted. Retrying resumes with the remaining resources.
 
 Platform packages are then removed in reverse wave order before Terraform
