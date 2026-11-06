@@ -6,6 +6,11 @@ data "azurerm_container_registry" "existing" {
   resource_group_name = each.value.resource_group_name
 }
 
+# Operator identity persists while disposable clusters are rebuilt.
+data "azuread_group" "aks_admin" {
+  display_name = var.aks.admin_group.display_name
+}
+
 data "azuread_service_principal" "microsoft_graph" {
   client_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
 }
@@ -99,15 +104,13 @@ module "network" {
   }
 }
 
-# Bootstrap owns this cluster-admin group; it needs no Azure RBAC assignments.
-module "aks_admin_group" {
-  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-group?ref=3e883abf9680cf033fae533a1883d64341bde7ef"
-  display_name = var.aks.admin_group.display_name
-  description  = var.aks.admin_group.description
+# Apply this ownership transfer before teardown; retain the existing Entra object.
+removed {
+  from = module.aks_admin_group.azuread_group.this
 
-  # Ownership manages the group; membership authorizes the initial Argo install.
-  owners  = [data.azurerm_client_config.current.object_id]
-  members = [data.azurerm_client_config.current.object_id]
+  lifecycle {
+    destroy = false
+  }
 }
 
 module "aks" {
@@ -118,7 +121,7 @@ module "aks" {
   tenant_id              = sensitive(data.azurerm_client_config.current.tenant_id)
   kubernetes_version     = var.aks.kubernetes_version
   sku_tier               = var.aks.sku_tier
-  admin_group_object_ids = [module.aks_admin_group.object_id]
+  admin_group_object_ids = [data.azuread_group.aks_admin.object_id]
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
   container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
   vnet_subnet_id         = module.network["management"].subnet_ids[var.aks.system_node_pool.subnet_key]
@@ -233,7 +236,7 @@ module "postgres" {
 
   entra_administrators = {
     aks_admins = {
-      object_id      = module.aks_admin_group.object_id
+      object_id      = data.azuread_group.aks_admin.object_id
       principal_name = var.aks.admin_group.display_name
       principal_type = "Group"
     }
@@ -288,11 +291,13 @@ moved {
 }
 
 # Azure can report AKS and its API allowlist update as complete before clients
-# can reliably use the endpoint. Gate the first Helm request on real API access.
+# can reliably use the endpoint. Gate Helm on both API health and authorisation.
 resource "terraform_data" "aks_api_ready" {
   triggers_replace = [
     module.aks.cluster_id,
+    data.azuread_group.aks_admin.object_id,
     data.azurerm_key_vault_secret.aks_api_ranges.version,
+    filesha256("${path.module}/scripts/wait_for_aks.py"),
   ]
 
   provisioner "local-exec" {
@@ -313,7 +318,7 @@ module "argocd" {
   chart_version = var.argocd.chart_version
 
   values = [
-    templatefile("${path.module}/${var.argocd.values_file}", { admin_group_id = module.aks_admin_group.object_id }),
+    templatefile("${path.module}/${var.argocd.values_file}", { admin_group_id = data.azuread_group.aks_admin.object_id }),
     yamlencode(merge(
       { extraObjects = [local.argocd_configmap] },
       { for component in var.argocd.identity_components : component => {

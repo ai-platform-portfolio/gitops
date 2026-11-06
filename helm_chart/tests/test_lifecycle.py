@@ -7,10 +7,77 @@ from unittest.mock import Mock, patch
 
 from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main, teardown_connection
 from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
+from bootstrap.scripts import wait_for_aks as aks_readiness
 
 
 def encoded(value):
     return base64.b64encode(value.encode()).decode()
+
+
+class AKSReadinessTests(unittest.TestCase):
+    def setUp(self):
+        self.environment = {'AKS_NAME': 'test-cluster', 'AKS_RESOURCE_GROUP': 'test-group'}
+
+    def commands(self, answers, healthy=True):
+        answers = iter(answers)
+
+        def command(*args):
+            if 'can-i' in args:
+                return Mock(returncode=0, stdout=next(answers))
+            if 'get' in args:
+                return Mock(returncode=0 if healthy else 1, stdout='ok' if healthy else 'unavailable')
+            return Mock(returncode=0, stdout='')
+        return command
+
+    def test_healthy_api_alone_does_not_authorize_helm(self):
+        with patch.dict('os.environ', self.environment), \
+             patch.object(aks_readiness, 'TIMEOUT_SECONDS', 1), \
+             patch.object(aks_readiness.time, 'monotonic', side_effect=[0, 0, 0, 0, 2]), \
+             patch.object(aks_readiness.time, 'sleep'), \
+             patch.object(aks_readiness, 'run', side_effect=self.commands(['no'] * 3)) as run:
+            with self.assertRaisesRegex(SystemExit, 'bootstrap permissions denied'):
+                aks_readiness.main()
+        self.assertEqual(sum('can-i' in c.args for c in run.call_args_list), 3)
+
+    def test_three_consecutive_authorized_checks_are_required(self):
+        with patch.dict('os.environ', self.environment), \
+             patch.object(aks_readiness.time, 'monotonic', return_value=0), \
+             patch.object(aks_readiness.time, 'sleep') as sleep, \
+             patch.object(aks_readiness, 'run', side_effect=self.commands(['yes'] * 3)) as run:
+            aks_readiness.main()
+        checks = [c.args for c in run.call_args_list if 'can-i' in c.args]
+        self.assertEqual(len(checks), 3)
+        self.assertTrue(all(c[-5:] == ('auth', 'can-i', '*', '*', '--all-namespaces') for c in checks))
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_permission_denial_resets_consecutive_successes(self):
+        with patch.dict('os.environ', self.environment), \
+             patch.object(aks_readiness.time, 'monotonic', return_value=0), \
+             patch.object(aks_readiness.time, 'sleep') as sleep, \
+             patch.object(aks_readiness, 'run', side_effect=self.commands(['yes', 'no', 'yes', 'yes', 'yes'])):
+            aks_readiness.main()
+        self.assertEqual(sleep.call_count, 4)
+
+    def test_unhealthy_api_does_not_attempt_permission_check(self):
+        with patch.dict('os.environ', self.environment), \
+             patch.object(aks_readiness, 'TIMEOUT_SECONDS', 1), \
+             patch.object(aks_readiness.time, 'monotonic', side_effect=[0, 0, 2]), \
+             patch.object(aks_readiness.time, 'sleep'), \
+             patch.object(aks_readiness, 'run', side_effect=self.commands([], healthy=False)) as run:
+            with self.assertRaisesRegex(SystemExit, 'API not ready'):
+                aks_readiness.main()
+        self.assertFalse(any('can-i' in c.args for c in run.call_args_list))
+
+    def test_command_timeouts_are_bounded_and_credentials_not_reported(self):
+        error = subprocess.TimeoutExpired(['credential-command'], 30, output='private-token')
+        with patch.dict('os.environ', self.environment), \
+             patch.object(aks_readiness, 'TIMEOUT_SECONDS', 1), \
+             patch.object(aks_readiness.time, 'monotonic', side_effect=[0, 0, 2]), \
+             patch.object(aks_readiness.time, 'sleep'), \
+             patch.object(aks_readiness, 'run', side_effect=error):
+            with self.assertRaises(SystemExit) as failure:
+                aks_readiness.main()
+        self.assertNotIn('private-token', str(failure.exception))
 
 
 class CredentialTests(unittest.TestCase):

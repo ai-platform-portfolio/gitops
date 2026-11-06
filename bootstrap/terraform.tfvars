@@ -154,7 +154,6 @@ aks = {
 
   admin_group = {
     display_name = "aks-platform-admins"
-    description  = "Administrators of the management AKS cluster."
   }
 
   authorized_ip_ranges_secret = "aks-api-authorized-ip-ranges"
