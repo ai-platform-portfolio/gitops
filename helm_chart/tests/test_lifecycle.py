@@ -62,6 +62,37 @@ class CredentialTests(unittest.TestCase):
         self.assertEqual(doc['data'], {'jdbc-password': encoded('existing-password'), 'ca.crt': encoded('current-ca')})
         self.assertEqual(doc['metadata']['namespace'], 'sonarqube')
 
+    def test_sonar_wait_resumes_root_when_new_revision_is_compared_after_seed(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+
+        def root(compared, phase='Running'):
+            return {'status': {'sync': {'revision': compared}, 'operationState': {
+                'phase': phase, 'syncResult': {'revision': 'old'}}}}
+
+        cluster.object = Mock(side_effect=[
+            root('old'), None,  # First check: new revision not yet compared; no database.
+            root('new'), root('new', 'Failed'),  # Later comparison permits termination.
+            {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}},
+            {'data': {'password': encoded('existing-password')}},
+            {'data': {'ca.crt': encoded('current-ca')}},
+        ])
+        cluster.manifest = Mock()
+        discovery = Mock(return_value='clusters.postgresql.cnpg.io\n')
+
+        def wait(check, description, timeout):
+            self.assertFalse(check())
+            cluster.manifest.assert_not_called()
+            self.assertTrue(check())
+
+        with patch('helm_chart.scripts.cluster.run') as run:
+            prepare_sonarqube(cluster, discovery, wait)
+        run.assert_called_once()
+        self.assertEqual(json.loads(run.call_args.args[-1]),
+                         {'status': {'operationState': {'phase': 'Terminating'}}})
+        self.assertEqual(cluster.manifest.call_args.args[0]['data'], {
+            'jdbc-password': encoded('existing-password'), 'ca.crt': encoded('current-ca')})
+
     def test_sonar_waits_for_transient_cnpg_api_denial(self):
         cluster = Mock()
         cluster.kube = ['kubectl']
