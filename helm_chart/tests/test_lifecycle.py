@@ -881,6 +881,85 @@ class TeardownTests(unittest.TestCase):
         self.assertIn('--ignore-not-found', run.call_args.args)
 
 
+class NodeUpgradeTeardownTests(unittest.TestCase):
+    def setUp(self):
+        self.cluster = Cluster.__new__(Cluster)
+        self.cluster.connection = {'name': 'other-cluster', 'resource_group': 'other-group',
+                                   'subscription_id': 'test-subscription'}
+        self.aks = {'id': '/clusters/other-cluster', 'nodeResourceGroup': 'azure-owned-nodes',
+                    'agentPoolProfiles': [{'name': 'workers'}, {'name': 'system'}]}
+        self.scales = [{'name': 'azure-generated-vmss', 'tags': {'aks-managed-poolName': 'workers'}}]
+
+    def reads(self, owner='/clusters/OTHER-cluster'):
+        return [json.dumps(self.aks), json.dumps(owner), json.dumps(self.scales)]
+
+    def status(self, code):
+        return Mock(returncode=0, stdout=json.dumps({'runningStatus': {'code': code}}))
+
+    def test_active_upgrade_is_cancelled_only_after_ownership_checks_and_rechecked(self):
+        with patch('helm_chart.scripts.cluster.run', side_effect=self.reads() + [None]) as run, \
+             patch('helm_chart.scripts.cluster.subprocess.run', side_effect=[
+                 self.status('RollingForward'), self.status('Cancelled')]) as status:
+            self.cluster.cancel_node_upgrades()
+        cancel = run.call_args
+        self.assertEqual(cancel.args[:4], ('az', 'vmss', 'rolling-upgrade', 'cancel'))
+        self.assertIn('azure-owned-nodes', cancel.args)
+        self.assertIn('azure-generated-vmss', cancel.args)
+        self.assertEqual(cancel.kwargs['timeout'], 180)
+        self.assertEqual(status.call_count, 2)
+        self.assertTrue(all(c.kwargs['timeout'] == 30 for c in status.call_args_list))
+
+    def test_inactive_or_missing_upgrade_is_not_cancelled(self):
+        absent = Mock(returncode=1, stderr='ERROR: (NotFound) No rolling upgrade history')
+        for result in [self.status(c) for c in ['Completed', 'Cancelled', 'Faulted']] + [absent]:
+            with self.subTest(result=result), \
+                 patch('helm_chart.scripts.cluster.run', side_effect=self.reads()) as run, \
+                 patch('helm_chart.scripts.cluster.subprocess.run', return_value=result):
+                self.cluster.cancel_node_upgrades()
+            self.assertEqual(run.call_count, 3)
+
+    def test_unverified_group_or_pool_stops_before_any_upgrade_action(self):
+        for fault in ['group', 'missing-owner', 'pool', 'untagged']:
+            with self.subTest(fault=fault):
+                self.scales = [{'name': 'azure-generated-vmss', 'tags': {'aks-managed-poolName': 'workers'}}]
+                if fault == 'pool':
+                    self.scales.append({'name': 'unrelated', 'tags': {'aks-managed-poolName': 'another-pool'}})
+                if fault == 'untagged':
+                    self.scales[0]['tags'] = {}
+                owner = None if fault == 'missing-owner' else '/unrelated' if fault == 'group' else self.aks['id']
+                with patch('helm_chart.scripts.cluster.run', side_effect=self.reads(owner)), \
+                     patch('helm_chart.scripts.cluster.subprocess.run') as status:
+                    with self.assertRaisesRegex(RuntimeError, 'unverified|Unverified'):
+                        self.cluster.cancel_node_upgrades()
+                status.assert_not_called()
+
+    def test_unreadable_or_unknown_status_is_not_treated_as_absent(self):
+        for result in [Mock(returncode=1, stderr='ERROR: (AuthorizationFailed) NotFound in message'),
+                       self.status('Unexpected')]:
+            with self.subTest(result=result), \
+                 patch('helm_chart.scripts.cluster.run', side_effect=self.reads()) as run, \
+                 patch('helm_chart.scripts.cluster.subprocess.run', return_value=result):
+                with self.assertRaises(RuntimeError):
+                    self.cluster.cancel_node_upgrades()
+            self.assertEqual(run.call_count, 3)
+
+    def test_cancel_error_timeout_or_still_active_stops_teardown(self):
+        for error in [subprocess.CalledProcessError(1, ['az']), subprocess.TimeoutExpired(['az'], 180), None]:
+            with self.subTest(error=error), \
+                 patch('helm_chart.scripts.cluster.run', side_effect=self.reads() + [error]), \
+                 patch('helm_chart.scripts.cluster.subprocess.run', return_value=self.status('RollingForward')):
+                with self.assertRaises(type(error) if error else RuntimeError):
+                    self.cluster.cancel_node_upgrades()
+
+    def test_down_checks_upgrades_after_package_cleanup(self):
+        cluster = Mock()
+        with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap']), \
+             patch('helm_chart.scripts.cluster.already_down', return_value=False), \
+             patch('helm_chart.scripts.cluster.Cluster', return_value=cluster):
+            main()
+        self.assertEqual([c[0] for c in cluster.method_calls], ['cleanup', 'cancel_node_upgrades'])
+
+
 class AzureAccountTests(unittest.TestCase):
     def test_oidc_issuer_lookup_captures_private_diagnostics(self):
         cluster = Cluster.__new__(Cluster)
