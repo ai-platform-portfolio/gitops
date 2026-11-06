@@ -103,7 +103,9 @@ def main():
     parser.add_argument('--tfvars', type=Path, required=True)
     args = parser.parse_args()
     try:
-        result = up(args.infra_dir.resolve(), args.tfvars.resolve())
+        infra = args.infra_dir.resolve()
+        tfvars = args.tfvars if args.tfvars.is_absolute() else infra / args.tfvars
+        result = up(infra, tfvars.resolve())
         if result:
             print('Bootstrap did not complete; partially created infrastructure may remain running.', flush=True)
         return result

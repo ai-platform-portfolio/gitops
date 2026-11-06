@@ -1347,6 +1347,12 @@ class BootstrapRecoveryTests(unittest.TestCase):
                          'location': 'uksouth', 'provisioningState': 'Failed', 'subnet': {'id': '/subnets/endpoint'},
                          'privateLinkServiceConnections': [{'privateLinkServiceId': '/accounts/foundry', 'groupIds': ['account']}]}
 
+    def test_relative_tfvars_keeps_native_bootstrap_root_semantics(self):
+        with patch('sys.argv', ['bootstrap.py', '--infra-dir', '/bootstrap', '--tfvars', 'custom.tfvars']), \
+             patch.object(self.bootstrap, 'up', return_value=0) as up:
+            self.assertEqual(self.bootstrap.main(), 0)
+        up.assert_called_once_with(Path('/bootstrap'), Path('/bootstrap/custom.tfvars'))
+
     def test_matching_failed_orphan_only(self):
         import copy
         self.bootstrap.verify_endpoint(self.change, self.endpoint, 'sub')
