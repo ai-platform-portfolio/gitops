@@ -189,6 +189,127 @@ class PlatformInputTests(unittest.TestCase):
 
 
 class TeardownTests(unittest.TestCase):
+    @staticmethod
+    def onboarding(name='repository-discovery'):
+        root = {'metadata': {'name': 'platform'}, 'status': {'resources': [
+            {'group': 'argoproj.io', 'kind': 'ApplicationSet', 'namespace': 'argocd', 'name': name}]}}
+        appset = {'metadata': {'name': name,
+                  'labels': {'platform.ai-platform-portfolio/onboarding': 'true'},
+                  'annotations': {'argocd.argoproj.io/tracking-id':
+                                  f'platform:argoproj.io/ApplicationSet:argocd/{name}'}},
+                  'spec': {'syncPolicy': {'preserveResourcesOnDeletion': False},
+                           'template': {'metadata': {'finalizers': ['resources-finalizer.argocd.argoproj.io']}}}}
+        return root, appset
+
+    def test_foreground_delete_waits_until_finalizers_finish(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        _, appset = self.onboarding()
+        cluster.objects = Mock(side_effect=[[appset], [appset], []])
+        with patch('helm_chart.scripts.cluster.run', return_value='applicationsets.argoproj.io') as run, \
+             patch('helm_chart.scripts.cluster.time.sleep') as sleep:
+            cluster.delete('applicationsets.argoproj.io', ['repository-discovery'], 'argocd', foreground=True)
+        delete = next(c.args for c in run.call_args_list if 'delete' in c.args)
+        self.assertIn('--cascade=foreground', delete)
+        self.assertNotIn('patch', delete)
+        sleep.assert_called_once()
+
+    def test_registration_drain_precedes_guards_and_leaves_other_sets_untouched(self):
+        for already_drained in [False, True]:
+            with self.subTest(retry=already_drained):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                root, appset = self.onboarding()
+                postgres = {'metadata': {'name': 'postgres', 'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
+                foreign = {'metadata': {'name': 'unrelated-discovery', 'labels': appset['metadata']['labels']}}
+                drained = already_drained
+                events = []
+
+                def objects(kind, namespace=None):
+                    if kind == 'applications.argoproj.io':
+                        return [root, postgres]
+                    if kind == 'applicationsets.argoproj.io':
+                        return [foreign] if drained else [appset, foreign]
+                    if kind == 'atlasschemas.db.atlasgo.io':
+                        self.assertTrue(drained, 'Atlas guard ran before registration cleanup')
+                        events.append('guard')
+                    return []
+
+                def delete(kind, names, namespace=None, foreground=False):
+                    nonlocal drained
+                    if kind == 'applicationsets.argoproj.io':
+                        self.assertEqual(names, ['repository-discovery'])
+                        self.assertTrue(foreground)
+                        events.append('drain')
+                        drained = True
+                    else:
+                        self.assertTrue(drained)
+                        events.append(names[0])
+
+                def command(*args, **kwargs):
+                    if 'patch' in args and 'platform' in args:
+                        events.append('suspend-root')
+                    return 'atlasschemas.db.atlasgo.io'
+
+                cluster.objects = Mock(side_effect=objects)
+                cluster.delete = Mock(side_effect=delete)
+                with patch('helm_chart.scripts.cluster.run', side_effect=command):
+                    cluster.cleanup()
+                self.assertEqual(events[0], 'suspend-root')
+                self.assertLess(events.index('guard'), events.index('postgres'))
+                if already_drained:
+                    self.assertNotIn('drain', events)
+                else:
+                    self.assertLess(events.index('drain'), events.index('guard'))
+                self.assertEqual(events[-1], 'platform')
+
+    def test_unsafe_registration_cleanup_stops_before_deletion(self):
+        for fault in ['tracking', 'retention', 'finalizers', 'read-error']:
+            with self.subTest(fault=fault):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                root, appset = self.onboarding()
+                if fault == 'tracking':
+                    appset['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'another-owner'
+                elif fault == 'retention':
+                    appset['spec']['syncPolicy']['preserveResourcesOnDeletion'] = True
+                elif fault == 'finalizers':
+                    appset['spec']['template']['metadata']['finalizers'] = []
+
+                def objects(kind, namespace=None):
+                    if kind == 'applications.argoproj.io':
+                        return [root]
+                    if fault == 'read-error':
+                        raise subprocess.CalledProcessError(1, ['kubectl', 'get'])
+                    return [appset]
+
+                cluster.objects = Mock(side_effect=objects)
+                cluster.delete = Mock()
+                error = subprocess.CalledProcessError if fault == 'read-error' else RuntimeError
+                with patch('helm_chart.scripts.cluster.run'), self.assertRaises(error):
+                    cluster.cleanup()
+                cluster.delete.assert_not_called()
+
+    def test_registration_cleanup_timeout_preserves_platform_services(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        root, appset = self.onboarding()
+        postgres = {'metadata': {'name': 'postgres'}}
+        cluster.objects = Mock(side_effect=lambda kind, namespace=None:
+                               [root, postgres] if kind == 'applications.argoproj.io' else [appset])
+        cluster.delete = Mock(side_effect=TimeoutError('Waiting for application cleanup'))
+        with patch('helm_chart.scripts.cluster.run'), self.assertRaises(TimeoutError):
+            cluster.cleanup()
+        self.assertEqual(cluster.delete.call_count, 1)
+        self.assertEqual(cluster.delete.call_args.args, ('applicationsets.argoproj.io', ['repository-discovery'], 'argocd'))
+        self.assertTrue(cluster.delete.call_args.kwargs['foreground'])
+
     def test_database_consumers_are_cleaned_before_platform_teardown(self):
         kinds = ['atlasschemas.db.atlasgo.io', 'atlasmigrations.db.atlasgo.io',
                  'databaseroles.postgresql.cnpg.io', 'databases.postgresql.cnpg.io']
@@ -409,10 +530,12 @@ class TeardownTests(unittest.TestCase):
                  'labels': {'platform.ai-platform-portfolio/managed': 'true'}},
                  'operation': {'sync': {}}}
         apps = [root]
-        cluster.objects = Mock(side_effect=lambda *args: list(apps))
+        cluster.objects = Mock(side_effect=lambda kind, namespace=None: list(apps) if kind == 'applications.argoproj.io' else [])
         transitions = []
 
-        def patch_application(*args):
+        def patch_application(*args, **kwargs):
+            if 'api-resources' in args:
+                return ''
             self.assertEqual(args[4], 'applications.argoproj.io')
             app = next(a for a in apps if a['metadata']['name'] == args[5])
             change = json.loads(args[-1])
@@ -450,6 +573,8 @@ class TeardownTests(unittest.TestCase):
         cluster.objects = Mock(side_effect=lambda *args: list(apps))
         cluster.delete = Mock()
         def patch_root(*args, **kwargs):
+            if 'api-resources' in args:
+                return ''
             if 'patch' in args and 'platform' in args and len(apps) == 1:
                 apps.extend([child('sonarqube', 60), child('postgres', 30), child('cloudnative-pg', 10)])
         with patch('helm_chart.scripts.cluster.run', side_effect=patch_root):

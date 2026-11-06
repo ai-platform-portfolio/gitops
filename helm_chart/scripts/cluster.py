@@ -80,7 +80,7 @@ class Cluster:
         if result.returncode:
             raise RuntimeError('Applying lifecycle manifest failed; inspect Kubernetes events')
 
-    def delete(self, kind, names, namespace=None):
+    def delete(self, kind, names, namespace=None, foreground=False):
         api = run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
         if not any(r == kind or r.startswith(kind + '.') for r in api):
             return
@@ -89,7 +89,8 @@ class Cluster:
         if not names:
             return
         scope = ['-n', namespace] if namespace else []
-        run(*self.kube, 'delete', kind, *names, *scope, '--ignore-not-found', '--wait=false')
+        propagation = ['--cascade=foreground'] if foreground else []
+        run(*self.kube, 'delete', kind, *names, *scope, *propagation, '--ignore-not-found', '--wait=false')
         wait_for(lambda: not any(o['metadata']['name'] in names for o in self.objects(kind, namespace)),
                  f'Waiting for {kind}: {", ".join(names)}')
 
@@ -327,7 +328,69 @@ class Cluster:
             run(*self.hub, '-n', 'argocd', 'delete', 'secret', 'cluster-' + name, '--ignore-not-found')
             wait_for(lambda: self.object('applications.argoproj.io', 'onboard-' + name, 'argocd', self.hub) is None,
                      'Waiting for hub onboarding to detach')
+
+        def suspend(applications):
+            for app in applications:
+                run(*self.kube, '-n', 'argocd', 'patch', 'applications.argoproj.io', app['metadata']['name'],
+                    '--type=merge', '-p', '{"spec":{"syncPolicy":{"automated":null}}}')
+            names = {a['metadata']['name'] for a in applications}
+
+            def stopped():
+                idle = True
+                for app in self.objects('applications.argoproj.io', 'argocd'):
+                    if app['metadata']['name'] not in names:
+                        continue
+                    phase = app.get('status', {}).get('operationState', {}).get('phase')
+                    if not app.get('operation') and phase not in {'Running', 'Terminating'}:
+                        continue
+                    idle = False
+                    if phase == 'Terminating':
+                        continue
+                    # Match Argo's termination transition for running syncs;
+                    # cancel queued operations before the controller starts them.
+                    change = ({'status': {'operationState': {'phase': 'Terminating'}}}
+                              if phase == 'Running' else {'operation': None})
+                    # Fail closed if the controller changed the operation since
+                    # this read, rather than overwriting its newer state.
+                    change['metadata'] = {'resourceVersion': app['metadata']['resourceVersion']}
+                    run(*self.kube, '-n', 'argocd', 'patch', 'applications.argoproj.io', app['metadata']['name'],
+                        '--type=merge', '-p', json.dumps(change))
+                return idle
+
+            wait_for(stopped, 'Waiting for Argo operations to stop')
+
         apps = self.objects('applications.argoproj.io', 'argocd')
+        roots = [a for a in apps if a['metadata']['name'] == 'platform']
+        if roots:
+            # Stop creation before discovering the final registration inventory.
+            suspend(roots)
+            apps = self.objects('applications.argoproj.io', 'argocd')
+            root = next(a for a in apps if a['metadata']['name'] == 'platform')
+            registrations = {r['name'] for r in root.get('status', {}).get('resources', [])
+                             if r.get('group') == 'argoproj.io' and r.get('kind') == 'ApplicationSet'
+                             and r.get('namespace') == 'argocd'}
+            if registrations:
+                onboarding = []
+                for appset in self.objects('applicationsets.argoproj.io', 'argocd'):
+                    metadata = appset['metadata']
+                    name = metadata['name']
+                    if name not in registrations or metadata.get('labels', {}).get('platform.ai-platform-portfolio/onboarding') != 'true':
+                        continue
+                    tracking = metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id')
+                    spec = appset['spec']
+                    finalizers = spec.get('template', {}).get('metadata', {}).get('finalizers', [])
+                    if (tracking != f'platform:argoproj.io/ApplicationSet:argocd/{name}'
+                            or spec.get('syncPolicy', {}).get('preserveResourcesOnDeletion') is not False
+                            or 'resources-finalizer.argocd.argoproj.io' not in finalizers):
+                        raise RuntimeError(f'Cannot safely drain onboarding ApplicationSet {name}: verify ownership and cascading cleanup')
+                    onboarding.append(name)
+                # Foreground GC waits for registration finalizers. Argo then
+                # cascades through their consumer sets/delivery Applications,
+                # including chart-owned PostDelete hooks, before returning.
+                if onboarding:
+                    self.delete('applicationsets.argoproj.io', onboarding, 'argocd', foreground=True)
+                apps = self.objects('applications.argoproj.io', 'argocd')
+
         if any(a['metadata']['name'] in {'postgres', 'atlas-operator'} for a in apps):
             apis = set(run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines())
             # Atlas CR deletion does not remove SQL roles or databases. Finish
@@ -369,40 +432,6 @@ class Cluster:
                            obj['metadata'].get('namespace'), obj['metadata']['name'])
                     if key not in owned:
                         raise RuntimeError('Remove ASO Azure resources and wait for finalizers before teardown')
-        roots = [a for a in apps if a['metadata']['name'] == 'platform']
-
-        def suspend(applications):
-            for app in applications:
-                run(*self.kube, '-n', 'argocd', 'patch', 'applications.argoproj.io', app['metadata']['name'],
-                    '--type=merge', '-p', '{"spec":{"syncPolicy":{"automated":null}}}')
-            names = {a['metadata']['name'] for a in applications}
-
-            def stopped():
-                idle = True
-                for app in self.objects('applications.argoproj.io', 'argocd'):
-                    if app['metadata']['name'] not in names:
-                        continue
-                    phase = app.get('status', {}).get('operationState', {}).get('phase')
-                    if not app.get('operation') and phase not in {'Running', 'Terminating'}:
-                        continue
-                    idle = False
-                    if phase == 'Terminating':
-                        continue
-                    # Match Argo's termination transition for running syncs;
-                    # cancel queued operations before the controller starts them.
-                    change = ({'status': {'operationState': {'phase': 'Terminating'}}}
-                              if phase == 'Running' else {'operation': None})
-                    # Fail closed if the controller changed the operation since
-                    # this read, rather than overwriting its newer state.
-                    change['metadata'] = {'resourceVersion': app['metadata']['resourceVersion']}
-                    run(*self.kube, '-n', 'argocd', 'patch', 'applications.argoproj.io', app['metadata']['name'],
-                        '--type=merge', '-p', json.dumps(change))
-                return idle
-
-            wait_for(stopped, 'Waiting for Argo operations to stop')
-        # Stop the root before taking the child inventory; it may create
-        # additional Applications while termination is being processed.
-        suspend(roots)
         managed = [a for a in self.objects('applications.argoproj.io', 'argocd')
                    if a['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true']
         suspend(managed)
