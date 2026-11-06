@@ -20,8 +20,8 @@ else:
     from credentials import prepare as prepare_credentials, prepare_sonarqube
 
 
-def run(*args, capture=False):
-    return subprocess.run(args, check=True, text=True,
+def run(*args, capture=False, timeout=None):
+    return subprocess.run(args, check=True, text=True, timeout=timeout,
                           stdout=subprocess.PIPE if capture else None).stdout
 
 
@@ -58,7 +58,7 @@ def owned_dns(account, config):
         raise ValueError('DNS owner and zone scope must be explicit')
     records = json.loads(run('az', 'network', 'dns', 'record-set', 'list',
         '--subscription', account['subscription_id'], '-g', config['zone']['resource_group_name'],
-        '-z', config['zone']['name'], '-o', 'json', '--only-show-errors', capture=True))
+        '-z', config['zone']['name'], '-o', 'json', '--only-show-errors', capture=True, timeout=30))
     owner = 'external-dns/owner=' + config['owner']
     pairs = []
     for marker in records:
@@ -84,21 +84,21 @@ def cleanup_stale_dns(account, config):
              '-z', config['zone']['name'], '--only-show-errors']
     for marker, target in owned_dns(account, config):
         current = json.loads(run('az', 'network', 'dns', 'record-set', 'txt', 'show',
-                                 '-n', marker['name'], *scope, '-o', 'json', capture=True))
+                                 '-n', marker['name'], *scope, '-o', 'json', capture=True, timeout=30))
         if current.get('etag') != marker['etag']:
             raise RuntimeError('DNS ownership changed during cleanup; stopped without removing its record')
         if target:
             run('az', 'network', 'dns', 'record-set', 'a', 'delete', '-n', target['name'],
-                *scope, '--if-match', target['etag'], '--yes', capture=True)
+                *scope, '--if-match', target['etag'], '--yes', capture=True, timeout=30)
         run('az', 'network', 'dns', 'record-set', 'txt', 'delete', '-n', marker['name'],
-            *scope, '--if-match', marker['etag'], '--yes', capture=True)
+            *scope, '--if-match', marker['etag'], '--yes', capture=True, timeout=30)
     if owned_dns(account, config):
         raise RuntimeError('Owned DNS records remain after stale-record cleanup')
 
 
 def already_down(infra, tfvars):
     tf = [os.environ.get('TERRAFORM', 'terraform'), f'-chdir={infra}']
-    outputs = json.loads(run(*tf, 'output', '-json', capture=True))
+    outputs = json.loads(run(*tf, 'output', '-json', capture=True, timeout=30))
     if 'aks_connection' in outputs:
         return False
     if run(*tf, 'state', 'list', capture=True).strip():
@@ -108,12 +108,12 @@ def already_down(infra, tfvars):
     # Terraform owns input parsing and TFVARS precedence, even after outputs vanish.
     expression = 'jsonencode({owner=var.platform.cluster_name, zone=var.dns.zone, group=var.azure.resource_group_name})'
     result = subprocess.run([*tf, 'console', f'-var-file={tfvars}'], input=expression + '\n',
-                            text=True, capture_output=True, env=env)
+                            text=True, capture_output=True, env=env, timeout=60)
     if result.returncode:
         raise RuntimeError('Cannot read teardown inputs from Terraform; DNS was not changed')
     config = json.loads(json.loads(result.stdout))
     exists = json.loads(run('az', 'group', 'exists', '-n', config['group'],
-                            '--subscription', account['subscription_id'], '-o', 'json', '--only-show-errors', capture=True))
+                            '--subscription', account['subscription_id'], '-o', 'json', '--only-show-errors', capture=True, timeout=30))
     if exists:
         raise RuntimeError('Disposable resource group still exists beside empty state; DNS was not changed')
     cleanup_stale_dns(account, config)
