@@ -1,6 +1,6 @@
 # Management cluster bootstrap
 
-One Terraform root builds networking, AKS, its Entra administrator group,
+One Terraform root builds networking and AKS using an existing Entra administrator group,
 map-driven managed identities,
 disposable data containers and the initial ArgoCD Helm release. Subsequent
 clusters have independent roots. Inputs belong in tfvars; declarations stay in
@@ -114,22 +114,32 @@ and [retail pricing](https://azure.microsoft.com/en-us/pricing/details/kubernete
 
 ## AKS administrator group
 
-`aks.admin_group` configures the Terraform library's `entra-group` module.
-Terraform creates this group before AKS and passes its `object_id` output directly
-to the cluster. Set only its display name and description in `terraform.tfvars`.
-The authenticated principal from `data.azurerm_client_config.current.object_id`
-is both owner and bootstrap member. Membership authorizes Terraform's Kubernetes
-provider to install Argo; group ownership alone does not grant AKS access.
-No owner/member ID lists are configured in tfvars, and no Azure RBAC roles are
-assigned to this group. Applying through a different principal changes this
-bootstrap owner/member, so review access when changing deployment identities.
+`aks.admin_group.display_name` selects an existing, security-enabled Entra
+operator group. Its identity and membership persist across disposable rebuilds;
+operators manage membership in Entra. The group also grants PostgreSQL
+administration and Argo access, so review changes with all three in mind.
+Ownership alone does not grant access: the bootstrap caller must be a member,
+with a current token reflecting that membership. A new installation needs this
+operator group established once, alongside existing DNS, Key Vault and backend
+prerequisites. No client secret or per-application group setup is introduced.
 
-The AzureAD provider uses the calling root's authenticated context; the caller
-needs Microsoft Graph authority to manage the group and membership. This is a
-bootstrap dependency, managed by the same Terraform root and persistent backend.
-Teardown deletes the group along with the disposable cluster. Existing same-name
-groups are rejected; adopt an existing group only through deliberate import and
-membership review. No one-off CLI group creation is required.
+The current group's object is preserved through a declarative `removed` block
+with `destroy = false`, then read through the existing display-name input. Apply
+this reviewed migration with native `make up` **before the next `make down`**.
+Terraform 1.9.8 destroy mode ignores this preservation instruction for an object
+still in state; the normal migration apply must first detach its ownership.
+Review the plan for one group forget action, no group deletion/replacement,
+and unchanged AKS/PostgreSQL administrator IDs. No manual state command is needed.
+After migration, the group remains an external prerequisite and survives teardown.
+
+The AKS gate requires three consecutive API-health and cluster-wide bootstrap
+permission checks before Helm can run. API reachability alone is insufficient.
+A readiness-script hash and group identity participate in its Terraform trigger,
+so updates rerun the gate. The gate has a ten-minute limit and reports permission
+failures without printing tokens. Azure CLI caches group claims; after membership
+changes, a fresh sign-in may be needed once. The stable group prevents each
+rebuild from invalidating the identity referenced by otherwise valid tokens.
+This does not manipulate CLI caches or change the authentication mode.
 
 ## Staging and production PostgreSQL foundation
 
@@ -144,7 +154,7 @@ database password is configured in tfvars.
 
 The existing AKS administrator group is also the server's Microsoft Entra
 administrator. The caller passes the group's object ID directly from
-`module.aks_admin_group`; its display name comes from the same `aks.admin_group`
+`data.azuread_group.aks_admin`; its display name comes from the same `aks.admin_group`
 configuration. Group membership therefore grants database administration as
 well as AKS administration. Review membership changes with both privileges in
 mind. Application pods will use separate ASO-managed identities and federated

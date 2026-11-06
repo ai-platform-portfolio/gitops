@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wait for the newly provisioned AKS API to accept authenticated requests."""
+"""Wait for AKS API health and the caller permissions required to bootstrap Helm."""
 
 import os
 from pathlib import Path
@@ -22,10 +22,11 @@ def main():
     resource_group = os.environ['AKS_RESOURCE_GROUP']
     deadline = time.monotonic() + TIMEOUT_SECONDS
     consecutive = 0
+    last_problem = 'credentials or API unavailable'
 
     with tempfile.TemporaryDirectory(prefix='aks-api-ready-') as directory:
         kubeconfig = str(Path(directory) / 'config')
-        print('Waiting for authenticated AKS API readiness', flush=True)
+        print('Waiting for AKS API health and bootstrap authorisation', flush=True)
 
         while time.monotonic() < deadline:
             try:
@@ -39,12 +40,20 @@ def main():
                         ready = run('kubectl', '--kubeconfig', kubeconfig,
                                     '--request-timeout=10s', 'get', '--raw=/readyz')
                         if ready.returncode == 0 and ready.stdout.strip() == 'ok':
-                            consecutive += 1
-                            if consecutive == REQUIRED_SUCCESSES:
-                                print('AKS API accepted three consecutive readiness checks', flush=True)
-                                return
+                            allowed = run('kubectl', '--kubeconfig', kubeconfig,
+                                          '--request-timeout=10s', 'auth', 'can-i', '*', '*',
+                                          '--all-namespaces')
+                            if allowed.returncode == 0 and allowed.stdout.strip() == 'yes':
+                                consecutive += 1
+                                if consecutive == REQUIRED_SUCCESSES:
+                                    print('AKS API health and bootstrap authorisation passed three consecutive checks', flush=True)
+                                    return
+                            else:
+                                consecutive = 0
+                                last_problem = 'API reachable but bootstrap permissions denied'
                         else:
                             consecutive = 0
+                            last_problem = 'API not ready'
                     else:
                         consecutive = 0
                 else:
@@ -54,8 +63,9 @@ def main():
 
             time.sleep(POLL_SECONDS)
 
-    raise SystemExit('AKS API did not accept authenticated requests within 10 minutes; '
-                     'check API allowlist propagation and caller access')
+    raise SystemExit(f'AKS bootstrap readiness timed out: {last_problem}. '
+                     'Check API access and operator-group membership. If membership changed, '
+                     'renew the Azure CLI sign-in so its token includes the current group.')
 
 
 if __name__ == '__main__':

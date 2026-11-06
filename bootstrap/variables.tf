@@ -125,9 +125,9 @@ variable "aks" {
     kubernetes_version = string
     sku_tier           = optional(string, "Free")
 
+    # Existing, operator-owned Entra group; not part of disposable teardown.
     admin_group = object({
       display_name = string
-      description  = string
     })
 
     authorized_ip_ranges_secret = string
