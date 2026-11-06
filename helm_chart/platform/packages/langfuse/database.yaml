@@ -1,0 +1,37 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: langfuse
+  namespace: postgres
+spec:
+  name: langfuse
+  owner: langfuse
+  cluster:
+    name: platform
+  databaseReclaimPolicy: retain
+
+---
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: langfuse-postgres-client
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  secretName: langfuse-postgres-client
+  commonName: langfuse
+  duration: 720h
+  renewBefore: 168h
+  privateKey:
+    rotationPolicy: Always
+  usages: [digital signature, client auth]
+  issuerRef: {name: postgres-client, kind: Issuer}
+  keystores:
+    pkcs12:
+      create: true
+      profile: Modern2023
+      # Prisma requires PKCS#12. This public wrapping value is not a database
+      # credential; Kubernetes Secret RBAC protects the private key/keystore.
+      password: changeit

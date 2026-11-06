@@ -26,6 +26,14 @@ spec:
       replication: false
       passwordSecret:
         name: atlas-role-manager
+    # Langfuse authenticates with its renewable client certificate.
+    - name: langfuse
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
     - name: testkube
       ensure: present
       login: true
@@ -126,6 +134,7 @@ spec:
     - hostnossl all all all reject
     - hostssl postgres atlas_role_manager all cert map=atlas_clients
     - hostssl app app all scram-sha-256
+    - hostssl langfuse langfuse all cert
     - hostssl testkube testkube all scram-sha-256
     - hostssl sonarqube sonarqube all scram-sha-256
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}

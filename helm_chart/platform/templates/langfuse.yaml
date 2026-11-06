@@ -30,9 +30,9 @@ spec:
 {{ tpl (.Files.Get "packages/langfuse/values.yaml") . | indent 8 }}
 
 {{- $policy := include "platform.syncPolicy" . | fromYaml }}
-{{- if .Values.langfuse.sso.enabled }}
-{{- /* Preserve only Reloader's restart marker; all other workload drift stays visible. */}}
-{{- $reload := dict "group" "apps" "kind" "Deployment" "name" "langfuse-web" "namespace" "langfuse" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- /* Certificate renewal reloads both clients; ignore only Reloader's marker. */}}
+{{- range $name := list "langfuse-web" "langfuse-worker" }}
+{{- $reload := dict "group" "apps" "kind" "Deployment" "name" $name "namespace" "langfuse" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
 {{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
 {{- end }}
 {{ toYaml $policy | indent 2 }}
@@ -120,5 +120,36 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/backstage/identity.yaml") . | indent 10 }}
 {{- end }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+# CNPG database/client certificate exist before credentials reach the workloads.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: langfuse-credentials
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "35"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: langfuse
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/langfuse/database-secret.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}

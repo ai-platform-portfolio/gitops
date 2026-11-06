@@ -223,7 +223,7 @@ def main():
             'argo-events', 'platform-events', 'namespaces', 'reflector', 'argo-rollouts', 'kargo-acr', 'kargo-identity', 'kargo', 'testkube', 'testkube-storage', 'testkube-nats', 'testkube-analysis', 'testkube-azure', 'testkube-reloader', 'testkube-checks', 'atlas-operator', 'atlas-database-access', 'atlas-azure', 'federation', 'envoy-gateway', 'external-secrets',
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
-            'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'opentelemetry-collector',
+            'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'langfuse-credentials', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
@@ -530,6 +530,16 @@ def main():
         assert 'RespectIgnoreDifferences=true' in langfuse_app['spec']['syncPolicy']['syncOptions']
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
+        assert waves['postgres'] < waves['langfuse-credentials'] < waves['langfuse']
+        database_values = langfuse_app['spec']['source']['helm']['valuesObject']
+        assert database_values['postgresql']['deploy'] is False
+        credentials_app = next(a for a in applications if a['metadata']['name'] == 'langfuse-credentials')
+        credentials_docs = list(yaml.safe_load_all(credentials_app['spec']['source']['helm']['valuesObject']['manifests']))
+        reader = next(d for d in credentials_docs if d['kind'] == 'Role')
+        assert reader['rules'][0]['resourceNames'] == ['langfuse-postgres-client', 'platform-ca']
+        assert reader['rules'][0]['verbs'] == ['get']
+        delivered = next(d for d in credentials_docs if d['kind'] == 'ExternalSecret')
+        assert {d['secretKey'] for d in delivered['spec']['data']} == {'keystore.p12', 'ca.crt'}
         for app in applications:
             assert re.fullmatch(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?', app['spec']['destination']['namespace']), 'Destination namespace must be a DNS label'
             assert app['spec']['destination']['server'] == 'https://kubernetes.default.svc', 'Packages must reconcile locally'
@@ -545,6 +555,15 @@ def main():
                 if app['metadata']['name'] == 'postgres':
                     postgres_documents = documents
                     cluster = next(d for d in documents if d['kind'] == 'Cluster')
+                    langfuse_role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'langfuse')
+                    assert not langfuse_role.get('passwordSecret') and langfuse_role['superuser'] is False
+                    assert 'hostssl langfuse langfuse all cert' in cluster['spec']['postgresql']['pg_hba']
+                    database = next(d for d in documents if d['kind'] == 'Database' and d['metadata']['name'] == 'langfuse')
+                    assert database['spec']['owner'] == 'langfuse'
+                    certificate = next(d for d in documents if d['kind'] == 'Certificate' and d['metadata']['name'] == 'langfuse-postgres-client')
+                    assert certificate['spec']['commonName'] == 'langfuse'
+                    assert certificate['spec']['privateKey']['rotationPolicy'] == 'Always'
+                    assert certificate['spec']['keystores']['pkcs12']['create'] is True
                     role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'sonarqube')
                     assert role['passwordSecret']['name'] == 'sonarqube-role'
                     assert cluster['spec']['instances'] == 1
@@ -1067,7 +1086,20 @@ def main():
                         assert security['capabilities']['drop'] == ['ALL']
                 if name == 'langfuse':
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
-                    assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'langfuse-sso'
+                    assert not any(d['kind'] == 'StatefulSet' and 'postgres' in d['metadata']['name'] for d in docs)
+                    assert not any(d['kind'] == 'Secret' and 'postgres' in d['metadata']['name'] for d in docs)
+                    for deployment in [d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] in {'langfuse-web', 'langfuse-worker'}]:
+                        assert 'langfuse-postgres' in deployment['metadata']['annotations']['secret.reloader.stakater.com/reload'].split(',')
+                        pod = deployment['spec']['template']['spec']
+                        assert any(v.get('secret', {}).get('secretName') == 'langfuse-postgres' for v in pod['volumes'])
+                        container = pod['containers'][0]
+                        envs = {e['name']: e for e in container['env']}
+                        assert 'DATABASE_PASSWORD' not in envs
+                        url = envs['DATABASE_URL']['value']
+                        assert url.startswith('postgresql://langfuse@platform-rw.postgres.svc.cluster.local:5432/langfuse?')
+                        assert all(arg in url for arg in ['sslmode=require', 'sslaccept=strict', 'sslidentity=/etc/langfuse-postgres/keystore.p12'])
+                        assert any(v['mountPath'] == '/etc/langfuse-postgres' and v['readOnly'] for v in container['volumeMounts'])
+                    assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'langfuse-postgres,langfuse-sso'
                     env = {e['name']: e for e in web['spec']['template']['spec']['containers'][0]['env']}
                     assert env.get('AUTH_DISABLE_USERNAME_PASSWORD', {}).get('value', 'false') == 'false', 'Keep recovery login until interactive Entra verification'
                     for env_name, key in [('AUTH_AZURE_AD_CLIENT_ID', 'client-id'), ('AUTH_AZURE_AD_CLIENT_SECRET', 'client-secret'), ('AUTH_AZURE_AD_TENANT_ID', 'tenant-id')]:

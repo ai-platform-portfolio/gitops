@@ -27,15 +27,11 @@ def ensure_secret(cluster, namespace, name, data, secret_type='Opaque', labels=N
 def prepare(cluster):
     def password():
         return secrets.token_urlsafe(32)
-    postgres_password = password()
     s3_password = password()
     definitions = {
         'lgtm/platform-grafana-admin': {'user': 'admin', 'password': password()},
         'langfuse/platform-langfuse-app': {'salt': password(), 'encryption-key': secrets.token_hex(32),
                                            'nextauth-secret': password()},
-        'langfuse/platform-langfuse-postgresql': {
-            'POSTGRES_USER': 'postgres', 'POSTGRES_PASSWORD': postgres_password,
-            'POSTGRES_DB': 'langfuse', 'USERDB_USER': 'langfuse', 'USERDB_PASSWORD': postgres_password},
         'langfuse/platform-langfuse-redis': {'default': password()},
         'langfuse/platform-langfuse-clickhouse': {'password': password()},
         'langfuse/platform-langfuse-s3': {'accessKey': 'langfuse', 'secretKey': s3_password,
