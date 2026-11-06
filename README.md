@@ -35,7 +35,7 @@ remove the override, temporary image package and its workflow.
 ## Before you start
 
 Run the commands below from this repository's root directory. Install Terraform
->=1.5, Azure CLI, kubectl, kubelogin and Python 3. Authenticate with Azure CLI and
+>=1.9, Azure CLI, kubectl, kubelogin, OpenSSL and Python 3. Authenticate with Azure CLI and
 select the intended subscription.
 
 Review the deployment configuration and configure the state backend:
@@ -47,14 +47,12 @@ Review the deployment configuration and configure the state backend:
    state backend. Use the example in the
    [configuration guide](helm_chart/README.md#remote-terraform-state).
 
-Terraform creates the Entra security group described by `aks.admin_group` and
-passes its object ID directly to AKS. The authenticated Terraform principal owns
-the group and is its bootstrap member through
-`data.azurerm_client_config.current.object_id`. This membership authorizes the
-initial Argo Helm installation; ownership alone does not grant cluster access.
-No owner/member IDs are configured in tfvars. The caller needs Microsoft Graph
-permissions to manage the group. No Azure role assignments are granted to it. The group and its managed memberships are removed
-with this disposable cluster on `make down`.
+The operator-managed Entra security group named by `aks.admin_group` must
+already exist and include the authenticated operator. Bootstrap looks it up and
+uses the same group for AKS, PostgreSQL and Argo authorisation. The group and
+memberships persist across disposable teardown; Terraform does not manage them.
+Existing deployments must apply the reviewed ownership transfer before their
+first teardown on this configuration.
 
 Make uses `bootstrap/terraform.tfvars`. To select another environment explicitly,
 set `TFVARS=/path/to/settings.tfvars`; files named `local.tfvars` have no special
@@ -83,6 +81,48 @@ side. Terraform reads it directly; the values stay out of Git and are redacted
 from normal plan/apply output. They are stored in the encrypted remote state and
 any saved plan, so restrict access to both and do not publish plan JSON or enable
 Terraform/provider debug logging when using the real secret.
+
+## Rebuild recovery and public TLS preservation
+
+`make up` permits one narrowly checked recovery after Azure reports
+`InvalidResponseFromPrivateLinkService` or an already-existing resource. Native
+Terraform evaluates the intended Foundry endpoint; cleanup requires it to be
+absent from state, `Failed` in Azure, and an exact match for the planned resource
+scope, location, subnet, account and connection group. The parent account must
+be ready with public access disabled. A tracked, healthy, ambiguous or inaccessible
+endpoint is never removed by this recovery. After deletion, one ordinary apply
+replans the bootstrap. Other failures stop with partial infrastructure still
+running. Run only one lifecycle operation per backend; the state check and Azure
+deletion are not an atomic cross-service lock.
+
+Before ordered teardown, `make down` saves currently Ready public ACME TLS
+Secrets to the **existing persistent Key Vault**. `make up` restores valid matching
+Secrets before seeding Certificates/routes, following
+[cert-manager's restore order](https://cert-manager.io/docs/devops-tips/backup/).
+No background poller, new storage account or application values are required.
+The operator needs Key Vault secret list/get/set access, in addition to the
+existing bootstrap permissions; no new credentials or roles are created here.
+OpenSSL is required for startup certificate/key validation.
+
+**Approved credential-retention exception:** public HTTPS private keys survive
+cluster teardown alongside their unexpired certificates. Key Vault entries are
+scoped by cluster, resource group, DNS zone and namespace/Secret identity, with
+expiry set to the certificate expiry. Normal Key Vault version/soft-delete
+retention still applies; expiry is not a secure purge. Database/client CA keys,
+application passwords/data, and the ACME account key are excluded. cert-manager
+continues normal renewal; existing live Secrets are never overwritten on resume.
+Only TLS data and cert-manager annotations are restored, without old owner UIDs.
+
+Backups are taken at orderly shutdown, not continuously: an unexpected cluster
+loss can still require issuance. Expired snapshots are skipped; malformed or
+inaccessible snapshots stop startup. A failed backup warns and **does not block
+requested teardown**. In those cases, new issuance can still encounter CA limits;
+this is not a quota exemption or a disaster-recovery guarantee.
+
+Argo startup health can lag behind ready resources. Startup logs demonstrate
+received Deployment events followed by stale application health until a later
+comparison, but do not establish a controller root cause. No periodic hard
+refresh, shortened reconciliation poll or health bypass is introduced here.
 
 ## Plan and deploy the platform
 

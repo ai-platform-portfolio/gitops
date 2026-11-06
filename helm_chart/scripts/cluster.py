@@ -13,9 +13,11 @@ import urllib.error
 import urllib.request
 
 if __package__:
+    from . import certificates
     from .azure import current_account
     from .credentials import prepare as prepare_credentials, prepare_sonarqube
 else:
+    import certificates
     from azure import current_account
     from credentials import prepare as prepare_credentials, prepare_sonarqube
 
@@ -718,6 +720,13 @@ def main():
     with tempfile.TemporaryDirectory(prefix='platform-aks-') as directory:
         cluster = Cluster(args.infra_dir.resolve(), Path(directory) / 'kubeconfig', teardown=args.action == 'down')
         if args.action == 'down':
+            if cluster.settings is not None:
+                try:
+                    certificates.save(cluster)
+                except (OSError, RuntimeError, ValueError, KeyError, subprocess.TimeoutExpired):
+                    # A requested shutdown must still remove disposable compute.
+                    print('WARNING: public TLS preservation failed; continuing requested teardown. '
+                          'A future up may require new certificates and encounter CA limits.', flush=True)
             cluster.cleanup()
             cluster.cancel_node_upgrades()
             return
@@ -730,6 +739,7 @@ def main():
         runtime.update({'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()})
         # Generic context for GitOps-owned service federation.
         runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
+        certificates.restore(cluster)
         prepare_credentials(cluster)
         sonar_ready = bool(existing and existing['spec']['source']['helm']['valuesObject'].get('sonarqubeReady'))
         cluster.seed(cluster.root(runtime, sonar_ready))
