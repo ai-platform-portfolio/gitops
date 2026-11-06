@@ -52,7 +52,7 @@ context: preflight init
 	  kubectl --kubeconfig "$$kubeconfig" config use-context "$$cluster_name"
 
 down: preflight init
-	$(PYTHON) helm_chart/scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)"
+	$(PYTHON) helm_chart/scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)" --tfvars "$(TFVARS)"
 	$(call run_terraform,destroy -input=false -auto-approve -var-file="$(TFVARS)")
 
 validate:

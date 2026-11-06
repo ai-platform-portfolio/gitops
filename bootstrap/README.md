@@ -165,9 +165,23 @@ unrelated Azure resources remain blockers. API read errors or stuck finalizers
 stop teardown before platform dependencies are deleted. Retrying resumes with the
 remaining resources.
 
+ExternalDNS starts at wave 15, after configuration and before every public route
+package. Reverse teardown keeps it running until routes are removed, then waits
+up to three minutes for its owned DNS registry to drain before deleting the
+controller. This checks actual DNS state instead of sleeping after one route.
+
 Platform packages are then removed in reverse wave order before Terraform
 destroys this disposable server and the other bootstrap resources. The remote
 Terraform backend remains persistent.
+
+A repeated `make down` after completed destruction reads owner/zone/group inputs
+through native Terraform console with the same `TFVARS`. It requires empty state
+and an absent disposable resource group before cleaning stale DNS. Only the
+platform's IPv4 A/TXT registry pairs with exact owner, heritage and HTTPRoute
+provenance are supported. The ownership marker is rechecked; both deletions use
+ETags. Mixed ownership, unsupported registry formats, missing ETags, read errors
+or concurrent changes stop cleanup. Unrelated records and the backend remain
+untouched. This path creates no cluster and performs no Terraform apply.
 
 ## Deployment inputs
 
