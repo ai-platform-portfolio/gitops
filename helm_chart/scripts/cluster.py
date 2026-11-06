@@ -371,7 +371,8 @@ class Cluster:
                              and r.get('namespace') == 'argocd'}
             if registrations:
                 onboarding = []
-                for appset in self.objects('applicationsets.argoproj.io', 'argocd'):
+                appsets = self.objects('applicationsets.argoproj.io', 'argocd')
+                for appset in appsets:
                     metadata = appset['metadata']
                     name = metadata['name']
                     if name not in registrations or metadata.get('labels', {}).get('platform.ai-platform-portfolio/onboarding') != 'true':
@@ -384,11 +385,40 @@ class Cluster:
                             or 'resources-finalizer.argocd.argoproj.io' not in finalizers):
                         raise RuntimeError(f'Cannot safely drain onboarding ApplicationSet {name}: verify ownership and cascading cleanup')
                     onboarding.append(name)
-                # Foreground GC waits for registration finalizers. Argo then
-                # cascades through their consumer sets/delivery Applications,
-                # including chart-owned PostDelete hooks, before returning.
                 if onboarding:
+                    # Nested ApplicationSets can disappear before their generated
+                    # Applications finish PostDelete. Retain native ownership/UIDs
+                    # so we can follow that cleanup after parent objects vanish.
+                    owned = {('ApplicationSet', a['metadata']['name']): a['metadata']['uid']
+                             for a in appsets if a['metadata']['name'] in onboarding}
+
+                    def applications_gone():
+                        inventory = [('ApplicationSet', a) for a in self.objects('applicationsets.argoproj.io', 'argocd')]
+                        inventory += [('Application', a) for a in self.objects('applications.argoproj.io', 'argocd')]
+                        previous = -1
+                        while previous != len(owned):
+                            previous = len(owned)
+                            for kind, obj in inventory:
+                                metadata = obj['metadata']
+                                name = metadata['name']
+                                references = metadata.get('ownerReferences', [])
+                                parent_owned = any(
+                                    ref.get('apiVersion') == 'argoproj.io/v1alpha1'
+                                    and ref.get('uid') and owned.get((ref.get('kind'), ref.get('name'))) == ref['uid']
+                                    for ref in references)
+                                tracking = metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id', '')
+                                parent = tracking.partition(':')[0]
+                                tracked = (('Application', parent) in owned
+                                           and tracking == f'{parent}:argoproj.io/{kind}:argocd/{name}')
+                                if parent_owned or tracked:
+                                    owned[(kind, name)] = metadata['uid']
+                        return not any((kind, obj['metadata']['name']) in owned
+                                       and owned[(kind, obj['metadata']['name'])] == obj['metadata']['uid']
+                                       for kind, obj in inventory)
+
+                    applications_gone()  # Capture descendants before deleting their parents.
                     self.delete('applicationsets.argoproj.io', onboarding, 'argocd', foreground=True)
+                    wait_for(applications_gone, 'Waiting for registered applications and PostDelete cleanup')
                 apps = self.objects('applications.argoproj.io', 'argocd')
 
         if any(a['metadata']['name'] in {'postgres', 'atlas-operator'} for a in apps):
@@ -397,8 +427,17 @@ class Cluster:
             # preview cleanup while its controller, credentials and server exist.
             for kind in ['atlasschemas.db.atlasgo.io', 'atlasmigrations.db.atlasgo.io',
                          'databaseroles.postgresql.cnpg.io']:
-                if kind in apis and self.objects(kind):
-                    raise RuntimeError('Complete preview database/Atlas cleanup before teardown')
+                if kind in apis:
+                    def consumers_gone():
+                        remaining = self.objects(kind)
+                        if any(not obj['metadata'].get('deletionTimestamp') for obj in remaining):
+                            raise RuntimeError('Complete preview database/Atlas cleanup before teardown')
+                        return not remaining
+
+                    # PostDelete hook deletion can outlive its Application in
+                    # API observations. Wait only for already-deleting objects;
+                    # active consumers still fail the guard immediately.
+                    wait_for(consumers_gone, f'Waiting for deleting {kind}')
             if 'databases.postgresql.cnpg.io' in apis:
                 owned = {(r.get('namespace'), r.get('name')) for app in apps
                          if app['metadata']['name'] == 'postgres'

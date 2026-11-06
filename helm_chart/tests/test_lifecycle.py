@@ -193,7 +193,7 @@ class TeardownTests(unittest.TestCase):
     def onboarding(name='repository-discovery'):
         root = {'metadata': {'name': 'platform'}, 'status': {'resources': [
             {'group': 'argoproj.io', 'kind': 'ApplicationSet', 'namespace': 'argocd', 'name': name}]}}
-        appset = {'metadata': {'name': name,
+        appset = {'metadata': {'name': name, 'uid': 'discovery-uid',
                   'labels': {'platform.ai-platform-portfolio/onboarding': 'true'},
                   'annotations': {'argocd.argoproj.io/tracking-id':
                                   f'platform:argoproj.io/ApplicationSet:argocd/{name}'}},
@@ -264,6 +264,86 @@ class TeardownTests(unittest.TestCase):
                 else:
                     self.assertLess(events.index('drain'), events.index('guard'))
                 self.assertEqual(events[-1], 'platform')
+
+    def test_nested_applications_finish_before_residual_guards(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        root, discovery = self.onboarding()
+        registration = {'metadata': {'name': 'registration', 'uid': 'registration-uid',
+                        'ownerReferences': [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+                                             'name': 'repository-discovery', 'uid': 'discovery-uid'}]}}
+        nested = {'metadata': {'name': 'consumer-set', 'uid': 'consumer-set-uid', 'annotations': {
+                  'argocd.argoproj.io/tracking-id': 'registration:argoproj.io/ApplicationSet:argocd/consumer-set'}}}
+        leaf = {'metadata': {'name': 'consumer-pr-42', 'uid': 'leaf-uid',
+                'ownerReferences': [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+                                     'name': 'consumer-set', 'uid': 'consumer-set-uid'}]}}
+        delivery = {'metadata': {'name': 'consumer-delivery', 'uid': 'delivery-uid', 'annotations': {
+                    'argocd.argoproj.io/tracking-id': 'registration:argoproj.io/Application:argocd/consumer-delivery'}}}
+        unrelated = {'metadata': {'name': 'unrelated', 'uid': 'unrelated-uid',
+                     'ownerReferences': [{'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'ApplicationSet',
+                                          'name': 'consumer-set', 'uid': 'different-parent-uid'}]}}
+        postgres = {'metadata': {'name': 'postgres', 'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
+        apps = [root, postgres, leaf, delivery, registration, unrelated]
+        sets = [nested, discovery]  # Deliberately reverse parent/child order.
+        deleted = []
+
+        def objects(kind, namespace=None):
+            if kind == 'applications.argoproj.io':
+                return list(apps)
+            if kind == 'applicationsets.argoproj.io':
+                return list(sets)
+            self.assertNotIn(leaf, apps, 'Residual guard ran before PostDelete completed')
+            return []
+
+        def delete(kind, names, namespace=None, foreground=False):
+            deleted.extend(names)
+            if kind == 'applicationsets.argoproj.io':
+                sets.clear()
+                apps.remove(registration)
+                leaf['metadata']['deletionTimestamp'] = 'now'
+
+        def wait(check, description):
+            if 'registered applications' in description:
+                self.assertFalse(check(), 'Parent disappearance must not end descendant cleanup')
+                self.assertNotIn('postgres', deleted)
+                apps.remove(leaf)
+                self.assertFalse(check(), 'Delivery Application cleanup must finish too')
+                apps.remove(delivery)
+            self.assertTrue(check())
+
+        cluster.objects = Mock(side_effect=objects)
+        cluster.delete = Mock(side_effect=delete)
+        with patch('helm_chart.scripts.cluster.run', return_value='atlasschemas.db.atlasgo.io'), \
+             patch('helm_chart.scripts.cluster.wait_for', side_effect=wait):
+            cluster.cleanup()
+        self.assertEqual(deleted, ['repository-discovery', 'postgres', 'platform'])
+        self.assertIn(unrelated, apps)
+
+    def test_deleting_atlas_hooks_finish_before_platform_deletion(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        postgres = {'metadata': {'name': 'postgres', 'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
+        observations = iter([[{'metadata': {'name': 'post-delete', 'deletionTimestamp': 'now'}}], []])
+        cluster.delete = Mock()
+
+        def objects(kind, namespace=None):
+            if kind == 'applications.argoproj.io':
+                return [postgres]
+            if kind == 'atlasschemas.db.atlasgo.io':
+                cluster.delete.assert_not_called()
+                return next(observations)
+            return []
+
+        cluster.objects = Mock(side_effect=objects)
+        with patch('helm_chart.scripts.cluster.run', return_value='atlasschemas.db.atlasgo.io'), \
+             patch('helm_chart.scripts.cluster.time.sleep') as sleep:
+            cluster.cleanup()
+        sleep.assert_called_once()
+        self.assertEqual([c.args[1] for c in cluster.delete.call_args_list], [['postgres'], ['platform']])
 
     def test_unsafe_registration_cleanup_stops_before_deletion(self):
         for fault in ['tracking', 'retention', 'finalizers', 'read-error']:
