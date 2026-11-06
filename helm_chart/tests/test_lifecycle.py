@@ -201,6 +201,17 @@ class TeardownTests(unittest.TestCase):
                            'template': {'metadata': {'finalizers': ['resources-finalizer.argocd.argoproj.io']}}}}
         return root, appset
 
+    @staticmethod
+    def tracked_platform(apps):
+        root = {'metadata': {'name': 'platform'}, 'status': {'resources': []}}
+        for app in apps:
+            name = app['metadata']['name']
+            app['metadata'].setdefault('annotations', {})['argocd.argoproj.io/tracking-id'] = (
+                f'platform:argoproj.io/Application:argocd/{name}')
+            root['status']['resources'].append(
+                {'group': 'argoproj.io', 'kind': 'Application', 'namespace': 'argocd', 'name': name})
+        return [root, *apps]
+
     def test_foreground_delete_waits_until_finalizers_finish(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
@@ -445,7 +456,9 @@ class TeardownTests(unittest.TestCase):
         self.assertEqual(cluster.objects.call_args.args, ('rollouts.argoproj.io',))
 
     def test_tracked_package_azure_resources_delete_before_operator(self):
-        for package, extra in [(package, extra) for package in ["atlantis", "holmes", "testkube"] for extra in [False, True]]:
+        packages = [('atlantis', 'atlantis-azure'), ('holmes', 'holmes-azure'), ('testkube', 'testkube-azure'),
+                    ('kargo', 'kargo-acr'), ('another-package', 'custom-identity')]
+        for package, azure_package, extra in [(p, a, e) for p, a in packages for e in [False, True]]:
             with self.subTest(package=package, untracked_resource=extra):
                 cluster = Cluster.__new__(Cluster)
                 cluster.kube = ['kubectl']
@@ -455,11 +468,13 @@ class TeardownTests(unittest.TestCase):
                     return {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
                                          'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
                 apps = [app('configuration', 10), app('azure-service-operator', 10),
-                        app(package + '-azure', 20), app(package, 40)]
+                        app(azure_package, 20), app(package, 40)]
                 resource = {'apiVersion': 'managedidentity.azure.com/v1api20230131', 'kind': 'UserAssignedIdentity',
-                            'metadata': {'name': package, 'namespace': package}}
+                            'metadata': {'name': package, 'namespace': package, 'annotations': {'argocd.argoproj.io/tracking-id':
+                                         f'{azure_package}:managedidentity.azure.com/UserAssignedIdentity:{package}/{package}'}}}
                 apps[2]['status'] = {'resources': [{'group': 'managedidentity.azure.com', 'kind': 'UserAssignedIdentity',
                                                   'namespace': package, 'name': package}]}
+                apps = self.tracked_platform(apps)
                 inventory = [resource]
                 if extra:
                     inventory.append({**resource, 'metadata': {'name': 'untracked', 'namespace': 'atlantis'}})
@@ -467,7 +482,7 @@ class TeardownTests(unittest.TestCase):
                 def objects(kind, namespace=None):
                     if kind == 'applications.argoproj.io':
                         return apps
-                    return inventory if package + '-azure' not in deleted else []
+                    return inventory if azure_package not in deleted else []
                 cluster.objects = Mock(side_effect=objects)
                 cluster.delete = Mock(side_effect=lambda kind, names, namespace=None: deleted.extend(names))
                 with patch('helm_chart.scripts.cluster.run', return_value='userassignedidentities.managedidentity.azure.com\n'):
@@ -478,8 +493,39 @@ class TeardownTests(unittest.TestCase):
                     else:
                         cluster.cleanup()
                         self.assertEqual(deleted,
-                                         [package, package + '-azure', 'configuration',
+                                         [package, azure_package, 'configuration',
                                           'azure-service-operator', 'platform'])
+
+    def test_incomplete_platform_ownership_cannot_allow_azure_deletion(self):
+        for fault in ['root-inventory', 'managed-label', 'package-tracking', 'resource-tracking']:
+            with self.subTest(fault=fault):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                package = {'metadata': {'name': 'custom-platform-package',
+                           'labels': {'platform.ai-platform-portfolio/managed': 'true'}},
+                           'status': {'resources': [{'group': 'managedidentity.azure.com', 'kind': 'UserAssignedIdentity',
+                                                    'namespace': 'azure-resources', 'name': 'identity'}]}}
+                apps = self.tracked_platform([{'metadata': {'name': 'azure-service-operator'}}, package])
+                resource = {'apiVersion': 'managedidentity.azure.com/v1api20230131', 'kind': 'UserAssignedIdentity',
+                            'metadata': {'name': 'identity', 'namespace': 'azure-resources', 'annotations': {
+                                'argocd.argoproj.io/tracking-id': 'custom-platform-package:managedidentity.azure.com/UserAssignedIdentity:azure-resources/identity'}}}
+                if fault == 'root-inventory':
+                    apps[0]['status']['resources'] = []
+                elif fault == 'managed-label':
+                    package['metadata']['labels'].clear()
+                elif fault == 'package-tracking':
+                    package['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'unrelated-owner'
+                else:
+                    resource['metadata']['annotations']['argocd.argoproj.io/tracking-id'] = 'unrelated-owner'
+                cluster.objects = Mock(side_effect=lambda kind, namespace=None:
+                                       apps if kind == 'applications.argoproj.io' else [resource])
+                cluster.delete = Mock()
+                with patch('helm_chart.scripts.cluster.run', return_value='userassignedidentities.managedidentity.azure.com'), \
+                     self.assertRaisesRegex(RuntimeError, 'Remove ASO Azure resources'):
+                    cluster.cleanup()
+                cluster.delete.assert_not_called()
 
     def test_recovery_resources_finish_deletion_before_aso(self):
         cluster = Cluster.__new__(Cluster)
@@ -490,10 +536,12 @@ class TeardownTests(unittest.TestCase):
             return {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
                                  'annotations': {'argocd.argoproj.io/sync-wave': str(wave)}}}
         resource = {'apiVersion': 'dbforpostgresql.azure.com/v20250801', 'kind': 'FlexibleServer',
-                    'metadata': {'name': 'recovery', 'namespace': 'azure-resources'}}
+                    'metadata': {'name': 'recovery', 'namespace': 'azure-resources', 'annotations': {
+                        'argocd.argoproj.io/tracking-id': 'postgres-recovery:dbforpostgresql.azure.com/FlexibleServer:azure-resources/recovery'}}}
         apps = [app('configuration', 10), app('azure-service-operator', 10), app('postgres-recovery', 45)]
         apps[-1]['status'] = {'resources': [{'group': 'dbforpostgresql.azure.com', 'kind': 'FlexibleServer',
                                            'namespace': 'azure-resources', 'name': 'recovery'}]}
+        apps = self.tracked_platform(apps)
         deleted = []
         cluster.objects = Mock(side_effect=lambda kind, namespace=None: apps if kind == 'applications.argoproj.io'
                                else ([] if 'postgres-recovery' in deleted else [resource]))
@@ -534,7 +582,9 @@ class TeardownTests(unittest.TestCase):
             'kind': 'UserAssignedIdentity', 'namespace': 'testkube', 'name': 'testkube'}]}
         resource = {'apiVersion': 'managedidentity.azure.com/v1api20230131',
                     'kind': 'UserAssignedIdentity',
-                    'metadata': {'name': 'testkube', 'namespace': 'testkube'}}
+                    'metadata': {'name': 'testkube', 'namespace': 'testkube', 'annotations': {
+                        'argocd.argoproj.io/tracking-id': 'testkube-azure:managedidentity.azure.com/UserAssignedIdentity:testkube/testkube'}}}
+        apps = self.tracked_platform(apps)
         cluster.objects = Mock(side_effect=lambda kind, namespace=None: apps
                                if kind == 'applications.argoproj.io' else [resource])
         cluster.delete = Mock()
