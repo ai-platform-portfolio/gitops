@@ -366,6 +366,27 @@ class Cluster:
             suspend(roots)
             apps = self.objects('applications.argoproj.io', 'argocd')
             root = next(a for a in apps if a['metadata']['name'] == 'platform')
+            # Bootstrap Sensors are root manifests, not children of the event
+            # package. Stop them while their controller and EventBus still exist.
+            sensor_refs = [(r.get('namespace'), r['name']) for r in root.get('status', {}).get('resources', [])
+                           if r.get('group') == 'argoproj.io' and r.get('kind') == 'Sensor']
+            if sensor_refs:
+                apis = run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
+                if 'sensors.argoproj.io' in apis:
+                    sensors = {}
+                    for namespace, name in sensor_refs:
+                        if not namespace:
+                            raise RuntimeError(f'Cannot safely drain root Sensor {name}: namespace is missing')
+                        sensor = self.object('sensors.argoproj.io', name, namespace)
+                        if sensor is None:
+                            continue
+                        tracking = sensor['metadata'].get('annotations', {}).get('argocd.argoproj.io/tracking-id')
+                        if tracking != f'platform:argoproj.io/Sensor:{namespace}/{name}':
+                            raise RuntimeError(f'Cannot safely drain root Sensor {namespace}/{name}: ownership is unverified')
+                        sensors.setdefault(namespace, []).append(name)
+                    for namespace, names in sensors.items():
+                        self.delete('sensors.argoproj.io', names, namespace)
+
             registrations = {r['name'] for r in root.get('status', {}).get('resources', [])
                              if r.get('group') == 'argoproj.io' and r.get('kind') == 'ApplicationSet'
                              and r.get('namespace') == 'argocd'}

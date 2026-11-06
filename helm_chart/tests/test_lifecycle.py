@@ -212,6 +212,84 @@ class TeardownTests(unittest.TestCase):
                 {'group': 'argoproj.io', 'kind': 'Application', 'namespace': 'argocd', 'name': name})
         return [root, *apps]
 
+    def test_root_sensors_drain_before_event_bus_and_controller(self):
+        for state in ['active', 'deleting', 'absent', 'api-absent']:
+            with self.subTest(state=state):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                apps = self.tracked_platform([
+                    {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
+                                  'annotations': {'argocd.argoproj.io/sync-wave': wave}}}
+                    for name, wave in [('platform-events', '20'), ('argo-events', '0')]])
+                refs = [('events-a', 'onboard-alpha'), ('events-b', 'onboard-beta')]
+                apps[0]['status']['resources'] += [
+                    {'group': 'argoproj.io', 'kind': 'Sensor', 'namespace': ns, 'name': name} for ns, name in refs]
+                events = []
+
+                def sensor(kind, name, namespace):
+                    self.assertEqual(kind, 'sensors.argoproj.io')
+                    self.assertIn((namespace, name), refs)
+                    if state == 'absent':
+                        return None
+                    metadata = {'annotations': {'argocd.argoproj.io/tracking-id':
+                                                f'platform:argoproj.io/Sensor:{namespace}/{name}'}}
+                    if state == 'deleting':
+                        metadata['deletionTimestamp'] = 'now'
+                    return {'metadata': metadata}
+
+                def command(*args, **kwargs):
+                    if 'patch' in args and 'platform' in args:
+                        events.append('stop-root')
+                    return '' if state == 'api-absent' else 'sensors.argoproj.io'
+
+                cluster.object = Mock(side_effect=sensor)
+                cluster.objects = Mock(return_value=apps)
+                cluster.delete = Mock(side_effect=lambda kind, names, namespace=None: events.append((kind, names, namespace)))
+                with patch('helm_chart.scripts.cluster.run', side_effect=command):
+                    cluster.cleanup()
+                self.assertEqual(events[0], 'stop-root')
+                deletions = events[1:]
+                if state in ['active', 'deleting']:
+                    self.assertEqual(deletions[:2], [('sensors.argoproj.io', [name], ns) for ns, name in refs])
+                    deletions = deletions[2:]
+                else:
+                    self.assertFalse(any(c.args[0] == 'sensors.argoproj.io' for c in cluster.delete.call_args_list))
+                self.assertEqual([d[1] for d in deletions], [['platform-events'], ['argo-events'], ['platform']])
+                if state == 'api-absent':
+                    cluster.object.assert_not_called()
+
+    def test_root_sensor_failures_preserve_platform_dependencies(self):
+        for fault in ['tracking', 'read-error', 'namespace', 'timeout']:
+            with self.subTest(fault=fault):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                root = {'metadata': {'name': 'platform'}, 'status': {'resources': [
+                    {'group': 'argoproj.io', 'kind': 'Sensor', 'namespace': 'events', 'name': 'onboard-alpha'}]}}
+                cluster.objects = Mock(return_value=[root])
+                cluster.object = Mock(return_value={'metadata': {'annotations': {
+                    'argocd.argoproj.io/tracking-id': 'platform:argoproj.io/Sensor:events/onboard-alpha'}}})
+                cluster.delete = Mock()
+                if fault == 'tracking':
+                    cluster.object.return_value['metadata']['annotations'].clear()
+                elif fault == 'read-error':
+                    cluster.object.side_effect = subprocess.CalledProcessError(1, ['kubectl', 'get'])
+                elif fault == 'namespace':
+                    root['status']['resources'][0].pop('namespace')
+                else:
+                    cluster.delete.side_effect = TimeoutError('Waiting for Sensor finalizer')
+                error = {'read-error': subprocess.CalledProcessError, 'timeout': TimeoutError}.get(fault, RuntimeError)
+                with patch('helm_chart.scripts.cluster.run', return_value='sensors.argoproj.io'), self.assertRaises(error):
+                    cluster.cleanup()
+                if fault == 'timeout':
+                    self.assertEqual(cluster.delete.call_count, 1)
+                    self.assertEqual(cluster.delete.call_args.args, ('sensors.argoproj.io', ['onboard-alpha'], 'events'))
+                else:
+                    cluster.delete.assert_not_called()
+
     def test_foreground_delete_waits_until_finalizers_finish(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
