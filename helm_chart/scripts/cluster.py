@@ -20,8 +20,8 @@ else:
     from credentials import prepare as prepare_credentials, prepare_sonarqube
 
 
-def run(*args, capture=False):
-    return subprocess.run(args, check=True, text=True,
+def run(*args, capture=False, timeout=None):
+    return subprocess.run(args, check=True, text=True, timeout=timeout,
                           stdout=subprocess.PIPE if capture else None).stdout
 
 
@@ -45,6 +45,80 @@ def wait_for(check, description, timeout=3600, retry_command_errors=False):
         if time.monotonic() >= deadline:
             raise TimeoutError(description)
         time.sleep(10)
+
+
+def dns_fields(record):
+    return [set(''.join(txt.get('value', [])).strip('"').split(','))
+            for txt in record.get('TXTRecords', record.get('txtRecords', []))]
+
+
+def owned_dns(account, config):
+    """Return verified IPv4 registry pairs; never infer ownership from a name alone."""
+    if not config.get('owner') or not all(config.get('zone', {}).get(k) for k in ['name', 'resource_group_name']):
+        raise ValueError('DNS owner and zone scope must be explicit')
+    records = json.loads(run('az', 'network', 'dns', 'record-set', 'list',
+        '--subscription', account['subscription_id'], '-g', config['zone']['resource_group_name'],
+        '-z', config['zone']['name'], '-o', 'json', '--only-show-errors', capture=True, timeout=30))
+    owner = 'external-dns/owner=' + config['owner']
+    pairs = []
+    for marker in records:
+        fields = dns_fields(marker)
+        if not any(owner in entry for entry in fields):
+            continue
+        if (not marker['type'].endswith('/TXT') or not marker['name'].startswith('external-dns-a-')
+                or not all({f for f in entry if f.startswith('external-dns/owner=')} == {owner}
+                           and 'heritage=external-dns' in entry
+                           and any(f.startswith('external-dns/resource=httproute/') for f in entry) for entry in fields)):
+            raise RuntimeError('Owned DNS registry contains unsupported or mixed ownership; records were not changed')
+        label = marker['name'].removeprefix('external-dns-a-')
+        targets = [r for r in records if r['name'] == label and r['type'].endswith('/A')]
+        if not label or len(targets) > 1 or not marker.get('etag') or any(not r.get('etag') for r in targets):
+            raise RuntimeError('Cannot verify owned DNS record identity/ETags; records were not changed')
+        pairs.append((marker, targets[0] if targets else None))
+    return pairs
+
+
+def cleanup_stale_dns(account, config):
+    # Only used after empty state AND absence of the disposable resource group.
+    scope = ['--subscription', account['subscription_id'], '-g', config['zone']['resource_group_name'],
+             '-z', config['zone']['name'], '--only-show-errors']
+    for marker, target in owned_dns(account, config):
+        current = json.loads(run('az', 'network', 'dns', 'record-set', 'txt', 'show',
+                                 '-n', marker['name'], *scope, '-o', 'json', capture=True, timeout=30))
+        if current.get('etag') != marker['etag']:
+            raise RuntimeError('DNS ownership changed during cleanup; stopped without removing its record')
+        if target:
+            run('az', 'network', 'dns', 'record-set', 'a', 'delete', '-n', target['name'],
+                *scope, '--if-match', target['etag'], '--yes', capture=True, timeout=30)
+        run('az', 'network', 'dns', 'record-set', 'txt', 'delete', '-n', marker['name'],
+            *scope, '--if-match', marker['etag'], '--yes', capture=True, timeout=30)
+    if owned_dns(account, config):
+        raise RuntimeError('Owned DNS records remain after stale-record cleanup')
+
+
+def already_down(infra, tfvars):
+    tf = [os.environ.get('TERRAFORM', 'terraform'), f'-chdir={infra}']
+    outputs = json.loads(run(*tf, 'output', '-json', capture=True, timeout=30))
+    if 'aks_connection' in outputs:
+        return False
+    if run(*tf, 'state', 'list', capture=True).strip():
+        raise RuntimeError('Bootstrap outputs missing beside existing state; cannot skip cluster cleanup')
+    account = current_account()
+    env = {**os.environ, 'ARM_SUBSCRIPTION_ID': account['subscription_id'], 'ARM_TENANT_ID': account['tenant_id']}
+    # Terraform owns input parsing and TFVARS precedence, even after outputs vanish.
+    expression = 'jsonencode({owner=var.platform.cluster_name, zone=var.dns.zone, group=var.azure.resource_group_name})'
+    result = subprocess.run([*tf, 'console', f'-var-file={tfvars}'], input=expression + '\n',
+                            text=True, capture_output=True, env=env, timeout=60)
+    if result.returncode:
+        raise RuntimeError('Cannot read teardown inputs from Terraform; DNS was not changed')
+    config = json.loads(json.loads(result.stdout))
+    exists = json.loads(run('az', 'group', 'exists', '-n', config['group'],
+                            '--subscription', account['subscription_id'], '-o', 'json', '--only-show-errors', capture=True, timeout=30))
+    if exists:
+        raise RuntimeError('Disposable resource group still exists beside empty state; DNS was not changed')
+    cleanup_stale_dns(account, config)
+    print('Already down: empty state, resource group absent, owned DNS drained; backend preserved.', flush=True)
+    return True
 
 
 class Cluster:
@@ -279,9 +353,7 @@ class Cluster:
         ownership_records = [r for r in records if r['name'] in {
             'external-dns-' + label, 'external-dns-a-' + label,
             'external-dns-aaaa-' + label, 'external-dns-cname-' + label}]
-        ownership = [set(''.join(txt.get('value', [])).strip('"').split(','))
-                     for record in ownership_records
-                     for txt in record.get('TXTRecords', record.get('txtRecords', []))]
+        ownership = [fields for record in ownership_records for fields in dns_fields(record)]
         owned = bool(ownership) and all(owner in fields and resources & fields for fields in ownership)
         if (existing or ownership_records) and not owned:
             raise RuntimeError(f'DNS clash at {hostname}; choose a fresh argocd.dns_label. Existing records were not changed')
@@ -514,14 +586,17 @@ class Cluster:
         aso_drained = False
         for app in sorted(managed, key=lambda a: int(a['metadata'].get('annotations', {}).get('argocd.argoproj.io/sync-wave', 0)), reverse=True):
             name = app['metadata']['name']
+            if name == 'external-dns':
+                runtime = self.settings['runtime']
+                dns = {'owner': self.settings['cluster']['name'], 'zone': {
+                    'name': runtime['AZURE_DNS_ZONE'], 'resource_group_name': runtime['AZURE_DNS_RESOURCE_GROUP']}}
+                wait_for(lambda: not owned_dns(self.account, dns),
+                         'Waiting for ExternalDNS owned records to drain', timeout=180)
             if name in {'configuration', 'azure-service-operator'} and aso_resources and not aso_drained:
                 wait_for(lambda: all(not self.objects(resource) for resource in aso_resources),
                          'Waiting for ASO Azure resources to finish deletion')
                 aso_drained = True
             self.delete('applications.argoproj.io', [name], 'argocd')
-            if name == 'argocd-route':
-                deadline = time.monotonic() + 70
-                wait_for(lambda: time.monotonic() >= deadline, 'Allowing ExternalDNS a record cleanup interval', timeout=100)
         self.delete('applications.argoproj.io', ['platform'], 'argocd')
 
 
@@ -529,7 +604,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['up', 'down'])
     parser.add_argument('--infra-dir', type=Path, required=True)
+    parser.add_argument('--tfvars', type=Path, help='Effective bootstrap inputs for an already-down retry')
     args = parser.parse_args()
+    infra = args.infra_dir.resolve()
+    tfvars = args.tfvars or Path('terraform.tfvars')
+    tfvars = (tfvars if tfvars.is_absolute() else infra / tfvars).resolve()
+    if args.action == 'down' and already_down(infra, tfvars):
+        return
     with tempfile.TemporaryDirectory(prefix='platform-aks-') as directory:
         cluster = Cluster(args.infra_dir.resolve(), Path(directory) / 'kubeconfig')
         if args.action == 'down':

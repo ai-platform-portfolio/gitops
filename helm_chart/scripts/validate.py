@@ -531,6 +531,7 @@ def main():
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
         assert waves['postgres'] < waves['langfuse-credentials'] < waves['langfuse']
+        assert waves['configuration'] < waves['external-dns'] < min(waves[n] for n in ['platform-events', 'gateway', 'argocd-route', 'routes'])
         database_values = langfuse_app['spec']['source']['helm']['valuesObject']
         assert database_values['postgresql']['deploy'] is False
         credentials_app = next(a for a in applications if a['metadata']['name'] == 'langfuse-credentials')

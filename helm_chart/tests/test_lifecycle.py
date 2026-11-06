@@ -2,9 +2,10 @@ import base64
 import json
 import subprocess
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
-from helm_chart.scripts.cluster import Cluster, wait_for
+from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main
 from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
 
 
@@ -289,6 +290,46 @@ class TeardownTests(unittest.TestCase):
                     self.assertEqual(cluster.delete.call_args.args, ('sensors.argoproj.io', ['onboard-alpha'], 'events'))
                 else:
                     cluster.delete.assert_not_called()
+
+    def test_dns_records_drain_after_routes_and_before_controller_deletion(self):
+        for timeout in [False, True]:
+            with self.subTest(timeout=timeout):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management', 'name': 'example'},
+                                    'runtime': {'AZURE_DNS_ZONE': 'example.test', 'AZURE_DNS_RESOURCE_GROUP': 'dns'}}
+                cluster.account = {'subscription_id': 'subscription'}
+                apps = self.tracked_platform([
+                    {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'},
+                                  'annotations': {'argocd.argoproj.io/sync-wave': wave}}}
+                    for name, wave in [('external-dns', '15'), ('platform-events', '20')]])
+                deleted = []
+                cluster.objects = Mock(return_value=apps)
+                cluster.delete = Mock(side_effect=lambda kind, names, namespace=None: deleted.extend(names))
+                observations = iter([[('txt', 'a')], []])
+
+                def registry(*args):
+                    self.assertEqual(deleted, ['platform-events'])
+                    return next(observations)
+
+                def wait(check, description, **kwargs):
+                    if 'ExternalDNS' in description:
+                        self.assertFalse(check())
+                        if timeout:
+                            raise TimeoutError(description)
+                    self.assertTrue(check())
+
+                with patch('helm_chart.scripts.cluster.run', return_value=''), \
+                     patch('helm_chart.scripts.cluster.owned_dns', side_effect=registry), \
+                     patch('helm_chart.scripts.cluster.wait_for', side_effect=wait):
+                    if timeout:
+                        with self.assertRaises(TimeoutError):
+                            cluster.cleanup()
+                        self.assertEqual(deleted, ['platform-events'])
+                    else:
+                        cluster.cleanup()
+                        self.assertEqual(deleted, ['platform-events', 'external-dns', 'platform'])
 
     def test_foreground_delete_waits_until_finalizers_finish(self):
         cluster = Cluster.__new__(Cluster)
@@ -841,6 +882,101 @@ class AzureAccountTests(unittest.TestCase):
         with patch('helm_chart.scripts.azure.subprocess.run', return_value=Mock(returncode=0, stdout='{"id":"subscription"}')):
             with self.assertRaises(ValueError):
                 current_account()
+
+
+class DNSLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.account = {'subscription_id': 'subscription', 'tenant_id': 'tenant'}
+        self.config = {'owner': 'example', 'group': 'management',
+                       'zone': {'name': 'example.test', 'resource_group_name': 'dns'}}
+        self.marker = {'name': 'external-dns-a-events', 'type': 'Microsoft.Network/dnszones/TXT', 'etag': 'txt-version',
+                       'TXTRecords': [{'value': ['"heritage=external-dns,external-dns/owner=example,',
+                                                'external-dns/resource=httproute/events/webhook"']}]}
+        self.address = {'name': 'events', 'type': 'Microsoft.Network/dnszones/A', 'etag': 'a-version'}
+
+    def test_registry_ownership_is_exact_and_mixed_or_unsupported_records_fail(self):
+        for fault in ['foreign', 'mixed', 'mixed-field', 'unsupported', 'no-etag']:
+            with self.subTest(fault=fault):
+                marker = json.loads(json.dumps(self.marker))
+                if fault == 'foreign':
+                    marker['TXTRecords'][0]['value'] = ['heritage=external-dns,external-dns/owner=example-other']
+                elif fault == 'mixed':
+                    marker['TXTRecords'].append({'value': ['external-dns/owner=another']})
+                elif fault == 'mixed-field':
+                    marker['TXTRecords'][0]['value'][0] = marker['TXTRecords'][0]['value'][0].replace(
+                        'external-dns/owner=example', 'external-dns/owner=example,external-dns/owner=another')
+                elif fault == 'unsupported':
+                    marker['name'] = 'external-dns-cname-events'
+                else:
+                    marker.pop('etag')
+                with patch('helm_chart.scripts.cluster.run', return_value=json.dumps([marker, self.address])) as run:
+                    if fault == 'foreign':
+                        self.assertEqual(owned_dns(self.account, self.config), [])
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            owned_dns(self.account, self.config)
+                self.assertFalse(any('delete' in c.args for c in run.call_args_list))
+
+    def test_stale_cleanup_checks_marker_and_deletes_only_owned_pair_with_etags(self):
+        for orphan_marker in [False, True]:
+            with self.subTest(orphan_marker=orphan_marker):
+                target = None if orphan_marker else self.address
+                with patch('helm_chart.scripts.cluster.owned_dns', side_effect=[[(self.marker, target)], []]), \
+                     patch('helm_chart.scripts.cluster.run', return_value=json.dumps(self.marker)) as run:
+                    cleanup_stale_dns(self.account, self.config)
+                deletes = [c.args for c in run.call_args_list if 'delete' in c.args]
+                self.assertEqual([c[4] for c in deletes], ['txt'] if orphan_marker else ['a', 'txt'])
+                self.assertEqual([c[c.index('--if-match') + 1] for c in deletes],
+                                 ['txt-version'] if orphan_marker else ['a-version', 'txt-version'])
+                self.assertTrue(all(c[c.index('--subscription') + 1] == 'subscription' for c in deletes))
+
+    def test_record_or_ownership_conflict_stops_before_deleting_marker(self):
+        for ownership_changed in [False, True]:
+            with self.subTest(ownership_changed=ownership_changed):
+                current = {**self.marker, 'etag': 'changed'} if ownership_changed else self.marker
+                def command(*args, **kwargs):
+                    if 'show' in args:
+                        return json.dumps(current)
+                    raise subprocess.CalledProcessError(1, ['az', 'delete', '--if-match'])
+                with patch('helm_chart.scripts.cluster.owned_dns', return_value=[(self.marker, self.address)]), \
+                     patch('helm_chart.scripts.cluster.run', side_effect=command) as run:
+                    with self.assertRaises(RuntimeError if ownership_changed else subprocess.CalledProcessError):
+                        cleanup_stale_dns(self.account, self.config)
+                self.assertFalse(any('txt' in c.args and 'delete' in c.args for c in run.call_args_list))
+                if ownership_changed:
+                    self.assertFalse(any('delete' in c.args for c in run.call_args_list))
+
+    def test_empty_state_retry_reads_effective_tfvars_and_requires_absent_group(self):
+        for fault in ['none', 'state', 'group', 'console']:
+            with self.subTest(fault=fault):
+                outputs = ['{}', 'module.remaining' if fault == 'state' else '', json.dumps(fault == 'group')]
+                console = Mock(returncode=1 if fault == 'console' else 0, stdout=json.dumps(json.dumps(self.config)))
+                with patch('helm_chart.scripts.cluster.run', side_effect=outputs) as run, \
+                     patch('helm_chart.scripts.cluster.current_account', return_value=self.account), \
+                     patch('helm_chart.scripts.cluster.subprocess.run', return_value=console) as subprocess_run, \
+                     patch('helm_chart.scripts.cluster.cleanup_stale_dns') as cleanup:
+                    if fault == 'none':
+                        self.assertTrue(already_down(Path('/bootstrap'), Path('/inputs/custom.tfvars')))
+                        cleanup.assert_called_once_with(self.account, self.config)
+                        self.assertIn('-var-file=/inputs/custom.tfvars', subprocess_run.call_args.args[0])
+                        self.assertIn('ARM_TENANT_ID', subprocess_run.call_args.kwargs['env'])
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            already_down(Path('/bootstrap'), Path('/inputs/custom.tfvars'))
+                        cleanup.assert_not_called()
+                self.assertFalse(any('apply' in c.args or 'destroy' in c.args for c in run.call_args_list))
+
+    def test_existing_outputs_use_cluster_path_and_already_down_never_constructs_cluster(self):
+        with patch('helm_chart.scripts.cluster.run', return_value='{"aks_connection":{}}'), \
+             patch('helm_chart.scripts.cluster.current_account') as account:
+            self.assertFalse(already_down(Path('/bootstrap'), Path('/inputs.tfvars')))
+            account.assert_not_called()
+        with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap', '--tfvars', 'custom.tfvars']), \
+             patch('helm_chart.scripts.cluster.already_down', return_value=True) as down, \
+             patch('helm_chart.scripts.cluster.Cluster') as cluster:
+            main()
+        down.assert_called_once_with(Path('/bootstrap'), Path('/bootstrap/custom.tfvars'))
+        cluster.assert_not_called()
 
 
 class ArgoIngressTests(unittest.TestCase):
