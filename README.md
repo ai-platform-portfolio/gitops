@@ -91,6 +91,12 @@ guarantee recovery from Azure's `InvalidResponseFromPrivateLinkService` failure.
 Failures stop visibly with partially created infrastructure potentially running;
 there is no custom endpoint deletion or hidden apply retry.
 
+Entra credentials are ordered before their service principal during destruction.
+The Foundry account uses AzAPI's native retry for the observed non-terminal HTTP
+conflict, followed by an account-scoped destroy-time purge. These controls live
+in the reusable modules; `make down` has no retry wrapper or automatic force-delete
+path. They do not guarantee recovery from an Azure outage or a failed LRO.
+
 The Foundry provider change is intended for a fresh rebuild after teardown.
 No moved blocks or DNS adoption logic are included. Tear down with the currently
 deployed configuration before using this version; do not apply it over the old

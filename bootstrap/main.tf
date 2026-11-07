@@ -193,7 +193,7 @@ module "aso_identity" {
 # Consumers own their inference identities and role assignments separately.
 # This module owns the account, projects, deployments and private endpoint.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=8bc5a507275f9c5d21667f32208f5b4e05e92dd4"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=72ae195583106dcfe65957534e1b316eaeaf0745"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
@@ -240,7 +240,7 @@ module "postgres" {
 # Bootstrap applications share one library call; their choices live in tfvars.
 module "entra_applications" {
   for_each     = var.entra_applications
-  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-application?ref=35bb1d0369774533ce229a569335aa06977dece5"
+  source       = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/entra-application?ref=72ae195583106dcfe65957534e1b316eaeaf0745"
   display_name = each.value.display_name
   owners       = [data.azurerm_client_config.current.object_id]
 
