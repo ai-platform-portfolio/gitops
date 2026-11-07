@@ -37,6 +37,12 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
   key_vault_id = data.azurerm_key_vault.platform.id
 }
 
+# Redacted in plans, but retained in the encrypted Terraform backend like AKS ranges.
+data "azurerm_key_vault_secret" "foundry_ip_ranges" {
+  name         = var.foundry.authorized_ip_ranges_secret
+  key_vault_id = data.azurerm_key_vault.platform.id
+}
+
 locals {
   argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
 
@@ -193,7 +199,7 @@ module "aso_identity" {
 # Bootstrap grants the operator group Foundry access; application consumers
 # retain separate ownership of their runtime identities and role assignments.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=efc2ad735bbfbc3033a6404e40d9c005597e4519"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=bacfc0e13dfd5181280b7e2edbda27f9dd194cc3"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
@@ -204,6 +210,9 @@ module "foundry" {
   projects                   = var.foundry.projects
   deployments                = var.foundry.deployments
   tags                       = var.azure.tags
+
+  account_settings = { public_network_access_enabled = true }
+  network_acls     = { ip_rules = jsondecode(data.azurerm_key_vault_secret.foundry_ip_ranges.value) }
 
   role_assignments = {
     aks_admins = {
