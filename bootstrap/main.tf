@@ -190,8 +190,8 @@ module "aso_identity" {
   tags = var.azure.tags
 }
 
-# Consumers own their inference identities and role assignments separately.
-# This module owns the account, projects, deployments and private endpoint.
+# Bootstrap grants the authenticated caller Foundry access; application consumers
+# retain separate ownership of their runtime identities and role assignments.
 module "foundry" {
   source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=ebc4eab1a8b3f630ac11079939e96ed32446aa1d"
   name                       = var.foundry.name
@@ -204,6 +204,11 @@ module "foundry" {
   projects                   = var.foundry.projects
   deployments                = var.foundry.deployments
   tags                       = var.azure.tags
+
+  inference_principal_id           = data.azurerm_client_config.current.object_id
+  inference_role_name              = "Foundry User"
+  inference_principal_type         = null
+  skip_service_principal_aad_check = false
 
   depends_on = [module.network["management"]]
 }
