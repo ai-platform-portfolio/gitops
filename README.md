@@ -91,7 +91,7 @@ guarantee recovery from Azure's `InvalidResponseFromPrivateLinkService` failure.
 Failures stop visibly with partially created infrastructure potentially running;
 there is no custom endpoint deletion or hidden apply retry.
 
-The module's moved block preserves an existing endpoint. Bootstrap conditionally
+Bootstrap's moved block preserves the existing endpoint and conditionally
 imports its formerly embedded DNS zone group, so the migration needs no manual
 state commands and a fresh environment follows the normal create path. Review
 the migration plan before applying; it must not replace the existing endpoint.

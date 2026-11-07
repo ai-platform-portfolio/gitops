@@ -37,6 +37,12 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
   key_vault_id = data.azurerm_key_vault.platform.id
 }
 
+# This deployment's provider migration belongs in the caller, not the library.
+moved {
+  from = module.foundry.azurerm_private_endpoint.this
+  to   = module.foundry.azapi_resource.private_endpoint
+}
+
 # AzureRM embedded this child in its endpoint state. Import it once when present;
 # a new environment gets a normal create. Names remain owned by the module.
 data "azapi_resource" "foundry_dns_zone_group" {
@@ -217,7 +223,7 @@ moved {
 # Consumers own their inference identities and role assignments separately.
 # This module owns the account, projects, deployments and private endpoint.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=244e9f226ef077ad8603995a8a29bff497d12327"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=d5844b781374cb702e1ef494b920310398e73457"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
