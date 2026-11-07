@@ -6,7 +6,7 @@ TERRAFORM ?= terraform
 TFVARS ?= $(BOOTSTRAP_DIR)/terraform.tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
-.PHONY: help init plan up down context validate preflight
+.PHONY: help init plan foundry-plan foundry-up up down context validate preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -23,6 +23,8 @@ help:
 	  'make up    Provision infrastructure, install packages and wait for health' \
 	  'make down  Remove packages and destroy the disposable platform infrastructure' \
 	  'make plan  Preview bootstrap changes' \
+	  'make foundry-plan  Preview Foundry and its networking/identity dependencies' \
+	  'make foundry-up  Provision Foundry and its dependencies without platform services' \
 	  'make context  Select the management cluster with Azure CLI authentication' \
 	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
@@ -34,6 +36,12 @@ init:
 
 plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")
+
+foundry-plan: init
+	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.foundry)
+
+foundry-up: init
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry)
 
 up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }

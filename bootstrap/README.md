@@ -92,6 +92,34 @@ State uses the external Azure Blob backend configured by ignored
 [configuration and lifecycle guide](../helm_chart/README.md) for prerequisites,
 backend setup and validation.
 
+## Foundry without platform services
+
+From the repository root, use the existing tfvars, backend and Azure CLI login:
+
+```sh
+make foundry-plan
+make foundry-up
+```
+
+These commands target `module.foundry` and Terraform includes its dependencies.
+With the current configuration this provisions the resource group, both VNets,
+subnets, NSGs, private DNS zones and links, six managed identities, and the Foundry
+account, project, model deployment and private endpoint. It does not provision
+AKS, an APIM instance, PostgreSQL, Argo, federated credentials or platform packages.
+No Kubernetes tooling or cluster context is needed for these commands.
+
+Foundry retains the module's private-only networking and disabled local key
+authentication defaults. Clients still need private network connectivity and
+appropriate Entra permissions; creating the account does not grant inference access.
+
+This is an intentionally partial apply in the same bootstrap state, not a separate
+environment. Terraform warns about targeting: it does not evaluate all outstanding
+platform changes, and root outputs may be incomplete. Review `make plan` before
+expanding to the full platform with `make up`. Existing services outside the target
+are left in place. Dependency changes can expand the target's plan, so review
+`make foundry-plan` before applying. Like `make up`, `make foundry-up` automatically
+approves a newly computed plan rather than applying a saved plan.
+
 ## AKS control-plane tier
 
 `aks.sku_tier` selects the existing AKS module's control-plane tier. The caller
