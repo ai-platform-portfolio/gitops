@@ -219,6 +219,11 @@ module "foundry" {
       principal_id         = data.azuread_group.aks_admin.object_id
       role_definition_name = "Foundry Owner"
     }
+
+    project_identity = {
+      principal_id         = module.identities["foundry"].principal_id
+      role_definition_name = "Foundry User"
+    }
   }
 
   depends_on = [module.network["management"]]
