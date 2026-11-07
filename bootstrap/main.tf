@@ -37,6 +37,20 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
   key_vault_id = data.azurerm_key_vault.platform.id
 }
 
+# AzureRM embedded this child in its endpoint state. Import it once when present;
+# a new environment gets a normal create. Names remain owned by the module.
+data "azapi_resource" "foundry_dns_zone_group" {
+  type             = "Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2025-01-01"
+  resource_id      = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.azure.resource_group_name}/providers/Microsoft.Network/privateEndpoints/${module.foundry.private_endpoint_name}/privateDnsZoneGroups/${module.foundry.private_dns_zone_group_name}"
+  ignore_not_found = true
+}
+
+import {
+  for_each = data.azapi_resource.foundry_dns_zone_group.exists ? { existing = data.azapi_resource.foundry_dns_zone_group.id } : {}
+  to       = module.foundry.azapi_resource.private_dns_zone_group
+  id       = each.value
+}
+
 locals {
   argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
 
@@ -203,7 +217,7 @@ moved {
 # Consumers own their inference identities and role assignments separately.
 # This module owns the account, projects, deployments and private endpoint.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=244e9f226ef077ad8603995a8a29bff497d12327"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location

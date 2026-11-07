@@ -84,16 +84,17 @@ Terraform/provider debug logging when using the real secret.
 
 ## Rebuild recovery and public TLS preservation
 
-`make up` permits one narrowly checked recovery after Azure reports
-`InvalidResponseFromPrivateLinkService` or an already-existing resource. Native
-Terraform evaluates the intended Foundry endpoint; cleanup requires it to be
-absent from state, `Failed` in Azure, and an exact match for the planned resource
-scope, location, subnet, account and connection group. The parent account must
-be ready with public access disabled. A tracked, healthy, ambiguous or inaccessible
-endpoint is never removed by this recovery. After deletion, one ordinary apply
-replans the bootstrap. Other failures stop with partial infrastructure still
-running. Run only one lifecycle operation per backend; the state check and Azure
-deletion are not an atomic cross-service lock.
+`make up` uses an ordinary Terraform apply. Foundry private endpoints use the
+native AzAPI resource, which attempts to retain the resource ID after a failed
+create and retries the known account-not-ready HTTP response. This does not
+guarantee recovery from Azure's `InvalidResponseFromPrivateLinkService` failure.
+Failures stop visibly with partially created infrastructure potentially running;
+there is no custom endpoint deletion or hidden apply retry.
+
+The module's moved block preserves an existing endpoint. Bootstrap conditionally
+imports its formerly embedded DNS zone group, so the migration needs no manual
+state commands and a fresh environment follows the normal create path. Review
+the migration plan before applying; it must not replace the existing endpoint.
 
 Before ordered teardown, `make down` saves currently Ready public ACME TLS
 Secrets to the **existing persistent Key Vault**. `make up` restores valid matching

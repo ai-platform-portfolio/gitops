@@ -37,7 +37,7 @@ plan: init
 
 up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
-	$(PYTHON) helm_chart/scripts/bootstrap.py --infra-dir "$(BOOTSTRAP_DIR)" --tfvars "$(TFVARS)"
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
 
