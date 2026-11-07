@@ -40,10 +40,13 @@ capacity, version and region are explicit in `terraform.tfvars`; review quota,
 availability and processing requirements again before apply. Azure model usage
 is billed.
 
-Inference consumers own their identities and account role assignments separately.
-The Foundry module's optional inference principal is unset here, avoiding a
-second owner for those grants. Both modules are pinned to the merged Terraform
-PR #13 revision.
+Bootstrap passes the existing `data.azuread_group.aks_admin.object_id` to the
+Foundry module's `role_assignments` map with the `Foundry Owner` role. The module
+scopes the grant to the account, and projects inherit it. No principal ID is
+hardcoded and no new group is created. Access follows operator group membership
+rather than the Terraform caller. Application consumers retain separate ownership
+of their runtime identities and role assignments; do not manage this group grant
+elsewhere.
 
 `argocd-values.yaml` holds deployment settings and group RBAC.
 `argocd-configmap.yaml` is the actual commented Argo resource, including OIDC,
@@ -110,7 +113,8 @@ No Kubernetes tooling or cluster context is needed for these commands.
 
 Foundry retains the module's private-only networking and disabled local key
 authentication defaults. Clients still need private network connectivity and
-appropriate Entra permissions; creating the account does not grant inference access.
+appropriate Entra permissions. Bootstrap grants the AKS administrator group
+`Foundry Owner`; other clients need their own role assignments.
 
 This is an intentionally partial apply in the same bootstrap state, not a separate
 environment. Terraform warns about targeting: it does not evaluate all outstanding
