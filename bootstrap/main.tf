@@ -77,11 +77,6 @@ resource "azurerm_private_dns_zone" "private" {
 }
 
 # Keep each network one module instance; the caller owns repetition and regions.
-moved {
-  from = module.network
-  to   = module.network["management"]
-}
-
 module "network" {
   for_each = merge({ management = merge(var.network, { location = var.azure.location }) }, {
     model_gateway = merge(var.model_gateway.network, { location = var.model_gateway.location })
@@ -195,15 +190,10 @@ module "aso_identity" {
   tags = var.azure.tags
 }
 
-moved {
-  from = module.identities["aso"]
-  to   = module.aso_identity
-}
-
 # Consumers own their inference identities and role assignments separately.
 # This module owns the account, projects, deployments and private endpoint.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=10ecc64ab649123d0b558c60c7626bd1378c2393"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=8bc5a507275f9c5d21667f32208f5b4e05e92dd4"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
@@ -277,17 +267,6 @@ module "entra_applications" {
     resource_principal_id = data.azuread_service_principal.microsoft_graph.object_id
     app_role_id           = data.azuread_service_principal.microsoft_graph.app_role_ids[name]
   } }
-}
-
-# Preserve existing registrations when switching to keyed module instances.
-moved {
-  from = module.argocd_sso
-  to   = module.entra_applications["argocd"]
-}
-
-moved {
-  from = module.crossplane_identity
-  to   = module.entra_applications["crossplane"]
 }
 
 # Azure can report AKS and its API allowlist update as complete before clients

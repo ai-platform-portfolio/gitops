@@ -1,4 +1,5 @@
 import base64
+from datetime import datetime, timezone
 import json
 import subprocess
 import unittest
@@ -1138,7 +1139,8 @@ class NodeUpgradeTeardownTests(unittest.TestCase):
         cluster = Mock()
         with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap']), \
              patch('helm_chart.scripts.cluster.already_down', return_value=False), \
-             patch('helm_chart.scripts.cluster.Cluster', return_value=cluster):
+             patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
+             patch('helm_chart.scripts.cluster.certificates.save'):
             main()
         self.assertEqual([c[0] for c in cluster.method_calls], ['cleanup', 'cancel_node_upgrades'])
 
@@ -1330,6 +1332,140 @@ class ArgoIngressTests(unittest.TestCase):
              patch('helm_chart.scripts.cluster.wait_for', side_effect=wait):
             cluster.ingress_ready({'ARGOCD_HOSTNAME': 'argocd.example.test'})
         request.assert_called_once_with('https://argocd.example.test/healthz', timeout=10)
+
+
+class PublicCertificateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        from helm_chart.scripts import certificates
+        cls.certificates = certificates
+        cls.directory = tempfile.TemporaryDirectory()
+        folder = Path(cls.directory.name)
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+                        '-nodes', '-subj', '/CN=app.example.test', '-addext', 'subjectAltName=DNS:app.example.test',
+                        '-days', '2', '-keyout', str(folder / 'key'), '-out', str(folder / 'crt')],
+                       check=True, capture_output=True)
+        cls.data = {key: base64.b64encode((folder / name).read_bytes()).decode()
+                    for key, name in [('tls.crt', 'crt'), ('tls.key', 'key')]}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.directory.cleanup()
+
+    def setUp(self):
+        self.cluster = Mock(kube=['kubectl'], connection={'resource_group': 'disposable'})
+        self.cluster.settings = {'cluster': {'name': 'test'}, 'runtime': {
+            'AZURE_KEY_VAULT_URI': 'https://existing.vault.azure.net/', 'DNS_ZONE': 'example.test'}}
+        self.identity, self.prefix, _, _ = self.certificates.scope(self.cluster)
+        self.entry = {'version': 1, 'cluster': self.identity, 'zone': 'example.test', 'dnsNames': ['app.example.test'],
+                      'metadata': {'name': 'app-tls', 'namespace': 'app', 'annotations': {}}, 'data': self.data.copy()}
+
+    def test_real_openssl_checks_dns_scope_identity_and_private_key_match(self):
+        self.certificates.validate(self.entry, self.identity, 'example.test')
+        for change in [{'cluster': 'another-cluster'}, {'dnsNames': ['wrong.example.test']},
+                       {'dnsNames': ['other.test']}, {'data': {**self.data, 'tls.key': self.data['tls.crt']}}]:
+            with self.subTest(change=list(change)):
+                with self.assertRaises((ValueError, RuntimeError)):
+                    self.certificates.validate({**self.entry, **change}, self.identity, 'example.test')
+
+    def test_restore_creates_only_missing_secrets_without_old_owner_uids(self):
+        name = self.certificates.key_name(self.prefix, self.entry['metadata'])
+        self.cluster.object.return_value = None
+        native_command, native_run = self.certificates.command, subprocess.run
+        def command(*args):
+            if args[0] == 'az':
+                return json.dumps([{'name': name}]) if 'list' in args else json.dumps(self.entry)
+            return native_command(*args)
+        def run(args, **kwargs):
+            return Mock(returncode=0) if args[0] == 'kubectl' else native_run(args, **kwargs)
+        with patch.object(self.certificates, 'command', side_effect=command), \
+             patch.object(self.certificates.subprocess, 'run', side_effect=run) as calls:
+            self.certificates.restore(self.cluster)
+        create = next(c for c in calls.call_args_list if c.args[0][0] == 'kubectl')
+        doc = json.loads(create.kwargs['input'])
+        self.assertEqual(create.args[0], ['kubectl', 'create', '-f', '-'])
+        self.assertEqual(doc['data'], self.data)
+        self.assertNotIn('ownerReferences', doc['metadata'])
+        self.assertNotIn('resourceVersion', doc['metadata'])
+
+    def test_existing_live_credentials_are_not_overwritten(self):
+        name = self.certificates.key_name(self.prefix, self.entry['metadata'])
+        self.cluster.object.return_value = {'data': {'tls.key': 'live-renewed-key'}}
+        with patch.object(self.certificates, 'command', side_effect=[json.dumps([{'name': name}]), json.dumps(self.entry)]), \
+             patch.object(self.certificates, 'validate', return_value=datetime(2100, 1, 1, tzinfo=timezone.utc)):
+            self.certificates.restore(self.cluster)
+        self.cluster.manifest.assert_not_called()
+
+    def test_expired_backup_is_skipped_and_another_cluster_is_not_loaded(self):
+        from datetime import datetime, timezone
+        name = self.certificates.key_name(self.prefix, self.entry['metadata'])
+        with patch.object(self.certificates, 'command', side_effect=[json.dumps([{'name': name}, {'name': 'other-cluster'}]), json.dumps(self.entry)]) as command, \
+             patch.object(self.certificates, 'validate', return_value=datetime(2000, 1, 1, tzinfo=timezone.utc)):
+            self.certificates.restore(self.cluster)
+        self.assertEqual(command.call_count, 2)
+        self.cluster.object.assert_not_called()
+        self.cluster.manifest.assert_not_called()
+
+    def test_save_selects_only_current_public_tls_and_uses_private_file_not_cli_value(self):
+        public = {'metadata': {'namespace': 'app', 'generation': 2}, 'spec': {
+            'issuerRef': self.certificates.ISSUER, 'secretName': 'app-tls', 'dnsNames': ['app.example.test']},
+            'status': {'conditions': [{'type': 'Ready', 'status': 'True', 'observedGeneration': 2}]}}
+        internal = {**public, 'spec': {**public['spec'], 'issuerRef': {'name': 'database-ca'}}}
+        self.cluster.objects.return_value = [internal, public]
+        self.cluster.object.return_value = {'metadata': {'annotations': {'cert-manager.io/issuer-name': 'letsencrypt-azuredns',
+                                                                        'kubectl.kubernetes.io/last-applied-configuration': 'discard'}},
+                                            'type': 'kubernetes.io/tls', 'data': {**self.data, 'password': 'discard'}}
+        def command(*args):
+            if 'api-resources' in args:
+                return 'certificates.cert-manager.io\n'
+            self.assertNotIn('--value', args)
+            path = Path(args[args.index('--file') + 1])
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            saved = json.loads(path.read_text())
+            self.assertEqual(set(saved['data']), {'tls.key', 'tls.crt'})
+            self.assertEqual(list(saved['metadata']['annotations']), ['cert-manager.io/issuer-name'])
+            return ''
+        from datetime import datetime, timezone
+        with patch.object(self.certificates, 'command', side_effect=command), \
+             patch.object(self.certificates, 'validate', return_value=datetime(2100, 1, 1, tzinfo=timezone.utc)):
+            self.certificates.save(self.cluster)
+        self.cluster.object.assert_called_once_with('secret', 'app-tls', 'app')
+
+
+class CertificateLifecycleOrderingTests(unittest.TestCase):
+    def test_failed_backup_warns_but_requested_teardown_still_finishes(self):
+        cluster = Mock(settings={})
+        events = []
+        cluster.cleanup.side_effect = lambda: events.append('cleanup')
+        cluster.cancel_node_upgrades.side_effect = lambda: events.append('upgrades')
+        with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap']), \
+             patch('helm_chart.scripts.cluster.already_down', return_value=False), \
+             patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
+             patch('helm_chart.scripts.cluster.certificates.save', side_effect=OSError('private diagnostic')) as save, \
+             patch('builtins.print') as output:
+            main()
+        save.assert_called_once_with(cluster)
+        self.assertEqual(events, ['cleanup', 'upgrades'])
+        self.assertIn('continuing requested teardown', str(output.call_args))
+        self.assertNotIn('private diagnostic', str(output.call_args))
+
+    def test_up_restores_public_tls_before_any_platform_seed(self):
+        cluster = Mock(settings={'runtime': {}, 'storage_containers': {}})
+        cluster.sso.return_value = {}
+        cluster.object.return_value = None
+        cluster.account = {'tenant_id': 'tenant', 'subscription_id': 'subscription'}
+        events = []
+        cluster.seed.side_effect = lambda _: events.append('seed')
+        cluster.ready.side_effect = lambda: events.append('ready')
+        cluster.ingress_ready.side_effect = lambda _: events.append('https')
+        with patch('sys.argv', ['cluster.py', 'up', '--infra-dir', '/bootstrap']), \
+             patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
+             patch('helm_chart.scripts.cluster.certificates.restore', side_effect=lambda _: events.append('restore')), \
+             patch('helm_chart.scripts.cluster.prepare_credentials'), \
+             patch('helm_chart.scripts.cluster.prepare_sonarqube', side_effect=lambda *args: events.append('sonarqube')):
+            main()
+        self.assertEqual(events, ['restore', 'seed', 'sonarqube', 'seed', 'ready', 'https'])
 
 
 if __name__ == '__main__':
