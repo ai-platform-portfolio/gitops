@@ -138,6 +138,34 @@ are left in place. Dependency changes can expand the target's plan, so review
 `make foundry-plan` before applying. Like `make up`, `make foundry-up` automatically
 approves a newly computed plan rather than applying a saved plan.
 
+## AKS without platform services
+
+From the repository root:
+
+```sh
+make aks-plan
+make aks-up
+```
+
+These commands target `module.aks`, reusing the existing backend, tfvars and Azure
+CLI authentication. Terraform includes its resource group and networking
+dependencies. The target provisions AKS, its configured node pools, control-plane
+identity and network/registry role assignments. It does not provision Foundry,
+PostgreSQL, an APIM instance, Argo or platform packages. Run `make context` after
+creation to select the cluster; `make aks-up` does not change your kubeconfig.
+
+AKS and Foundry do not depend on each other's service resources, so either target
+can provision its component while leaving the other service in place. Both still
+share the bootstrap state, resource group and networking: changes to those shared
+dependencies can affect both. Review each targeted plan, especially after network
+configuration changes. This is separate provisioning, not separate environments
+or independent state. `make down` remains a full-platform teardown.
+
+As with `make foundry-up`, targeting gives a partial plan and may leave root outputs
+incomplete. `make aks-up` automatically approves a newly computed plan; it does
+not consume a saved `make aks-plan` result. Use `make plan` to review full-platform
+changes before running `make up`.
+
 ## AKS control-plane tier
 
 `aks.sku_tier` selects the existing AKS module's control-plane tier. The caller
