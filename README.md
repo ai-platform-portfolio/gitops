@@ -91,10 +91,10 @@ guarantee recovery from Azure's `InvalidResponseFromPrivateLinkService` failure.
 Failures stop visibly with partially created infrastructure potentially running;
 there is no custom endpoint deletion or hidden apply retry.
 
-Bootstrap's moved block preserves the existing endpoint and conditionally
-imports its formerly embedded DNS zone group, so the migration needs no manual
-state commands and a fresh environment follows the normal create path. Review
-the migration plan before applying; it must not replace the existing endpoint.
+The Foundry provider change is intended for a fresh rebuild after teardown.
+No moved blocks or DNS adoption logic are included. Tear down with the currently
+deployed configuration before using this version; do not apply it over the old
+AzureRM endpoint state.
 
 Before ordered teardown, `make down` saves currently Ready public ACME TLS
 Secrets to the **existing persistent Key Vault**. `make up` restores valid matching

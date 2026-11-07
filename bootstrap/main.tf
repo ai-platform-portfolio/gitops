@@ -37,26 +37,6 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
   key_vault_id = data.azurerm_key_vault.platform.id
 }
 
-# This deployment's provider migration belongs in the caller, not the library.
-moved {
-  from = module.foundry.azurerm_private_endpoint.this
-  to   = module.foundry.azapi_resource.private_endpoint
-}
-
-# AzureRM embedded this child in its endpoint state. Import it once when present;
-# a new environment gets a normal create. Names remain owned by the module.
-data "azapi_resource" "foundry_dns_zone_group" {
-  type             = "Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2025-01-01"
-  resource_id      = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.azure.resource_group_name}/providers/Microsoft.Network/privateEndpoints/${module.foundry.private_endpoint_name}/privateDnsZoneGroups/${module.foundry.private_dns_zone_group_name}"
-  ignore_not_found = true
-}
-
-import {
-  for_each = data.azapi_resource.foundry_dns_zone_group.exists ? { existing = data.azapi_resource.foundry_dns_zone_group.id } : {}
-  to       = module.foundry.azapi_resource.private_dns_zone_group
-  id       = each.value
-}
-
 locals {
   argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
 
@@ -97,11 +77,6 @@ resource "azurerm_private_dns_zone" "private" {
 }
 
 # Keep each network one module instance; the caller owns repetition and regions.
-moved {
-  from = module.network
-  to   = module.network["management"]
-}
-
 module "network" {
   for_each = merge({ management = merge(var.network, { location = var.azure.location }) }, {
     model_gateway = merge(var.model_gateway.network, { location = var.model_gateway.location })
@@ -215,15 +190,10 @@ module "aso_identity" {
   tags = var.azure.tags
 }
 
-moved {
-  from = module.identities["aso"]
-  to   = module.aso_identity
-}
-
 # Consumers own their inference identities and role assignments separately.
 # This module owns the account, projects, deployments and private endpoint.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=d5844b781374cb702e1ef494b920310398e73457"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=8bc5a507275f9c5d21667f32208f5b4e05e92dd4"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
@@ -297,17 +267,6 @@ module "entra_applications" {
     resource_principal_id = data.azuread_service_principal.microsoft_graph.object_id
     app_role_id           = data.azuread_service_principal.microsoft_graph.app_role_ids[name]
   } }
-}
-
-# Preserve existing registrations when switching to keyed module instances.
-moved {
-  from = module.argocd_sso
-  to   = module.entra_applications["argocd"]
-}
-
-moved {
-  from = module.crossplane_identity
-  to   = module.entra_applications["crossplane"]
 }
 
 # Azure can report AKS and its API allowlist update as complete before clients
