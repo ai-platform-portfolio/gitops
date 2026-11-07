@@ -190,10 +190,10 @@ module "aso_identity" {
   tags = var.azure.tags
 }
 
-# Bootstrap grants the authenticated caller Foundry access; application consumers
+# Bootstrap grants the operator group Foundry access; application consumers
 # retain separate ownership of their runtime identities and role assignments.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=ebc4eab1a8b3f630ac11079939e96ed32446aa1d"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=efc2ad735bbfbc3033a6404e40d9c005597e4519"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
@@ -205,10 +205,12 @@ module "foundry" {
   deployments                = var.foundry.deployments
   tags                       = var.azure.tags
 
-  inference_principal_id           = data.azurerm_client_config.current.object_id
-  inference_role_name              = "Foundry User"
-  inference_principal_type         = null
-  skip_service_principal_aad_check = false
+  role_assignments = {
+    aks_admins = {
+      principal_id         = data.azuread_group.aks_admin.object_id
+      role_definition_name = "Foundry Owner"
+    }
+  }
 
   depends_on = [module.network["management"]]
 }
