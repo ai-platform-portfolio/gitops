@@ -56,6 +56,12 @@ rather than the Terraform caller. Application consumers retain separate ownershi
 of their runtime identities and role assignments; do not manage this group grant
 elsewhere.
 
+The existing Foundry managed identity, attached to the account and its projects,
+also receives `Foundry User` on the account through the same assignment map.
+Projects inherit this grant, allowing project services such as memory stores to
+use their managed identity independently of the operator's user permissions.
+Its principal ID comes from the managed-identity module output.
+
 `argocd-values.yaml` holds deployment settings and group RBAC.
 `argocd-configmap.yaml` is the actual commented Argo resource, including OIDC,
 installed by the same Helm release. Terraform renders both templates, supplying
