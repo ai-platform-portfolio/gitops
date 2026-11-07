@@ -83,6 +83,7 @@ variable "foundry" {
 
   type = object({
     name                        = string
+    authorized_ip_ranges_secret = string
     location                    = string
     private_endpoint_subnet_key = string
     private_dns_zone_keys       = set(string)

@@ -117,6 +117,7 @@ private_dns = {
 
 foundry = {
   name                        = "foundry-management-portfolio"
+  authorized_ip_ranges_secret = "foundry-authorized-ip-ranges"
   location                    = "uksouth"
   private_endpoint_subnet_key = "snet-pe-management"
   private_dns_zone_keys       = ["openai", "cognitiveservices", "services_ai"]

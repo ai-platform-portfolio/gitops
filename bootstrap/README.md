@@ -27,12 +27,20 @@ private endpoint in the dedicated subnet. The independent `private_dns` map
 owns zone definitions; `vnet_link` defaults to `false`, and the reusable network
 module creates links only for zones that opt in. Foundry selects zones by key, so
 other resources can use the same DNS configuration. The account uses
-its own user-assigned identity. Public network access and local key authentication
-are disabled by the pinned module defaults. The approved live operator exception
-enables selected-IP public access with default-deny and 11 IP rules, while local
-authentication remains disabled and the private endpoint remains available. This
-exception is not yet represented in Terraform: a full-root apply would remove it
-and must be reviewed. Actual IP ranges stay out of Git.
+its own user-assigned identity. The reusable module defaults to private-only
+networking and disabled local key authentication. This bootstrap explicitly enables
+selected-IP public access for operator browser access while retaining its private
+endpoint, default-deny firewall, no trusted-service bypass and disabled key auth.
+
+`foundry.authorized_ip_ranges_secret` names a secret in the existing platform Key
+Vault containing a JSON array of allowed public IPv4 addresses or CIDRs. The
+operator allowlist contains the current public IPv4 plus five adjacent addresses
+either side (11 addresses total). Actual addresses stay out of Git. Bootstrap
+reads the secret as sensitive data and passes it to the module's sensitive
+`network_acls` input. Terraform redacts the values from normal plans, but stores
+them in the encrypted backend and saved plans. Do not publish raw plan JSON.
+Update the secret and review `make foundry-plan` when the operator public IP
+changes; changes take effect only after applying Terraform.
 
 The existing public `foundry-portfolio`
 account is outside this root and is not adopted or changed. Model deployment
@@ -111,9 +119,9 @@ account, project, model deployment and private endpoint. It does not provision
 AKS, an APIM instance, PostgreSQL, Argo, federated credentials or platform packages.
 No Kubernetes tooling or cluster context is needed for these commands.
 
-Foundry retains the module's private-only networking and disabled local key
-authentication defaults. Clients still need private network connectivity and
-appropriate Entra permissions. Bootstrap grants the AKS administrator group
+Foundry retains its private endpoint and disabled local key authentication.
+Clients need private network connectivity or an allowlisted public source IP,
+plus appropriate Entra permissions. Bootstrap grants the AKS administrator group
 `Foundry Owner`; other clients need their own role assignments.
 
 This is an intentionally partial apply in the same bootstrap state, not a separate
