@@ -130,7 +130,10 @@ foundry = {
       snet-agent-foundry = {
         address_prefixes = ["10.61.0.0/24"]
         delegations = {
-          agents = { service = "Microsoft.App/environments" }
+          agents = {
+            service = "Microsoft.App/environments"
+            actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+          }
         }
       }
 
