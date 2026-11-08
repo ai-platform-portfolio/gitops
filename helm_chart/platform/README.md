@@ -152,6 +152,6 @@ service is inferred from management syncs. Configure service projects in GitOps.
 [Redis Open Source](packages/redis/README.md) installs a small persistent, TLS-only
 ClusterIP service with native certificate-to-ACL authentication. Certificate
 issuance precedes Redis, which precedes Langfuse; teardown reverses that order.
-`redis.enabled` installs the package. `langfuse.redis.useShared` selects the client
-connection after the documented PVC-retention and queue-drain migration gates.
+`redis.enabled` installs the package. `langfuse.redis.useShared` selects the
+client connection; it is enabled for this unused installation.
 Argo retains its dedicated bootstrap Redis. No network policies are added.

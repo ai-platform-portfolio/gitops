@@ -606,7 +606,6 @@ def main():
             inputs = variant['spec']['source']['helm']['valuesObject']
             assert inputs['redis'].get('deploy', True) != shared
             if not shared:
-                assert inputs['redis']['dataStorage']['annotations']['argocd.argoproj.io/sync-options'] == 'Prune=false,Delete=false'
                 continue
             assert inputs['redis']['auth'] == {'username': None, 'password': None, 'existingSecret': '', 'usersExistingSecret': ''}
             tls = inputs['redis']['tls']
@@ -1212,11 +1211,7 @@ def main():
                     assert config['processors']['filter/langfuse']['error_mode'] == 'propagate'
                     assert config['exporters']['otlp_http/langfuse']['headers']['Authorization'] == '${env:LANGFUSE_AUTHORIZATION}'
                 if name == 'langfuse':
-                    if database_values['redis'].get('deploy', True):
-                        old_pvc = next(d for d in docs if d['kind'] == 'PersistentVolumeClaim' and d['metadata']['name'] == 'langfuse-redis')
-                        assert old_pvc['metadata']['annotations']['argocd.argoproj.io/sync-options'] == 'Prune=false,Delete=false'
-                        assert old_pvc['metadata']['annotations']['helm.sh/resource-policy'] == 'keep'
-                    else:
+                    if database_values['redis'].get('deploy') is False:
                         assert not any(d['metadata']['name'] == 'langfuse-redis' and d['kind'] in ['Deployment', 'StatefulSet', 'PersistentVolumeClaim', 'Secret'] for d in docs)
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
                     assert not any(d['kind'] == 'StatefulSet' and 'postgres' in d['metadata']['name'] for d in docs)

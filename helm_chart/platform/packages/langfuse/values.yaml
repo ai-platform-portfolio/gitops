@@ -117,11 +117,6 @@ redis:
     existingSecret: ""
     usersExistingSecret: ""
 {{- else }}
-  # Reconcile this protection before disabling the bundled Valkey chart.
-  dataStorage:
-    keepPvc: true
-    annotations:
-      argocd.argoproj.io/sync-options: Prune=false,Delete=false
   auth:
     existingSecret: platform-langfuse-redis
     existingSecretPasswordKey: default

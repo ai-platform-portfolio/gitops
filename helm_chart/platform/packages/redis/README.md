@@ -20,7 +20,7 @@ redis:
 
 langfuse:
   redis:
-    useShared: false # Prepare first; enable in the separately reviewed cutover.
+    useShared: true
 ```
 
 Defaults are one instance, 100m CPU/512Mi requested memory, a 1Gi memory limit,
@@ -72,38 +72,25 @@ namespace. cert-manager CA issuance does not automate safe CA trust rollover or
 revocation. Plan overlapping trust and leaf replacement before CA expiry or after
 compromise; never copy the PostgreSQL CA key or claim leaf renewal solves this.
 
-## Langfuse migration and rollback
+## Langfuse connection and validation
 
-Installation/retention preparation and connection cutover are separate PRs.
-**Do not merge the cutover until the preparation has reconciled.** Check:
+`langfuse.redis.useShared: true` disables bundled Valkey, selects the shared
+Service and native CA/client-key paths, adds `REDIS_KEY_PREFIX=langfuse:`, and
+updates both clients' reload annotations. No password enters the new URL.
+The user confirmed this Langfuse installation is unused and authorized direct
+cutover; no queue/data migration or old-store retention is required.
 
-1. Redis, its certificates and Reloader are Synced/Healthy. The reflected
-   `langfuse/langfuse-redis` Secret exists with the expected client CN/issuer;
-   inspect certificate metadata without logging private keys.
-2. `langfuse/langfuse-redis` **PVC** has
-   `argocd.argoproj.io/sync-options: Prune=false,Delete=false` and
-   `helm.sh/resource-policy: keep`. The preparation applies these through the
-   bundled chart's native `dataStorage` values; rendering them is not live proof.
-3. Stop ingestion producers, pause scheduled producers and let workers drain.
-   Using the installed BullMQ API, verify zero waiting, active, delayed,
-   prioritized and waiting-children work in every queue, including paused queues
-   and retry/dead-letter paths. Account for repeatable jobs/job schedulers and
-   any failed jobs to retain/retry. Do not flush queues, infer emptiness from pod
-   health, or copy a Valkey RDB into a different Redis version without validation.
-4. Merge the cutover (`useShared: true`). It disables bundled Valkey, selects the
-   shared Service and native CA/client-key paths, adds `REDIS_KEY_PREFIX=langfuse:`,
-   and updates both clients' reload annotations. No password enters the new URL.
-5. Verify web/worker readiness, enqueue/process a uniquely identified observation,
-   find it through Langfuse, confirm telemetry ingestion, test reconnection and
-   fresh-key renewal, then resume producers. Queue counts/rotation are live gates;
-   local container tests and CI renders do not prove them.
+After deployment, verify Redis and Langfuse Synced/Healthy, the reflected client
+certificate issuer/CN, web/worker TLS connectivity and enqueue/process a uniquely
+identified observation. Verify telemetry ingestion and renewal/reconnection
+without logging private keys. Configured certificate scheduling, Secret reflection
+and reload do not prove a live renewal until exercised together.
 
-The old PVC and existing password Secret remain for rollback. Reverting only the
-connection flag starts the bundled store again; stop producers and drain the
-**new** queue first to avoid stranding work or replaying old pending jobs. Retire
-the old PVC/credential only after successful acceptance in an explicitly reviewed
-cleanup. The PVC retention annotations also retain it on application deletion;
-normal namespace/cluster teardown still removes it. Retention is not a backup.
+A later switch back to bundled Valkey selects a different store; it does not
+transfer pending jobs. Any future installation holding real queue data must
+review its data handling before changing endpoints. The existing bootstrap helper
+still prepares the legacy credential for bundled-store compatibility; shared
+Redis neither accepts nor consumes it. No new static Redis password is introduced.
 
 Sources: [Redis release](https://github.com/redis/redis/releases/tag/8.10.3),
 [Redis configuration](https://github.com/redis/redis/blob/8.10.3/redis.conf),

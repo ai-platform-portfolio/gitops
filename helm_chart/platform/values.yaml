@@ -172,7 +172,6 @@ redis:
 # Native Microsoft sign-in, owned by each cluster's AzureAD provider.
 langfuse:
   redis:
-    # Enable only after the old PVC retention has synced and queues are drained.
     useShared: true
 
   bootstrap:
