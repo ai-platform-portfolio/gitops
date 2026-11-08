@@ -112,8 +112,9 @@ redis:
     certPath: /etc/langfuse-redis/tls.crt
     keyPath: /etc/langfuse-redis/tls.key
   auth:
-    username: null
-    password: null
+    # Argo valuesObject drops nulls; explicit empty strings suppress chart defaults.
+    username: ""
+    password: ""
     existingSecret: ""
     usersExistingSecret: ""
 {{- else }}
