@@ -209,6 +209,7 @@ module "foundry" {
   private_dns_zone_ids       = [for key in var.foundry.private_dns_zone_keys : azurerm_private_dns_zone.private[key].id]
   projects                   = var.foundry.projects
   deployments                = var.foundry.deployments
+  allowed_deployment_skus    = ["DataZoneStandard"]
   tags                       = var.azure.tags
 
   account_settings = { public_network_access_enabled = true }

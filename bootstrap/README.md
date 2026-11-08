@@ -21,9 +21,11 @@ remain separate controls. Their presence does not imply pod-network isolation.
 
 ## Platform dependencies
 
-The management root also declares a new private Foundry account, one management
-project, a regional Standard chat deployment, three private DNS zones and a
-private endpoint in the dedicated subnet. The independent `private_dns` map
+The management root also declares a Foundry account in France Central, one
+management project, a `gpt-6.1-sol` EU Data Zone Standard chat deployment, three
+private DNS zones and a private endpoint in the UK South dedicated subnet.
+The account region alone does not set the processing boundary: the deployment's
+`DataZoneStandard` SKU does. The independent `private_dns` map
 owns zone definitions; `vnet_link` defaults to `false`, and the reusable network
 module creates links only for zones that opt in. Foundry selects zones by key, so
 other resources can use the same DNS configuration. The account uses
@@ -31,6 +33,7 @@ its own user-assigned identity. The reusable module defaults to private-only
 networking and disabled local key authentication. This bootstrap explicitly enables
 selected-IP public access for operator browser access while retaining its private
 endpoint, default-deny firewall, no trusted-service bypass and disabled key auth.
+[Model and deployment-type availability](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability?pivots=standard&tabs=az-europe).
 
 `foundry.authorized_ip_ranges_secret` names a secret in the existing platform Key
 Vault containing a JSON array of allowed public IPv4 addresses or CIDRs. The
@@ -379,15 +382,16 @@ its own first credential. See [Testkube sequencing](../helm_chart/platform/packa
 `model_gateway` in `terraform.tfvars` deploys private Standard v2 API Management
 in UK West, with its own delegated integration subnet and managed identity. The
 same reusable network module creates both VNets; a `moved` block preserves the
-existing management network addresses in state. Existing AKS and Foundry stay in
-UK South. The gateway creates no APIs or subscriptions for application callers.
+existing management network addresses in state. AKS and the Foundry private
+endpoint stay in UK South; the Foundry account is in France Central. The gateway
+creates no APIs or subscriptions for application callers.
 Publisher contact values are demo metadata; replace the unmonitored example
 address before production use.
 
 **Why UK West:** Microsoft's availability table currently marks new APIM v2
 instances in UK South temporarily unavailable. Standard v2's integration VNet
 must be in the same region as APIM, so the gateway uses a separate UK West VNet.
-This does not relocate the existing cluster or Foundry account.
+The APIM region choice does not determine the cluster or Foundry account locations.
 [Regional availability](https://learn.microsoft.com/en-us/azure/api-management/api-management-region-availability)
 and [integration requirements](https://learn.microsoft.com/en-us/azure/api-management/integrate-vnet-outbound).
 
