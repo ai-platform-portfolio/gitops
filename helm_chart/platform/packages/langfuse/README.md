@@ -22,7 +22,16 @@ credential or a security boundary. Kubernetes Secret RBAC protects the client
 private key; CNPG accepts the dedicated certificate identity, with no database
 password or superuser access. No new long-lived authentication secret is added.
 
-Redis, ClickHouse and S3-compatible storage remain bundled and disposable.
+ClickHouse and S3-compatible storage remain bundled and disposable. Redis is
+prepared for a staged move to the [shared Redis package](../redis/README.md).
+With `langfuse.redis.useShared: false`, bundled Valkey stays active and its PVC
+receives native retention annotations. After the documented queue-drain and
+retention gates, `true` disables bundled Valkey and uses the shared Service with
+its own renewable mTLS identity and `langfuse:` key/channel prefix. Both web and
+worker mount the restricted leaf Secret and reload after renewal. Argo's Redis
+is independent. The old PVC and password Secret remain until reviewed cleanup.
+
+The remaining bundled stores and credentials are disposable.
 `values.yaml` references their existing cluster-local Secrets, plus Langfuse's
 application encryption/session keys. Those stores are separate from shared CNPG
 and are not covered by its backups. Existing Secrets are reused within a running

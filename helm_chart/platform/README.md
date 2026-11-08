@@ -146,3 +146,12 @@ SSO overlay with retained backend Basic authentication. Credentials at wave 40
 move management Grafana to wave 45; configuration and policy/collection run at
 70/75, before routes and the final policy/certificate readiness Job. No production
 service is inferred from management syncs. Configure service projects in GitOps.
+
+## Shared Redis
+
+[Redis Open Source](packages/redis/README.md) installs a small persistent, TLS-only
+ClusterIP service with native certificate-to-ACL authentication. Certificate
+issuance precedes Redis, which precedes Langfuse; teardown reverses that order.
+`redis.enabled` installs the package. `langfuse.redis.useShared` selects the client
+connection after the documented PVC-retention and queue-drain migration gates.
+Argo retains its dedicated bootstrap Redis. No network policies are added.

@@ -252,6 +252,7 @@ def main():
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
             'backstage', 'backstage-credentials', 'backstage-reloader',
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
+            'redis', 'redis-certificates', 'redis-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         kargo_acr = next(app for app in applications if app['metadata']['name'] == 'kargo-acr')
@@ -554,6 +555,83 @@ def main():
         waves = {app['metadata']['name']: int(app['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                  for app in applications}
         assert waves['postgres'] < waves['langfuse-credentials'] < waves['langfuse']
+        assert waves['cert-manager'] < waves['redis-certificates'] < waves['redis'] < waves['langfuse']
+        assert waves['reflector'] < waves['redis-certificates'] and waves['redis-reloader'] < waves['redis']
+        redis_app = next(a for a in applications if a['metadata']['name'] == 'redis')
+        redis_docs = list(yaml.safe_load_all(redis_app['spec']['source']['helm']['valuesObject']['manifests']))
+        assert {d['kind'] for d in redis_docs} == {'ServiceAccount', 'Service', 'ConfigMap', 'StatefulSet'}
+        service = next(d for d in redis_docs if d['kind'] == 'Service')
+        assert service['spec']['type'] == 'ClusterIP' and service['spec']['ports'][0]['port'] == 6379
+        statefulset = next(d for d in redis_docs if d['kind'] == 'StatefulSet')
+        pod = statefulset['spec']['template']['spec']
+        assert pod['automountServiceAccountToken'] is False
+        assert pod['nodeSelector'] == {'agentpool': 'platform'}
+        assert pod['securityContext']['runAsNonRoot'] and pod['securityContext']['fsGroup'] == 1000
+        assert pod['securityContext']['seccompProfile']['type'] == 'RuntimeDefault'
+        container = pod['containers'][0]
+        assert 'redis:8.10.3-alpine@sha256:' in container['image']
+        assert container['securityContext'] == {'allowPrivilegeEscalation': False, 'readOnlyRootFilesystem': True, 'capabilities': {'drop': ['ALL']}}
+        assert container['resources']['limits']['memory'] == '1Gi'
+        assert statefulset['spec']['persistentVolumeClaimRetentionPolicy'] == {'whenDeleted': 'Retain', 'whenScaled': 'Retain'}
+        assert all(v.get('secret', {}).get('secretName') != 'redis-ca' for v in pod['volumes'])
+        for probe in ['startupProbe', 'readinessProbe', 'livenessProbe']:
+            check = container[probe]['exec']['command'][-1]
+            assert '--tls' in check and '--cacert' in check and '--cert' in check and '--key' in check
+            assert '--insecure' not in check and '= PONG' in check
+        config = next(d for d in redis_docs if d['kind'] == 'ConfigMap')['data']['redis.conf']
+        assert all(line in config.splitlines() for line in ['port 0', 'tls-auth-clients yes', 'tls-auth-clients-user CN',
+            'maxmemory-policy noeviction', 'appendonly yes', 'appendfsync everysec', 'user default reset off',
+            'user redis-probe reset on resetpass +ping'])
+        assert '~langfuse:* &langfuse:*' in config and '-@dangerous -@admin' in config and 'nopass' not in config
+        certificate_app = next(a for a in applications if a['metadata']['name'] == 'redis-certificates')
+        certs = list(yaml.safe_load_all(certificate_app['spec']['source']['helm']['valuesObject']['manifests']))
+        leaves = [d for d in certs if d['kind'] == 'Certificate' and not d['spec'].get('isCA')]
+        assert len(leaves) == 3
+        for leaf in leaves:
+            assert leaf['spec']['duration'] == '720h' and leaf['spec']['renewBefore'] == '168h'
+            assert leaf['spec']['privateKey']['rotationPolicy'] == 'Always'
+            template = leaf['spec'].get('secretTemplate', {})
+            if leaf['metadata']['name'] == 'langfuse-redis':
+                assert leaf['spec']['commonName'] == 'langfuse'
+                assert template['annotations']['reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces'] == '^langfuse$'
+                assert template['annotations']['reflector.v1.k8s.emberstack.com/reflection-auto-namespaces'] == '^langfuse$'
+            else:
+                assert not template, 'Never reflect the server or probe identity'
+        for enabled, shared in [(False, False), (True, False), (True, True)]:
+            values.write_text(json.dumps({'runtime': runtime, 'redis': {'enabled': enabled}, 'langfuse': {'redis': {'useShared': shared}}}))
+            variants = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
+            names_variant = {d['metadata']['name'] for d in variants}
+            assert ('redis' in names_variant) == enabled
+            variant = next(d for d in variants if d['metadata']['name'] == 'langfuse')
+            inputs = variant['spec']['source']['helm']['valuesObject']
+            assert inputs['redis'].get('deploy', True) != shared
+            if not shared:
+                assert inputs['redis']['dataStorage']['annotations']['argocd.argoproj.io/sync-options'] == 'Prune=false,Delete=false'
+                continue
+            assert inputs['redis']['auth'] == {'username': None, 'password': None, 'existingSecret': '', 'usersExistingSecret': ''}
+            tls = inputs['redis']['tls']
+            assert tls['enabled'] and tls['keyPath'] == '/etc/langfuse-redis/tls.key'
+            values.write_text(json.dumps(inputs))
+            rendered_shared = [d for d in yaml.safe_load_all(command('helm', 'template', 'langfuse', '--repo', variant['spec']['source']['repoURL'],
+                '--version', variant['spec']['source']['targetRevision'], '--namespace', 'langfuse',
+                '--api-versions', 'clickhouse.com/v1alpha1/ClickHouseCluster', '--api-versions', 'clickhouse.com/v1alpha1/KeeperCluster', '-f', str(values))) if d]
+            assert not any('redis' in d['metadata']['name'] and d['kind'] in ['Deployment', 'StatefulSet', 'PersistentVolumeClaim', 'Secret'] for d in rendered_shared)
+            for d in rendered_shared:
+                if d['kind'] != 'Deployment' or d['metadata']['name'] not in ['langfuse-web', 'langfuse-worker']:
+                    continue
+                client_pod = d['spec']['template']['spec']
+                assert client_pod['securityContext']['fsGroup'] == 1000
+                envs = {e['name']: e for e in client_pod['containers'][0]['env']}
+                assert envs['REDIS_CONNECTION_STRING']['value'] == 'rediss://redis.redis.svc.cluster.local:6379/0'
+                assert envs['REDIS_KEY_PREFIX']['value'] == 'langfuse:'
+                assert envs['REDIS_TLS_ENABLED']['value'] == 'true'
+                assert envs['REDIS_TLS_CA_PATH']['value'] == '/etc/langfuse-redis/ca.crt'
+                assert envs['REDIS_TLS_CERT_PATH']['value'] == '/etc/langfuse-redis/tls.crt'
+                assert not {'REDIS_PASSWORD', 'REDIS_AUTH'} & envs.keys()
+                assert 'langfuse-redis' in d['metadata']['annotations']['secret.reloader.stakater.com/reload'].split(',')
+        values.write_text(json.dumps({'runtime': runtime, 'redis': {'enabled': False}, 'langfuse': {'redis': {'useShared': True}}}))
+        invalid = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)], text=True, capture_output=True)
+        assert invalid.returncode and 'langfuse.redis.useShared requires redis.enabled' in invalid.stderr
         assert waves['configuration'] < waves['external-dns'] < min(waves[n] for n in ['platform-events', 'gateway', 'argocd-route', 'routes'])
         database_values = langfuse_app['spec']['source']['helm']['valuesObject']
         assert database_values['postgresql']['deploy'] is False
@@ -1111,7 +1189,7 @@ def main():
                     assert deployment['spec']['template']['metadata']['annotations']['gitops.platform/watch-namespaces'] == checksum
                     assert not any(d['kind'] in {'PodDisruptionBudget', 'NetworkPolicy', 'CustomResourceDefinition'} for d in docs)
                     assert any(d['kind'] == 'Certificate' for d in docs), 'ASO needs internal webhook TLS'
-                if name in {'langfuse-reloader', 'backstage-reloader', 'testkube-reloader', 'devlake-reloader'}:
+                if name in {'langfuse-reloader', 'backstage-reloader', 'testkube-reloader', 'devlake-reloader', 'redis-reloader'}:
                     deployment = next(d for d in docs if d['kind'] == 'Deployment')
                     pod = deployment['spec']['template']['spec']
                     assert pod['securityContext']['runAsNonRoot'] is True
@@ -1134,6 +1212,12 @@ def main():
                     assert config['processors']['filter/langfuse']['error_mode'] == 'propagate'
                     assert config['exporters']['otlp_http/langfuse']['headers']['Authorization'] == '${env:LANGFUSE_AUTHORIZATION}'
                 if name == 'langfuse':
+                    if database_values['redis'].get('deploy', True):
+                        old_pvc = next(d for d in docs if d['kind'] == 'PersistentVolumeClaim' and d['metadata']['name'] == 'langfuse-redis')
+                        assert old_pvc['metadata']['annotations']['argocd.argoproj.io/sync-options'] == 'Prune=false,Delete=false'
+                        assert old_pvc['metadata']['annotations']['helm.sh/resource-policy'] == 'keep'
+                    else:
+                        assert not any(d['metadata']['name'] == 'langfuse-redis' and d['kind'] in ['Deployment', 'StatefulSet', 'PersistentVolumeClaim', 'Secret'] for d in docs)
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
                     assert not any(d['kind'] == 'StatefulSet' and 'postgres' in d['metadata']['name'] for d in docs)
                     assert not any(d['kind'] == 'Secret' and 'postgres' in d['metadata']['name'] for d in docs)
@@ -1153,7 +1237,7 @@ def main():
                         assert url.startswith('postgresql://langfuse@platform-rw.postgres.svc.cluster.local:5432/langfuse?')
                         assert all(arg in url for arg in ['sslmode=require', 'sslaccept=strict', 'sslidentity=/etc/langfuse-postgres/keystore.p12'])
                         assert any(v['mountPath'] == '/etc/langfuse-postgres' and v['readOnly'] for v in container['volumeMounts'])
-                    assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'langfuse-postgres,langfuse-sso'
+                    assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == ('langfuse-postgres,langfuse-redis,langfuse-sso' if database_values['redis'].get('deploy') is False else 'langfuse-postgres,langfuse-sso')
                     env = {e['name']: e for e in web['spec']['template']['spec']['containers'][0]['env']}
                     assert env.get('AUTH_DISABLE_USERNAME_PASSWORD', {}).get('value', 'false') == 'false', 'Keep recovery login until interactive Entra verification'
                     for env_name, key in [('AUTH_AZURE_AD_CLIENT_ID', 'client-id'), ('AUTH_AZURE_AD_CLIENT_SECRET', 'client-secret'), ('AUTH_AZURE_AD_TENANT_ID', 'tenant-id')]:
