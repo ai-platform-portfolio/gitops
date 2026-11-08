@@ -2,15 +2,35 @@ langfuse:
   image:
     tag: "4.76.0"
 
+{{- if .Values.langfuse.redis.useShared }}
+  podSecurityContext:
+    fsGroup: 1000
+{{- end }}
+
   extraVolumes:
+{{- if .Values.langfuse.redis.useShared }}
+    - name: redis-client
+      secret:
+        secretName: langfuse-redis
+        defaultMode: 0440
+{{- end }}
     - name: postgres-client
       secret:
         secretName: langfuse-postgres
   extraVolumeMounts:
+{{- if .Values.langfuse.redis.useShared }}
+    - name: redis-client
+      mountPath: /etc/langfuse-redis
+      readOnly: true
+{{- end }}
     - name: postgres-client
       mountPath: /etc/langfuse-postgres
       readOnly: true
   additionalEnv:
+{{- if .Values.langfuse.redis.useShared }}
+    - name: REDIS_KEY_PREFIX
+      value: "langfuse:"
+{{- end }}
     # Direct CNPG primary for both runtime and Prisma startup migrations.
     # The PKCS#12 wrapping value is public; authentication uses the certificate.
     - name: DATABASE_URL
@@ -33,12 +53,12 @@ langfuse:
   worker:
     deployment:
       annotations:
-        secret.reloader.stakater.com/reload: langfuse-postgres
+        secret.reloader.stakater.com/reload: langfuse-postgres{{ if .Values.langfuse.redis.useShared }},langfuse-redis{{ end }}
 
   web:
     deployment:
       annotations:
-        secret.reloader.stakater.com/reload: langfuse-postgres{{ if .Values.langfuse.sso.enabled }},langfuse-sso{{ end }}
+        secret.reloader.stakater.com/reload: langfuse-postgres{{ if .Values.langfuse.redis.useShared }},langfuse-redis{{ end }}{{ if .Values.langfuse.sso.enabled }},langfuse-sso{{ end }}
 {{- if .Values.langfuse.sso.enabled }}
   auth:
     disableUsernamePassword: {{ .Values.langfuse.sso.disableUsernamePassword }}
@@ -83,10 +103,25 @@ postgresql:
     database: langfuse
 
 redis:
+{{- if .Values.langfuse.redis.useShared }}
+  deploy: false
+  host: redis.redis.svc.cluster.local
+  tls:
+    enabled: true
+    caPath: /etc/langfuse-redis/ca.crt
+    certPath: /etc/langfuse-redis/tls.crt
+    keyPath: /etc/langfuse-redis/tls.key
+  auth:
+    username: null
+    password: null
+    existingSecret: ""
+    usersExistingSecret: ""
+{{- else }}
   auth:
     existingSecret: platform-langfuse-redis
     existingSecretPasswordKey: default
     usersExistingSecret: platform-langfuse-redis
+{{- end }}
 
 s3:
   auth:

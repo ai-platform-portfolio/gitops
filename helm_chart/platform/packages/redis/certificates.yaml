@@ -1,0 +1,74 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: redis-selfsigned
+  namespace: redis
+spec:
+  selfSigned: {}
+
+---
+# Dedicated trust anchor; never distribute its signing key to clients.
+# Leaf-key rotation below does not automate CA trust rollover.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: redis-ca
+  namespace: redis
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: redis-ca
+  commonName: redis-internal-ca
+  isCA: true
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    rotationPolicy: Never
+    algorithm: ECDSA
+    size: 256
+  issuerRef: {name: redis-selfsigned, kind: Issuer}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: redis-ca
+  namespace: redis
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ca:
+    secretName: redis-ca
+
+{{- range $name, $identity := dict "redis-server" (dict "cn" "redis-server" "usage" "server auth") "redis-probe" (dict "cn" "redis-probe" "usage" "client auth") "langfuse-redis" (dict "cn" "langfuse" "usage" "client auth") }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $name }}
+  namespace: redis
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  secretName: {{ $name }}
+  commonName: {{ $identity.cn }}
+{{- if eq $name "redis-server" }}
+  dnsNames: [redis, redis.redis, redis.redis.svc, redis.redis.svc.cluster.local]
+{{- end }}
+  duration: 720h
+  renewBefore: 168h
+  privateKey:
+    rotationPolicy: Always
+    algorithm: ECDSA
+    size: 256
+  usages: [digital signature, {{ $identity.usage }}]
+  issuerRef: {name: redis-ca, kind: Issuer}
+{{- if eq $name "langfuse-redis" }}
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^langfuse$"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^langfuse$"
+{{- end }}
+{{- end }}

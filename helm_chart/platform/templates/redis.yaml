@@ -1,0 +1,105 @@
+{{- if and .Values.langfuse.redis.useShared (not .Values.redis.enabled) }}
+{{- fail "langfuse.redis.useShared requires redis.enabled" }}
+{{- end }}
+{{- if .Values.redis.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis-reloader
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: redis
+
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: "2.2.18"
+    helm:
+      releaseName: redis-reloader
+      valuesObject:
+        reloader:
+          watchGlobally: false
+          ignoreJobs: true
+          ignoreCronJobs: true
+          reloadStrategy: annotations
+          deployment:
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: [ALL]}
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {memory: 128Mi}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis-certificates
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: redis
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/redis/certificates.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: redis
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/redis/resources.yaml") . | indent 10 }}
+
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- $reload := dict "group" "apps" "kind" "StatefulSet" "name" "redis" "namespace" "redis" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
+{{ toYaml $policy | indent 2 }}
+{{- end }}

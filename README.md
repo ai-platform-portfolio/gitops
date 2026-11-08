@@ -63,16 +63,18 @@ Principal IDs, resource names and the ACME email are environment metadata, so
 they can live in the tracked deployment configuration. Credentials,
 private keys, Terraform state and backend configuration stay out of Git.
 
-The portfolio configuration uses one Standard_D4as_v4 system node and two
-Standard_D4as_v4 application nodes (4 vCPUs / 16 GiB each). A single application
-node supports eight attached Azure disks, all consumed by the shared database and
-observability stack; the bundled Langfuse stores need five more. Two application
-nodes provide 16 disk slots without placing applications on the system node.
-This uses 12 of the 18 available Dasv4-family vCPUs in UK South, or 16 with one
-surge node. Upgrade pools one at a time within that quota. Both regional and
-VM-family quotas must cover the deployment and upgrade surge. Physical capacity
-is allocated only at deployment.
-See the configuration guide for prerequisites and limits.
+The portfolio configuration uses one Standard_D4as_v4 system node and three
+Standard_D4as_v4 application nodes (4 vCPUs / 16 GiB each). Each application node
+supports eight attached Azure disks, providing 24 slots for the platform stores.
+The shared Redis adds one disk; current placement and reservations must still
+leave room on an eligible application node.
+
+On 2026-11-08, the deployment used 16 vCPUs against UK South limits of 18 for
+Dasv4 and 100 regionally. One additional D4as_v4 surge node requires 20 family
+vCPUs, so the measured family quota does not cover that upgrade headroom.
+Redis fits on the existing nodes and requires no node increase. Recheck both
+regional and VM-family quotas before upgrades or scaling; quota and physical
+capacity are separate checks. See the configuration guide for prerequisites.
 
 The AKS API is public and restricted by the CIDRs in the existing Key Vault secret
 named by `aks.authorized_ip_ranges_secret`. The secret contains a JSON array of
