@@ -173,7 +173,7 @@ redis:
 langfuse:
   redis:
     # Enable only after the old PVC retention has synced and queues are drained.
-    useShared: false
+    useShared: true
 
   bootstrap:
     organization: platform
