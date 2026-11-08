@@ -607,7 +607,7 @@ def main():
             assert inputs['redis'].get('deploy', True) != shared
             if not shared:
                 continue
-            assert inputs['redis']['auth'] == {'username': None, 'password': None, 'existingSecret': '', 'usersExistingSecret': ''}
+            assert inputs['redis']['auth'] == {'username': '', 'password': '', 'existingSecret': '', 'usersExistingSecret': ''}
             tls = inputs['redis']['tls']
             assert tls['enabled'] and tls['keyPath'] == '/etc/langfuse-redis/tls.key'
             values.write_text(json.dumps(inputs))
