@@ -83,10 +83,22 @@ variable "foundry" {
 
   type = object({
     name                        = string
-    authorized_ip_ranges_secret = string
     location                    = string
     private_endpoint_subnet_key = string
+    agent_subnet_key            = string
     private_dns_zone_keys       = set(string)
+
+    network = object({
+      name          = string
+      address_space = list(string)
+      subnets = map(object({
+        address_prefixes = list(string)
+        delegations = optional(map(object({
+          service = string
+          actions = optional(list(string), ["Microsoft.Network/virtualNetworks/subnets/action"])
+        })), {})
+      }))
+    })
 
     projects = map(object({
       display_name = optional(string)
