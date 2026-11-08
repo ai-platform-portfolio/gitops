@@ -37,6 +37,7 @@ spec:
   issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
   subject: system:serviceaccount:atlas-system:atlas-operator
 
+{{ if $pg.enabled }}
 ---
 # The AKS group administrator remains Terraform-owned. This separate child
 # grants the trusted Atlas operator SQL administration without a password.
@@ -51,3 +52,4 @@ spec:
   principalName: {{ $pg.identityName | quote }}
   principalType: ServicePrincipal
   tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+{{ end }}

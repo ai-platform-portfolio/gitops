@@ -138,7 +138,7 @@ are left in place. Dependency changes can expand the target's plan, so review
 `make foundry-plan` before applying. Like `make up`, `make foundry-up` automatically
 approves a newly computed plan rather than applying a saved plan.
 
-## AKS without platform services
+## AKS with platform packages and previews
 
 From the repository root:
 
@@ -147,24 +147,51 @@ make aks-plan
 make aks-up
 ```
 
-These commands target `module.aks`, reusing the existing backend, tfvars and Azure
-CLI authentication. Terraform includes its resource group and networking
-dependencies. The target provisions AKS, its configured node pools, control-plane
-identity and network/registry role assignments. It does not provision Foundry,
-PostgreSQL, an APIM instance, Argo or platform packages. Run `make context` after
-creation to select the cluster; `make aks-up` does not change your kubeconfig.
+`make aks-up` provisions AKS, Argo and the existing identity/storage prerequisites,
+then runs the same `cluster.py up` lifecycle as `make up`: seed the platform root,
+install the enabled packages, configure SonarQube and wait for reconciliation,
+repository discovery, preview automation and verified Argo HTTPS. It also selects
+the cluster in kubeconfig. In-cluster CNPG PostgreSQL remains part of the platform;
+the Terraform-owned Azure PostgreSQL server and APIM instance are excluded.
 
-AKS and Foundry do not depend on each other's service resources, so either target
-can provision its component while leaving the other service in place. Both still
-share the bootstrap state, resource group and networking: changes to those shared
-dependencies can affect both. Review each targeted plan, especially after network
-configuration changes. This is separate provisioning, not separate environments
-or independent state. `make down` remains a full-platform teardown.
+### Deferred staging and production
 
-As with `make foundry-up`, targeting gives a partial plan and may leave root outputs
-incomplete. `make aks-up` automatically approves a newly computed plan; it does
-not consume a saved `make aks-plan` result. Use `make plan` to review full-platform
-changes before running `make up`.
+The switches are in [`helm_chart/platform/values.yaml`](../helm_chart/platform/values.yaml):
+
+```yaml
+argocd:
+  onboarding:
+    profiles: [previews] # Add environments to discover deploy/environments.yaml.
+
+atlas:
+  azurePostgres:
+    enabled: false # Enable the server administrator binding after provisioning.
+```
+
+`templates/application-onboarding.yaml` generates only the configured discovery
+ApplicationSets. Repository `deploy/previews.yaml` intent is discovered as usual;
+`deploy/environments.yaml` staging/production registrations are deferred. The
+Atlas operator identity and federation remain installed, while
+`packages/atlas/azure-resources.yaml` omits its Azure PostgreSQL administrator.
+To restore staging/production, provision the configured Azure PostgreSQL server,
+set `atlas.azurePostgres.enabled: true`, then add `environments` to the profiles.
+The chart rejects environments discovery while the server binding is disabled.
+These switches do not create the Azure server. Removing a discovery profile on
+an already deployed platform can prune its registrations and environments; this
+configuration is for the current cluster with no application registrations yet.
+
+AKS and Foundry still share bootstrap state, resource group and networking.
+Platform identities include ASO authority on the existing Foundry account and
+Holmes can manage its own inference role through GitOps. The targets do not
+explicitly select Foundry, but ASO references its account as a role-scope dependency.
+Review the plan for changes to that dependency and shared networking before applying. This is separate provisioning, not independent state.
+`make down` remains a full-platform teardown.
+
+Targeting gives a partial Terraform plan. The selected prerequisites supply the
+outputs required by the platform lifecycle. `make aks-up` automatically approves
+a newly computed plan; it does not consume a saved `make aks-plan` result.
+`make aks-plan` previews Terraform only, not Argo's later package reconciliation.
+Use `make plan` to review full-platform changes before running `make up`.
 
 ## AKS control-plane tier
 

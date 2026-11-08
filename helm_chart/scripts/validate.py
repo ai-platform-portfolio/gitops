@@ -86,6 +86,19 @@ def main():
         postgres = next(d for d in hba_render if d and d['kind'] == 'Application' and d['metadata']['name'] == 'postgres')
         cluster = next(d for d in yaml.safe_load_all(postgres['spec']['source']['helm']['valuesObject']['manifests']) if d and d['kind'] == 'Cluster')
         assert cluster['spec']['postgresql']['pg_hba'][-2:] == [hba_rule, 'host all all all reject']
+        assert {d['metadata']['name'] for d in hba_render if d and d['kind'] == 'ApplicationSet'} == {'application-previews'}
+        atlas_azure = next(d for d in hba_render if d and d['metadata']['name'] == 'atlas-azure')
+        azure_docs = [d for d in yaml.safe_load_all(atlas_azure['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        assert {d['kind'] for d in azure_docs} == {'UserAssignedIdentity', 'FederatedIdentityCredential'}, 'Deferred server must not block Atlas identity setup'
+        for profiles, message in [
+            (['previews', 'environments'], 'environments onboarding requires atlas.azurePostgres.enabled'),
+            (['unknown'], 'argocd.onboarding.profiles supports only previews and environments'),
+        ]:
+            values.write_text(json.dumps({'runtime': runtime, 'argocd': {'onboarding': {'profiles': profiles}}}))
+            rejected = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)],
+                                      text=True, capture_output=True)
+            assert rejected.returncode and message in rejected.stderr
+
         # Preview TLS is shared infrastructure, with no per-application allowlist.
         for role in ['management', 'workload']:
             for preview, hostname in [
@@ -112,7 +125,7 @@ def main():
                     assert gateway['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
                     if role == 'management':
                         registrations = [d for d in apps if d and d.get('kind') == 'ApplicationSet']
-                        assert len(registrations) == 2
+                        assert {r['metadata']['name'] for r in registrations} == {'application-previews'}
                         for registration in registrations:
                             source = registration['spec']['template']['spec']['sources'][0]
                             previews = source['helm']['valuesObject']['platform']['argocd']['previews']
@@ -170,7 +183,10 @@ def main():
             except subprocess.CalledProcessError:
                 continue
             raise AssertionError('Invalid Atlantis GitOps input was accepted: ' + label)
-        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis}))
+        # Also validate the explicitly restored staging/production configuration.
+        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis,
+                                      'argocd': {'onboarding': {'profiles': ['previews', 'environments']}},
+                                      'atlas': {'azurePostgres': {'enabled': True}}}))
         argo_values = tmp / 'argocd.json'
         argo_values.write_text(json.dumps({**bootstrap_values, 'extraObjects': [configmap]}))
         version = re.search(r'chart_version\s*=\s*"([^"]+)"', (bootstrap / 'terraform.tfvars').read_text())[1]
