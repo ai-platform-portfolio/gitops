@@ -1,0 +1,43 @@
+# Stable while the database exists; regenerated only with a disposable cluster.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: langfuse-otel
+  namespace: langfuse
+spec:
+  length: 48
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+
+---
+
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: langfuse-otel
+  namespace: langfuse
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: langfuse-otel
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      metadata:
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^opentelemetry$"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^opentelemetry$"
+      data:
+        public-key: '{{ "{{ printf \"pk-lf-%s\" (.password | sha256sum) }}" }}'
+        secret-key: '{{ "{{ printf \"sk-lf-%s\" .password }}" }}'
+        authorization: 'Basic {{ "{{ printf \"pk-lf-%s:sk-lf-%s\" (.password | sha256sum) .password | b64enc }}" }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: langfuse-otel
