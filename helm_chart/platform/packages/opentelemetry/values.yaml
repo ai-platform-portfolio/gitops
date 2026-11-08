@@ -3,8 +3,26 @@ image:
   repository: otel/opentelemetry-collector-contrib
 command:
   name: otelcol-contrib
+# The application exports no Langfuse key; authentication stays in the collector.
+extraEnvs:
+  - name: LANGFUSE_AUTHORIZATION
+    valueFrom:
+      secretKeyRef: { name: langfuse-otel, key: authorization }
+
 config:
+  processors:
+    filter/langfuse:
+      error_mode: propagate
+      traces:
+        span:
+          - 'resource.attributes["langfuse.export"] != "true" and attributes["langfuse.export"] != "true"'
+
   exporters:
+    otlp_http/langfuse:
+      endpoint: http://langfuse-web.langfuse.svc.cluster.local:3000/api/public/otel
+      headers:
+        Authorization: ${env:LANGFUSE_AUTHORIZATION}
+        x-langfuse-ingestion-version: "4"
     otlp_grpc/tempo:
       endpoint: tempo.lgtm.svc.cluster.local:4317
       tls:
@@ -18,6 +36,11 @@ config:
       traces:
         exporters:
         - otlp_grpc/tempo
+      traces/langfuse:
+        receivers: [otlp]
+        processors: [memory_limiter, filter/langfuse, batch]
+        exporters: [otlp_http/langfuse]
+
       logs:
         exporters:
         - otlp_http/loki

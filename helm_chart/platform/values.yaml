@@ -160,6 +160,10 @@ backstage:
 
 # Native Microsoft sign-in, owned by each cluster's AzureAD provider.
 langfuse:
+  bootstrap:
+    organization: platform
+    project: agents
+
   sso:
     enabled: true
     # Keep recovery login until the profile email and browser SSO are verified.

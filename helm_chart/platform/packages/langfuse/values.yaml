@@ -1,4 +1,7 @@
 langfuse:
+  image:
+    tag: "4.76.0"
+
   extraVolumes:
     - name: postgres-client
       secret:
@@ -12,6 +15,21 @@ langfuse:
     # The PKCS#12 wrapping value is public; authentication uses the certificate.
     - name: DATABASE_URL
       value: postgresql://langfuse@platform-rw.postgres.svc.cluster.local:5432/langfuse?sslmode=require&sslaccept=strict&sslcert=/etc/langfuse-postgres/ca.crt&sslidentity=/etc/langfuse-postgres/keystore.p12&sslpassword=changeit
+    - name: LANGFUSE_INIT_ORG_ID
+      value: {{ required "langfuse.bootstrap.organization is required" .Values.langfuse.bootstrap.organization | quote }}
+    - name: LANGFUSE_INIT_ORG_NAME
+      value: {{ required "langfuse.bootstrap.organization is required" .Values.langfuse.bootstrap.organization | quote }}
+    - name: LANGFUSE_INIT_PROJECT_ID
+      value: {{ required "langfuse.bootstrap.project is required" .Values.langfuse.bootstrap.project | quote }}
+    - name: LANGFUSE_INIT_PROJECT_NAME
+      value: {{ required "langfuse.bootstrap.project is required" .Values.langfuse.bootstrap.project | quote }}
+    - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+      valueFrom:
+        secretKeyRef: { name: langfuse-otel, key: public-key }
+    - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+      valueFrom:
+        secretKeyRef: { name: langfuse-otel, key: secret-key }
+
   worker:
     deployment:
       annotations:
@@ -43,10 +61,17 @@ langfuse:
       secretKeyRef: { name: platform-langfuse-app, key: nextauth-secret }
     url: https://langfuse.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}
 clickhouse:
+  # Preserve backing-store versions across the application/chart upgrade.
+  cluster:
+    image:
+      tag: "26.4"
+
   auth:
     existingSecret: platform-langfuse-clickhouse
     existingSecretKey: password
   keeper:
+    image:
+      tag: "26.4"
     replicas: 1
 
 # Shared CNPG owns the database/role; no bundled StatefulSet or DB password.

@@ -557,6 +557,8 @@ def main():
         assert waves['configuration'] < waves['external-dns'] < min(waves[n] for n in ['platform-events', 'gateway', 'argocd-route', 'routes'])
         database_values = langfuse_app['spec']['source']['helm']['valuesObject']
         assert database_values['postgresql']['deploy'] is False
+        assert database_values['clickhouse']['cluster']['image']['tag'] == '26.4'
+        assert database_values['clickhouse']['keeper']['image']['tag'] == '26.4'
         credentials_app = next(a for a in applications if a['metadata']['name'] == 'langfuse-credentials')
         credentials_docs = list(yaml.safe_load_all(credentials_app['spec']['source']['helm']['valuesObject']['manifests']))
         reader = next(d for d in credentials_docs if d['kind'] == 'Role')
@@ -564,6 +566,17 @@ def main():
         assert reader['rules'][0]['verbs'] == ['get']
         delivered = next(d for d in credentials_docs if d['kind'] == 'ExternalSecret')
         assert {d['secretKey'] for d in delivered['spec']['data']} == {'keystore.p12', 'ca.crt'}
+        bootstrap_secret = next(d for d in credentials_docs if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'langfuse-otel')
+        target = bootstrap_secret['spec']['target']
+        assert bootstrap_secret['spec']['refreshPolicy'] == 'CreatedOnce'
+        assert target['immutable'] is True and target['creationPolicy'] == 'Orphan'
+        annotations = target['template']['metadata']['annotations']
+        assert annotations['reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces'] == '^opentelemetry$'
+        assert annotations['reflector.v1.k8s.emberstack.com/reflection-auto-namespaces'] == '^opentelemetry$'
+        assert target['template']['data']['authorization'] == 'Basic {{ printf "pk-lf-%s:sk-lf-%s" (.password | sha256sum) .password | b64enc }}'
+        assert target['template']['data']['public-key'] == '{{ printf "pk-lf-%s" (.password | sha256sum) }}'
+        assert target['template']['data']['secret-key'] == '{{ printf "sk-lf-%s" .password }}'
+        assert waves['langfuse-credentials'] < waves['langfuse'] < waves['opentelemetry-collector']
         for app in applications:
             assert re.fullmatch(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?', app['spec']['destination']['namespace']), 'Destination namespace must be a DNS label'
             assert app['spec']['destination']['server'] == 'https://kubernetes.default.svc', 'Packages must reconcile locally'
@@ -1108,6 +1121,18 @@ def main():
                         assert security['allowPrivilegeEscalation'] is False
                         assert security['readOnlyRootFilesystem'] is True
                         assert security['capabilities']['drop'] == ['ALL']
+                if name == 'opentelemetry-collector':
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    container = deployment['spec']['template']['spec']['containers'][0]
+                    auth = next(e for e in container['env'] if e['name'] == 'LANGFUSE_AUTHORIZATION')
+                    assert auth['valueFrom']['secretKeyRef'] == {'name': 'langfuse-otel', 'key': 'authorization'}
+                    configmap = next(d for d in docs if d['kind'] == 'ConfigMap')
+                    config = yaml.safe_load(configmap['data']['relay'])
+                    pipelines = config['service']['pipelines']
+                    assert pipelines['traces']['exporters'] == ['otlp_grpc/tempo']
+                    assert pipelines['traces/langfuse'] == {'receivers': ['otlp'], 'processors': ['memory_limiter', 'filter/langfuse', 'batch'], 'exporters': ['otlp_http/langfuse']}
+                    assert config['processors']['filter/langfuse']['error_mode'] == 'propagate'
+                    assert config['exporters']['otlp_http/langfuse']['headers']['Authorization'] == '${env:LANGFUSE_AUTHORIZATION}'
                 if name == 'langfuse':
                     web = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'langfuse-web')
                     assert not any(d['kind'] == 'StatefulSet' and 'postgres' in d['metadata']['name'] for d in docs)
@@ -1117,7 +1142,12 @@ def main():
                         pod = deployment['spec']['template']['spec']
                         assert any(v.get('secret', {}).get('secretName') == 'langfuse-postgres' for v in pod['volumes'])
                         container = pod['containers'][0]
+                        assert container['image'].endswith(':4.76.0')
                         envs = {e['name']: e for e in container['env']}
+                        assert envs['LANGFUSE_INIT_ORG_ID']['value'] == 'platform'
+                        assert envs['LANGFUSE_INIT_PROJECT_ID']['value'] == 'agents'
+                        assert envs['LANGFUSE_INIT_PROJECT_SECRET_KEY']['valueFrom']['secretKeyRef'] == {'name': 'langfuse-otel', 'key': 'secret-key'}
+                        assert not any(key.startswith('LANGFUSE_INIT_USER_') for key in envs)
                         assert 'DATABASE_PASSWORD' not in envs
                         url = envs['DATABASE_URL']['value']
                         assert url.startswith('postgresql://langfuse@platform-rw.postgres.svc.cluster.local:5432/langfuse?')
