@@ -118,7 +118,7 @@ private_dns = {
 foundry = {
   name                        = "foundry-management-portfolio"
   authorized_ip_ranges_secret = "foundry-authorized-ip-ranges"
-  location                    = "uksouth"
+  location                    = "francecentral"
   private_endpoint_subnet_key = "snet-pe-management"
   private_dns_zone_keys       = ["openai", "cognitiveservices", "services_ai"]
 
@@ -131,9 +131,10 @@ foundry = {
 
   deployments = {
     chat = {
-      model_name    = "gpt-4.1-mini"
-      model_version = "2025-04-14"
+      model_name    = "gpt-6.1-sol"
+      model_version = "2026-09-29"
       capacity      = 10
+      sku_name      = "DataZoneStandard"
     }
   }
 }
@@ -400,7 +401,7 @@ identities = {
 }
 
 # UK South currently blocks new APIM v2 instances; integration VNet must share
-# APIM's region. The existing AKS/Foundry deployment stays in UK South.
+# APIM's region. AKS stays in UK South; Foundry is in France Central.
 model_gateway = {
   name                        = "apim-management-portfolio"
   location                    = "ukwest"
