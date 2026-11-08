@@ -37,12 +37,6 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
   key_vault_id = data.azurerm_key_vault.platform.id
 }
 
-# Redacted in plans, but retained in the encrypted Terraform backend like AKS ranges.
-data "azurerm_key_vault_secret" "foundry_ip_ranges" {
-  name         = var.foundry.authorized_ip_ranges_secret
-  key_vault_id = data.azurerm_key_vault.platform.id
-}
-
 locals {
   argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
 
@@ -84,9 +78,11 @@ resource "azurerm_private_dns_zone" "private" {
 
 # Keep each network one module instance; the caller owns repetition and regions.
 module "network" {
-  for_each = merge({ management = merge(var.network, { location = var.azure.location }) }, {
+  for_each = {
+    management    = merge(var.network, { location = var.azure.location })
     model_gateway = merge(var.model_gateway.network, { location = var.model_gateway.location })
-  })
+    foundry       = merge(var.foundry.network, { location = var.foundry.location })
+  }
 
   source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/network?ref=f4510bed40f1191a5d4d34adfaab1e4dc9ab71ac"
   name                = each.value.name
@@ -101,8 +97,24 @@ module "network" {
       name                  = each.value.name
       resource_group_name   = azurerm_resource_group.this.name
       private_dns_zone_name = azurerm_private_dns_zone.private[key].name
-    } if zone.vnet_link && (each.key == "management" || key == var.model_gateway.private_dns_zone_key)
+    } if zone.vnet_link && (each.key == "management" || (each.key == "foundry" && contains(var.foundry.private_dns_zone_keys, key)) || (each.key == "model_gateway" && key == var.model_gateway.private_dns_zone_key))
   }
+}
+
+resource "azurerm_virtual_network_peering" "management_to_foundry" {
+  name                      = "management-to-foundry"
+  resource_group_name       = azurerm_resource_group.this.name
+  virtual_network_name      = var.network.name
+  remote_virtual_network_id = module.network["foundry"].vnet_id
+}
+
+resource "azurerm_virtual_network_peering" "foundry_to_management" {
+  name                      = "foundry-to-management"
+  resource_group_name       = azurerm_resource_group.this.name
+  virtual_network_name      = var.foundry.network.name
+  remote_virtual_network_id = module.network["management"].vnet_id
+
+  depends_on = [module.network["foundry"]]
 }
 
 # Apply this ownership transfer before teardown; retain the existing Entra object.
@@ -199,21 +211,21 @@ module "aso_identity" {
 # Bootstrap grants the operator group Foundry access; application consumers
 # retain separate ownership of their runtime identities and role assignments.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=ea0578967af6b57e66190d8fe73c8e504cf549cd"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=b87f2b35381b36b6951bf9a067e22d8ab6a8ee40"
   name                       = var.foundry.name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
   managed_identity_id        = module.identities["foundry"].identity_id
-  private_endpoint_location  = var.azure.location
-  private_endpoint_subnet_id = module.network["management"].subnet_ids[var.foundry.private_endpoint_subnet_key]
+  private_endpoint_location  = var.foundry.location
+  private_endpoint_subnet_id = module.network["foundry"].subnet_ids[var.foundry.private_endpoint_subnet_key]
+  agent_subnet_id            = module.network["foundry"].subnet_ids[var.foundry.agent_subnet_key]
   private_dns_zone_ids       = [for key in var.foundry.private_dns_zone_keys : azurerm_private_dns_zone.private[key].id]
   projects                   = var.foundry.projects
   deployments                = var.foundry.deployments
   allowed_deployment_skus    = ["DataZoneStandard"]
   tags                       = var.azure.tags
 
-  account_settings = { public_network_access_enabled = true }
-  network_acls     = { ip_rules = jsondecode(data.azurerm_key_vault_secret.foundry_ip_ranges.value) }
+  account_settings = { public_network_access_enabled = false }
 
   role_assignments = {
     aks_admins = {
@@ -227,7 +239,11 @@ module "foundry" {
     }
   }
 
-  depends_on = [module.network["management"]]
+  depends_on = [
+    module.network["foundry"],
+    azurerm_virtual_network_peering.management_to_foundry,
+    azurerm_virtual_network_peering.foundry_to_management,
+  ]
 }
 
 # One managed server hosts the staging and production databases. The chart and

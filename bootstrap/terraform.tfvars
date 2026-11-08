@@ -117,10 +117,28 @@ private_dns = {
 
 foundry = {
   name                        = "foundry-management-portfolio"
-  authorized_ip_ranges_secret = "foundry-authorized-ip-ranges"
   location                    = "francecentral"
-  private_endpoint_subnet_key = "snet-pe-management"
+  private_endpoint_subnet_key = "snet-pe-foundry"
+  agent_subnet_key            = "snet-agent-foundry"
   private_dns_zone_keys       = ["openai", "cognitiveservices", "services_ai"]
+
+  network = {
+    name          = "vnet-foundry-management"
+    address_space = ["10.61.0.0/16"]
+
+    subnets = {
+      snet-agent-foundry = {
+        address_prefixes = ["10.61.0.0/24"]
+        delegations = {
+          agents = { service = "Microsoft.App/environments" }
+        }
+      }
+
+      snet-pe-foundry = {
+        address_prefixes = ["10.61.1.0/27"]
+      }
+    }
+  }
 
   projects = {
     management = {

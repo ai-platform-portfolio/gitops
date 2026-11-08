@@ -23,27 +23,24 @@ remain separate controls. Their presence does not imply pod-network isolation.
 
 The management root also declares a Foundry account in France Central, one
 management project, a `gpt-6.1-sol` EU Data Zone Standard chat deployment, three
-private DNS zones and a private endpoint in the UK South dedicated subnet.
+private DNS zones and a private endpoint in a France Central dedicated subnet.
+Its delegated `/24` agent subnet enables hosted and prompt-agent egress. Global
+VNet peering connects that VNet to management AKS in UK South; both VNets link
+the Foundry private DNS zones so AKS reaches the endpoint through the peering.
 The account region alone does not set the processing boundary: the deployment's
 `DataZoneStandard` SKU does. The independent `private_dns` map
 owns zone definitions; `vnet_link` defaults to `false`, and the reusable network
 module creates links only for zones that opt in. Foundry selects zones by key, so
 other resources can use the same DNS configuration. The account uses
 its own user-assigned identity. The reusable module defaults to private-only
-networking and disabled local key authentication. This bootstrap explicitly enables
-selected-IP public access for operator browser access while retaining its private
-endpoint, default-deny firewall, no trusted-service bypass and disabled key auth.
+networking and disabled local key authentication. This bootstrap uses those
+defaults: public data-plane access is disabled, including the former operator
+IP exception. Operator access now requires a path to the private endpoint.
 [Model and deployment-type availability](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability?pivots=standard&tabs=az-europe).
 
-`foundry.authorized_ip_ranges_secret` names a secret in the existing platform Key
-Vault containing a JSON array of allowed public IPv4 addresses or CIDRs. The
-operator allowlist contains the current public IPv4 plus five adjacent addresses
-either side (11 addresses total). Actual addresses stay out of Git. Bootstrap
-reads the secret as sensitive data and passes it to the module's sensitive
-`network_acls` input. Terraform redacts the values from normal plans, but stores
-them in the encrypted backend and saved plans. Do not publish raw plan JSON.
-Update the secret and review `make foundry-plan` when the operator public IP
-changes; changes take effect only after applying Terraform.
+The former Foundry operator IP allowlist secret remains in Key Vault but is no
+longer read by this root. Its historical values remain in existing Terraform
+state versions and saved plans; do not publish raw state or plan JSON.
 
 The existing public `foundry-portfolio`
 account is outside this root and is not adopted or changed. Model deployment
@@ -122,15 +119,16 @@ make foundry-up
 ```
 
 These commands target `module.foundry` and Terraform includes its dependencies.
-With the current configuration this provisions the resource group, both VNets,
-subnets, NSGs, private DNS zones and links, six managed identities, and the Foundry
-account, project, model deployment and private endpoint. It does not provision
+With the current configuration this provisions the resource group, three VNets,
+subnets, NSGs, private DNS zones and links, the Foundry-management peerings, six
+managed identities, and the Foundry account, project, model deployment and private
+endpoint. It does not provision
 AKS, an APIM instance, PostgreSQL, Argo, federated credentials or platform packages.
 No Kubernetes tooling or cluster context is needed for these commands.
 
 Foundry retains its private endpoint and disabled local key authentication.
-Clients need private network connectivity or an allowlisted public source IP,
-plus appropriate Entra permissions. Bootstrap grants the AKS administrator group
+Clients need private network connectivity and appropriate Entra permissions.
+Bootstrap grants the AKS administrator group
 `Foundry Owner`; other clients need their own role assignments.
 
 This is an intentionally partial apply in the same bootstrap state, not a separate
@@ -381,9 +379,9 @@ its own first credential. See [Testkube sequencing](../helm_chart/platform/packa
 
 `model_gateway` in `terraform.tfvars` deploys private Standard v2 API Management
 in UK West, with its own delegated integration subnet and managed identity. The
-same reusable network module creates both VNets; a `moved` block preserves the
-existing management network addresses in state. AKS and the Foundry private
-endpoint stay in UK South; the Foundry account is in France Central. The gateway
+same reusable network module creates the regional VNets; a `moved` block preserves
+the existing management network addresses in state. AKS stays in UK South; the
+Foundry account and its private endpoint are in France Central. The gateway
 creates no APIs or subscriptions for application callers.
 Publisher contact values are demo metadata; replace the unmonitored example
 address before production use.
