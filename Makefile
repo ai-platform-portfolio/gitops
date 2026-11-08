@@ -6,6 +6,11 @@ TERRAFORM ?= terraform
 TFVARS ?= $(BOOTSTRAP_DIR)/terraform.tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
+# Full in-cluster bootstrap, excluding Azure PostgreSQL and APIM provisioning.
+AKS_TARGETS := -target=module.aks -target=module.argocd \
+  -target=module.identities -target=module.aso_identity \
+  -target=azurerm_storage_container.platform
+
 .PHONY: help init plan foundry-plan foundry-up aks-plan aks-up up down context validate preflight
 
 PYTHON ?= python3
@@ -25,8 +30,8 @@ help:
 	  'make plan  Preview bootstrap changes' \
 	  'make foundry-plan  Preview Foundry and its networking/identity dependencies' \
 	  'make foundry-up  Provision Foundry and its dependencies without platform services' \
-	  'make aks-plan  Preview AKS and its dependencies without platform services' \
-	  'make aks-up  Provision AKS and its dependencies without platform services' \
+	  'make aks-plan  Preview AKS, Argo and platform bootstrap prerequisites' \
+	  'make aks-up  Provision AKS/Argo and install packages and preview automation' \
 	  'make context  Select the management cluster with Azure CLI authentication' \
 	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
@@ -46,10 +51,13 @@ foundry-up: init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry)
 
 aks-plan: init
-	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.aks)
+	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" $(AKS_TARGETS))
 
-aks-up: init
-	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.aks)
+aks-up: preflight init
+	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" $(AKS_TARGETS))
+	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
+	$(MAKE) context
 
 up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }

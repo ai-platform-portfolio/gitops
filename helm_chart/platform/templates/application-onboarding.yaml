@@ -4,7 +4,13 @@
 {{- end -}}
 {{- $onboarding := .Values.argocd.onboarding -}}
 {{- $pg := .Values.atlas.azurePostgres -}}
-{{- range $profile := list "previews" "environments" }}
+{{- range $profile := $onboarding.profiles }}
+{{- if not (has $profile (list "previews" "environments")) -}}
+{{- fail "argocd.onboarding.profiles supports only previews and environments" -}}
+{{- end -}}
+{{- if and (eq $profile "environments") (not $pg.enabled) -}}
+{{- fail "environments onboarding requires atlas.azurePostgres.enabled" -}}
+{{- end }}
 ---
 # Discover intent, never an application list. Each repository keeps its own values.
 apiVersion: argoproj.io/v1alpha1

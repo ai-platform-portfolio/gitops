@@ -48,7 +48,9 @@ class EventTemplateTests(unittest.TestCase):
         self.assertIn('requires an explicit authSecret', result.stderr)
 
     def test_repository_discovery_restores_intent_with_one_pinned_owner(self):
-        result = self.render({'github': {'organization': 'second-org'}})
+        result = self.render({'github': {'organization': 'second-org'}},
+                             argocd={'onboarding': {'profiles': ['previews', 'environments']}},
+                             atlas={'azurePostgres': {'enabled': True}})
         self.assertEqual(result.returncode, 0, result.stderr)
         sets = [d for d in yaml.safe_load_all(result.stdout) if d and d['kind'] == 'ApplicationSet']
         self.assertEqual(len(sets), 2)
