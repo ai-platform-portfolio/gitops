@@ -37,6 +37,12 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
   key_vault_id = data.azurerm_key_vault.platform.id
 }
 
+# Redacted in normal plans, but retained in the encrypted Terraform backend.
+data "azurerm_key_vault_secret" "foundry_ip_ranges" {
+  name         = var.foundry.authorized_ip_ranges_secret
+  key_vault_id = data.azurerm_key_vault.platform.id
+}
+
 locals {
   argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
 
@@ -225,7 +231,8 @@ module "foundry" {
   allowed_deployment_skus    = ["DataZoneStandard"]
   tags                       = var.azure.tags
 
-  account_settings = { public_network_access_enabled = false }
+  account_settings = { public_network_access_enabled = true }
+  network_acls     = { ip_rules = jsondecode(data.azurerm_key_vault_secret.foundry_ip_ranges.value) }
 
   role_assignments = {
     aks_admins = {
