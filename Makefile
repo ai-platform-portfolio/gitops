@@ -11,7 +11,7 @@ AKS_TARGETS := -target=module.aks -target=module.argocd \
   -target=module.identities -target=module.aso_identity \
   -target=azurerm_storage_container.platform
 
-.PHONY: help init plan foundry-plan foundry-up aks-plan aks-up up down context validate preflight
+.PHONY: help init plan foundry-plan foundry-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -30,6 +30,8 @@ help:
 	  'make plan  Preview bootstrap changes' \
 	  'make foundry-plan  Preview Foundry and its networking/identity dependencies' \
 	  'make foundry-up  Provision Foundry and its dependencies without platform services' \
+	  'make postgres-plan  Preview the private PostgreSQL server and its dependencies' \
+	  'make postgres-up  Provision the private PostgreSQL server and its dependencies' \
 	  'make aks-plan  Preview AKS, Argo and platform bootstrap prerequisites' \
 	  'make aks-up  Provision AKS/Argo and install packages and preview automation' \
 	  'make context  Select the management cluster with Azure CLI authentication' \
@@ -49,6 +51,12 @@ foundry-plan: init
 
 foundry-up: init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry)
+
+postgres-plan: init
+	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.postgres)
+
+postgres-up: init
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.postgres)
 
 aks-plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" $(AKS_TARGETS))

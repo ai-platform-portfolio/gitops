@@ -245,6 +245,25 @@ This does not manipulate CLI caches or change the authentication mode.
 
 ## Staging and production PostgreSQL foundation
 
+From the repository root, use the existing tfvars, backend and Azure CLI login:
+
+```sh
+make postgres-plan
+make postgres-up
+```
+
+These commands target `module.postgres`; Terraform includes its dependencies.
+They provision the server, its Entra administrators and private endpoint without
+running the Kubernetes package lifecycle. They do not enable persistent-environment
+discovery or the Atlas Azure PostgreSQL administrator package. No new application
+values or database password are required.
+
+This is a partial apply in the shared bootstrap state. Dependency changes can
+expand its scope, so review `make postgres-plan` first. Like `make foundry-up`,
+`make postgres-up` automatically approves a newly computed plan rather than
+applying a saved plan. Targeted plans do not establish that the full bootstrap is
+free of drift; review `make plan` before expanding to `make up`.
+
 The bootstrap calls the pinned `postgresql-flexible-server` module once. It
 creates one private Azure Flexible Server for both persistent environments,
 using the existing private endpoint subnet and a VNet-linked
