@@ -269,7 +269,7 @@ def main():
         assert publisher_identity['metadata']['namespace'] == 'azure-resources'
         assert next(d for d in publisher_docs if d['kind'] == 'FederatedIdentityCredential')['spec']['subject'] == 'system:serviceaccount:foundry-publisher:foundry-publisher'
         publisher_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment')
-        assert publisher_role['spec']['owner']['armId'].endswith('/accounts/foundry-management-portfolio/projects/management')
+        assert publisher_role['spec']['owner']['armId'].endswith('/accounts/foundry-management-portfolio-v2/projects/management')
         assert publisher_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry Project Manager'
         kargo_identity = next(app for app in applications if app['metadata']['name'] == 'kargo-identity')
         kargo_resources = [d for d in yaml.safe_load_all(kargo_identity['spec']['source']['helm']['valuesObject']['manifests']) if d]
