@@ -38,7 +38,7 @@ isolation.
 | Repository | Owns |
 | --- | --- |
 | [`terraform`](https://github.com/ai-platform-portfolio/terraform) | Reusable foundation modules. Bootstrap deployment choices belong to the caller. |
-| [`gitops`](README.md) | Management bootstrap, shared packages, controllers, service configuration and policies. No application-specific registrations or delivery definitions. |
+| [`gitops`](../README.md) | Management bootstrap, shared packages, controllers, service configuration and policies. No application-specific registrations or delivery definitions. |
 | [`application-helm-chart`](https://github.com/ai-platform-portfolio/application-helm-chart) | Reusable application, Argo, database, identity, credential, RBAC, TLS, test and cleanup templates with safe defaults. |
 | [`ops-shared`](https://github.com/ai-platform-portfolio/ops-shared) | Composable callable CI workflows/actions. Callers select their job graph and publication policy. |
 | [Application repositories](https://github.com/ai-platform-portfolio/preview-environments) | Application code, SQL migrations, tests, minimal deployment intent and thin CI callers. |
@@ -140,7 +140,7 @@ separate evidence gap.
 
 ## Event-driven onboarding and preview lifecycle
 
-Shared [organization discovery](helm_chart/platform/templates/application-onboarding.yaml)
+Shared [organization discovery](../helm_chart/platform/templates/application-onboarding.yaml)
 finds repositories containing the declared intent files. It generates a
 registration Application using the unchanged shared chart and repository-owned
 values. The chart's PR ApplicationSet then creates each isolated preview.
@@ -246,7 +246,7 @@ An explicit dev URL retains precedence. The dev database is not the target or a
 copy of application data; it is disposable planning capacity. Existing immutable
 release packages do not acquire later chart fixes automatically.
 
-The [recovery package](helm_chart/platform/packages/postgres-recovery/README.md)
+The [recovery package](../helm_chart/platform/packages/postgres-recovery/README.md)
 restores the whole managed source into separate ASO-owned capacity. Argo orders
 the server, endpoint/administrators and DNS attachment. Validation uses normal
 private DNS and hostname-verified TLS, with no source connection switch:
@@ -261,12 +261,12 @@ private DNS and hostname-verified TLS, with no source connection switch:
 
 The source remains Terraform-owned. Recovery data and administrators are not
 adopted as new application-owned databases. See
-[Atlas prerequisites](helm_chart/platform/packages/atlas/README.md) and the
+[Atlas prerequisites](../helm_chart/platform/packages/atlas/README.md) and the
 [application chart's database contract](https://github.com/ai-platform-portfolio/application-helm-chart#optional-postgresql-and-atlas-resources).
 
 ## Bootstrap, reconciliation and teardown
 
-[Bootstrap](bootstrap/README.md) creates foundations and the initial Argo release.
+[Bootstrap](../bootstrap/README.md) creates foundations and the initial Argo release.
 The lifecycle command seeds runtime metadata, credentials and shared root state,
 then waits for package health and current-source registrations. Partial bootstrap
 commands compose existing foundations; persistent-environment discovery requires
@@ -298,7 +298,7 @@ Azure diagnostics. Argo WATCH retry amplification was reproduced against its
 exact client dependency. The platform now uses Standard control-plane capacity,
 bounded LIST concurrency and a digest-pinned temporary Argo controller build
 with deletion-hook and WATCH-backoff fixes. See the
-[backport and configuration rationale](bootstrap/README.md).
+[backport and configuration rationale](../bootstrap/README.md).
 These changes add maintenance ownership; adopt a suitable upstream release and
 remove the overrides after the same regression gates pass. Worker scaling alone
 does not directly enlarge the managed API server.

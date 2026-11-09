@@ -3,7 +3,7 @@
 A federated Argo CD platform on Azure AKS. Each cluster reconciles the shared
 platform independently; management onboards workload clusters.
 
-See the [application delivery design](APPLICATION_DELIVERY_DESIGN.md) for the
+See the [application delivery design](docs/APPLICATION_DELIVERY_DESIGN.md) for the
 repository boundaries, preview/promotion flows, security model and verified
 recovery behavior.
 
