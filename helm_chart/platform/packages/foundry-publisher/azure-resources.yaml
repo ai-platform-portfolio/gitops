@@ -44,7 +44,8 @@ spec:
 apiVersion: authorization.azure.com/v1api20220401
 kind: RoleAssignment
 metadata:
-  name: foundry-publisher-project-manager
+  # Scope and Azure name are immutable in ASO; a new scope needs a new CR.
+  name: foundry-publisher-project-manager-{{ $hash | trunc 12 }}
   namespace: azure-resources
   annotations:
     argocd.argoproj.io/sync-wave: "10"
