@@ -586,6 +586,31 @@ def main():
         assert {'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'} == {resource['kind'] for resource in azure_resources}
         holmes_identity = next(resource for resource in azure_resources if resource['kind'] == 'UserAssignedIdentity')
         assert holmes_identity['spec']['owner']['armId'].endswith('/resourceGroups/example')
+        holmes_grant = next(resource for resource in azure_resources if resource['kind'] == 'RoleAssignment')
+        assert 'PruneLast=true' in holmes_azure['spec']['syncPolicy']['syncOptions']
+        assert holmes_azure['spec']['syncPolicy']['automated']['prune'] is True
+        assert int(holmes_identity['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(holmes_grant['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+        holmes_scope_values = tmp / 'holmes-scope.json'
+        holmes_grant_names = set()
+        for group, account in [('rg-foundry', 'foundry-test'), ('rg-foundry', 'foundry-next'), ('rg-another', 'foundry-test')]:
+            scoped_values = json.loads(values.read_text())
+            scoped_values['holmes']['azure'].update(foundryResourceGroupName=group, foundryResourceName=account)
+            holmes_scope_values.write_text(json.dumps(scoped_values))
+            scoped_app = yaml.safe_load(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'),
+                                               '-f', str(holmes_scope_values), '--show-only', 'templates/holmes-azure.yaml'))
+            grant = next(d for d in yaml.safe_load_all(scoped_app['spec']['source']['helm']['valuesObject']['manifests'])
+                         if d and d['kind'] == 'RoleAssignment')
+            scope = grant['spec']['owner']['armId']
+            assert scope.endswith(f'/resourceGroups/{group}/providers/Microsoft.CognitiveServices/accounts/{account}')
+            digest = hashlib.sha256(f'holmes/management/{scope}'.encode()).hexdigest()[:32]
+            assert grant['spec']['azureName'].replace('-', '') == digest, 'Azure grant identity must remain stable'
+            assert grant['metadata']['name'] == 'holmes-foundry-user-' + digest[:12]
+            assert grant['metadata']['name'] not in holmes_grant_names, 'Different scopes require different ASO resources'
+            assert grant['spec']['roleDefinitionReference'] == holmes_grant['spec']['roleDefinitionReference']
+            assert grant['spec']['principalIdFromConfig'] == holmes_grant['spec']['principalIdFromConfig']
+            if group == 'rg-foundry' and account == 'foundry-test':
+                assert grant == holmes_grant, 'Same scope must preserve the complete grant'
+            holmes_grant_names.add(grant['metadata']['name'])
         config_app = next(app for app in with_holmes if app['metadata']['name'] == 'configuration')
         holmes_resources = list(yaml.safe_load_all(config_app['spec']['source']['helm']['valuesObject']['manifests']))
         holmes_role = next(resource for resource in holmes_resources if resource['kind'] == 'ClusterRole' and resource['metadata']['name'] == 'holmes-read')
