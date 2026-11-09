@@ -41,7 +41,8 @@ spec:
 apiVersion: authorization.azure.com/v1api20220401
 kind: RoleAssignment
 metadata:
-  name: holmes-foundry-user
+  # ASO scope/Azure name are immutable; a changed scope needs a new CR.
+  name: holmes-foundry-user-{{ $hash | trunc 12 }}
   namespace: holmes
   annotations:
     argocd.argoproj.io/sync-wave: "10"
