@@ -3,6 +3,10 @@
 A federated Argo CD platform on Azure AKS. Each cluster reconciles the shared
 platform independently; management onboards workload clusters.
 
+See the [application delivery design](APPLICATION_DELIVERY_DESIGN.md) for the
+repository boundaries, preview/promotion flows, security model and verified
+recovery behavior.
+
 Terraform provisions the management infrastructure and installs its initial
 Argo CD Helm release. The platform Helm chart defines the application packages
 that Argo CD reconciles, with readiness gates between dependencies. One Make
