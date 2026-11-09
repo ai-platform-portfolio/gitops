@@ -117,6 +117,7 @@ private_dns = {
 
 foundry = {
   name                        = "foundry-management-portfolio"
+  authorized_ip_ranges_secret = "foundry-authorized-ip-ranges"
   location                    = "francecentral"
   private_endpoint_subnet_key = "snet-pe-foundry"
   agent_subnet_key            = "snet-agent-foundry"
