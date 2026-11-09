@@ -72,6 +72,10 @@ spec:
 {{ end }}
           ---
 {{ tpl (.Files.Get "packages/azure-service-operator/namespace.yaml") . | indent 10 }}
+{{- if and (eq .Values.cluster.role "management") .Values.foundryPublisher.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/foundry-publisher/namespace.yaml") . | indent 10 }}
+{{- end }}
 {{- if eq .Values.cluster.role "management" }}
           ---
 {{ tpl (.Files.Get "packages/cluster-onboarding/namespace.yaml") . | indent 10 }}

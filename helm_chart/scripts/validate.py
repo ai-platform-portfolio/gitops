@@ -248,7 +248,7 @@ def main():
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'langfuse-credentials', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
-            'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
+            'azure-service-operator', 'foundry-publisher', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
             'backstage', 'backstage-credentials', 'backstage-reloader',
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
@@ -260,6 +260,14 @@ def main():
         assert {d['kind'] for d in acr_resources} == {'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
         assert next(d for d in acr_resources if d['kind'] == 'FederatedIdentityCredential')['spec']['subject'] == 'system:serviceaccount:kargo:kargo-controller'
         assert next(d for d in acr_resources if d['kind'] == 'RoleAssignment')['spec']['roleDefinitionReference']['wellKnownName'] == 'AcrPull'
+        publisher_app = next(app for app in applications if app['metadata']['name'] == 'foundry-publisher')
+        publisher_docs = [d for d in yaml.safe_load_all(publisher_app['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        publisher_identity = next(d for d in publisher_docs if d['kind'] == 'UserAssignedIdentity')
+        assert publisher_identity['metadata']['namespace'] == 'azure-resources'
+        assert next(d for d in publisher_docs if d['kind'] == 'FederatedIdentityCredential')['spec']['subject'] == 'system:serviceaccount:foundry-publisher:foundry-publisher'
+        publisher_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment')
+        assert publisher_role['spec']['owner']['armId'].endswith('/accounts/foundry-management-portfolio/projects/management')
+        assert publisher_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry Project Manager'
         kargo_identity = next(app for app in applications if app['metadata']['name'] == 'kargo-identity')
         kargo_resources = [d for d in yaml.safe_load_all(kargo_identity['spec']['source']['helm']['valuesObject']['manifests']) if d]
         kargo_public_client = next(d for d in kargo_resources if d['kind'] == 'PublicOIDCApplication')
@@ -384,6 +392,8 @@ def main():
         assert namespace['metadata']['labels']['gitops.platform/gateway'] == 'public'
         kargo_namespace = next(d for d in manifests('namespaces') if d['kind'] == 'Namespace' and d['metadata']['name'] == 'kargo')
         assert kargo_namespace['metadata']['labels']['gitops.platform/gateway'] == 'public'
+        publisher_namespace = next(d for d in manifests('namespaces') if d['kind'] == 'Namespace' and d['metadata']['name'] == 'foundry-publisher')
+        assert publisher_namespace['metadata']['labels']['pod-security.kubernetes.io/enforce'] == 'restricted'
         assert {'group': '', 'kind': 'ConfigMap', 'name': 'preview-refresh', 'namespace': 'cluster-onboarding',
                 'jsonPointers': ['/data']} in github_apps['platform-events']['spec']['ignoreDifferences']
         sender = next(app for app in applications if app['metadata']['name'] == 'atlantis')['spec']['source']['helm']['valuesObject']
@@ -462,6 +472,7 @@ def main():
         assert waves['configuration'] == waves['azure-service-operator']
         assert waves['crossplane-identity-api'] < waves['kargo-identity'] < waves['kargo'] < waves['routes']
         assert waves['azure-service-operator'] < waves['kargo-acr'] < waves['kargo']
+        assert waves['azure-service-operator'] < waves['foundry-publisher']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
         assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
@@ -863,7 +874,7 @@ def main():
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
                                               'sonarqube', 'sonarqube-configure', 'crossplane',
                                               'crossplane-packages', 'crossplane-identity-api', 'argocd-route', 'argo-events', 'platform-events',
-                                              'kargo-acr', 'kargo-identity', 'kargo'}, 'Workload must install every ready package except management services'
+                                              'kargo-acr', 'kargo-identity', 'kargo', 'foundry-publisher'}, 'Workload must install every ready package except management services'
         assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
                 'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names

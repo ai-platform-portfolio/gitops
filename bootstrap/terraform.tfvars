@@ -336,6 +336,14 @@ identities = {
   foundry = {
     name                  = "id-management-foundry"
     federated_credentials = {}
+
+    role_assignments = {
+      # This bootstrap-owned project identity pulls immutable hosted-agent images.
+      agent_images = {
+        scope                = "registry_platform"
+        role_definition_name = "AcrPull"
+      }
+    }
   }
 
   platform = {
