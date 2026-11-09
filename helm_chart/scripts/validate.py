@@ -81,7 +81,9 @@ def main():
                                   text=True, capture_output=True)
         assert rejected.returncode and 'pointInTimeUTC' in rejected.stderr
         hba_rule = 'hostssl example example_login all scram-sha-256'
-        values.write_text(json.dumps({'runtime': runtime, 'postgres': {'additionalHba': [hba_rule]}}))
+        preview_only = {'argocd': {'onboarding': {'profiles': ['previews']}},
+                        'atlas': {'azurePostgres': {'enabled': False}}}
+        values.write_text(json.dumps({**preview_only, 'runtime': runtime, 'postgres': {'additionalHba': [hba_rule]}}))
         hba_render = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))
         postgres = next(d for d in hba_render if d and d['kind'] == 'Application' and d['metadata']['name'] == 'postgres')
         cluster = next(d for d in yaml.safe_load_all(postgres['spec']['source']['helm']['valuesObject']['manifests']) if d and d['kind'] == 'Cluster')
@@ -94,7 +96,8 @@ def main():
             (['previews', 'environments'], 'environments onboarding requires atlas.azurePostgres.enabled'),
             (['unknown'], 'argocd.onboarding.profiles supports only previews and environments'),
         ]:
-            values.write_text(json.dumps({'runtime': runtime, 'argocd': {'onboarding': {'profiles': profiles}}}))
+            values.write_text(json.dumps({'runtime': runtime, 'argocd': {'onboarding': {'profiles': profiles}},
+                                          'atlas': {'azurePostgres': {'enabled': False}}}))
             rejected = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)],
                                       text=True, capture_output=True)
             assert rejected.returncode and message in rejected.stderr
@@ -106,7 +109,7 @@ def main():
                 ({}, '*.previews.alternate.test'),
                 ({'hostname': '*.sandbox.other.test'}, '*.sandbox.other.test'),
             ]:
-                values.write_text(json.dumps({'runtime': {**runtime, 'DNS_ZONE': 'alternate.test'},
+                values.write_text(json.dumps({**preview_only, 'runtime': {**runtime, 'DNS_ZONE': 'alternate.test'},
                                               'cluster': {'name': 'other', 'role': role},
                                               'gateway': {'preview': preview}}))
                 apps = list(yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))))

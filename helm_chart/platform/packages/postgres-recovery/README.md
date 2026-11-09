@@ -7,6 +7,31 @@ The source server, subnet and DNS zone are external references and retain their
 current owners. The restored server has public access and password authentication
 disabled. No source database or application connection is changed.
 
+## Source and environment prerequisites
+
+Provision the existing source with `make postgres-up` before enabling
+`atlas.azurePostgres.enabled` and adding `environments` to
+`argocd.onboarding.profiles`. The source remains Terraform-owned; ASO owns only
+its separate Atlas administrator child and chart-generated application databases
+and identities. Native discovery consumes repository-owned environment intent;
+no application registration or database manifests are copied into GitOps.
+
+Before a drill, verify the Atlas administrator is Ready, staging/production have
+completed their database and migration waves, Kargo has selected the intended
+immutable releases, and browser/data checks pass. Read current Azure and
+Kubernetes state after rebuild; old identifiers and previous drill data are not
+valid inputs. A healthy preview does not prove managed-server authentication.
+
+Use one isolated recovery target for the remaining acceptance checks. Validate
+PITR data and migration history before any migration change. A protected schema
+downgrade may then run against that target only, using the existing application
+chart's explicit `platform.atlas.migrateDown` intent. Require actual Atlas human
+approval; never enable automatic approval or downgrade the source environments.
+Verify the inverse is limited to the intended migration, data/history remain
+correct, and source readiness is unaffected. Finally disable recovery and prove
+normal ordered cleanup without restarts, finalizer removal or selective-sync
+workarounds. Infrastructure readiness alone does not complete these gates.
+
 ## Operator input
 
 The source resource group, server and location come from `atlas.azurePostgres`.
