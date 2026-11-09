@@ -271,6 +271,33 @@ def main():
         publisher_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment')
         assert publisher_role['spec']['owner']['armId'].endswith('/accounts/foundry-management-portfolio-v2/projects/management')
         assert publisher_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry Project Manager'
+        # ASO forbids changing a RoleAssignment's Azure name or owner in place.
+        assert publisher_app['spec']['syncPolicy']['automated']['prune'] is True
+        assert 'PruneLast=true' in publisher_app['spec']['syncPolicy']['syncOptions']
+        assert int(publisher_identity['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(publisher_role['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+        publisher_values = tmp / 'publisher-scope.json'
+        scopes = set()
+        role_names = set()
+        for account, project in [('foundry-management-portfolio-v2', 'management'),
+                                 ('foundry-management-portfolio', 'management'),
+                                 ('foundry-management-portfolio-v2', 'another-project')]:
+            publisher_values.write_text(json.dumps({**json.loads(values.read_text()),
+                                                   'foundryPublisher': {'account': account, 'project': project}}))
+            scoped_app = yaml.safe_load(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'),
+                                               '-f', str(publisher_values), '--show-only', 'templates/foundry-publisher.yaml'))
+            scoped_role = next(d for d in yaml.safe_load_all(scoped_app['spec']['source']['helm']['valuesObject']['manifests'])
+                               if d and d['kind'] == 'RoleAssignment')
+            scope = scoped_role['spec']['owner']['armId']
+            assert scope.endswith(f'/accounts/{account}/projects/{project}')
+            role_name = scoped_role['metadata']['name']
+            assert role_name not in role_names and scope not in scopes, 'New scopes must create new ASO resources'
+            if account == 'foundry-management-portfolio-v2' and project == 'management':
+                assert scoped_role == publisher_role, 'Reapplying the same scope must preserve the grant'
+            role_hash = hashlib.sha256(f'foundry-publisher/management/{scope}'.encode()).hexdigest()[:32]
+            assert scoped_role['spec']['azureName'].replace('-', '') == role_hash, 'Existing Azure grant names must remain stable'
+            assert role_name == 'foundry-publisher-project-manager-' + role_hash[:12]
+            scopes.add(scope)
+            role_names.add(role_name)
         kargo_identity = next(app for app in applications if app['metadata']['name'] == 'kargo-identity')
         kargo_resources = [d for d in yaml.safe_load_all(kargo_identity['spec']['source']['helm']['valuesObject']['manifests']) if d]
         kargo_public_client = next(d for d in kargo_resources if d['kind'] == 'PublicOIDCApplication')
