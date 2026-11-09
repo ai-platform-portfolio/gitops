@@ -17,3 +17,16 @@ Wait for the ASO UserAssignedIdentity, FederatedIdentityCredential and
 RoleAssignment to report Ready, then verify the actual Azure role before
 running a publisher Job. A Ready condition from before an account replacement
 is not proof that a grant still exists.
+
+# Read-only diagnostic broker
+
+The same shared package also installs a separate `foundry-diagnostic-broker`
+service account and federated identity. Its project-scoped `Foundry User` grant
+can invoke the hosted agent without the publisher's version-management role.
+The Kubernetes ClusterRole permits only read verbs for Deployments, Pods, Pod
+logs and Events; it cannot read Secrets/ConfigMaps or mutate resources. The
+reusable Job chart creates a RoleBinding only in the declared incident
+namespace and removes it with the short-lived Job release. The broker also
+checks that namespace at runtime. Mimir access currently depends on
+the existing unauthenticated in-cluster endpoint; staged NetworkPolicies are
+not enforced. This package adds no ingress, public route or network change.

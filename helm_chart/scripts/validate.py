@@ -271,6 +271,18 @@ def main():
         publisher_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment')
         assert publisher_role['spec']['owner']['armId'].endswith('/accounts/foundry-management-portfolio-v2/projects/management')
         assert publisher_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry Project Manager'
+        broker_identity = next(d for d in publisher_docs if d['kind'] == 'UserAssignedIdentity' and d['metadata']['name'] == 'foundry-diagnostic-broker')
+        broker_fic = next(d for d in publisher_docs if d['kind'] == 'FederatedIdentityCredential' and d['metadata']['name'] == 'foundry-diagnostic-broker')
+        broker_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment' and d['metadata']['name'].startswith('foundry-diagnostic-broker-user-'))
+        assert broker_fic['spec']['subject'] == 'system:serviceaccount:foundry-publisher:foundry-diagnostic-broker'
+        assert broker_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry User'
+        assert broker_role['spec']['owner']['armId'] == publisher_role['spec']['owner']['armId']
+        assert broker_role['spec']['principalIdFromConfig']['name'] != publisher_role['spec']['principalIdFromConfig']['name']
+        assert int(broker_identity['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(broker_role['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+        broker_access = next(d for d in publisher_docs if d['kind'] == 'ClusterRole' and d['metadata']['name'] == 'foundry-diagnostic-broker-read')
+        assert {verb for rule in broker_access['rules'] for verb in rule['verbs']} <= {'get', 'list'}
+        assert not {resource for rule in broker_access['rules'] for resource in rule['resources']} & {'secrets', 'configmaps'}
+        assert not any(d['kind'] == 'ClusterRoleBinding' and d['metadata']['name'] == 'foundry-diagnostic-broker-read' for d in publisher_docs)
         # ASO forbids changing a RoleAssignment's Azure name or owner in place.
         assert publisher_app['spec']['syncPolicy']['automated']['prune'] is True
         assert 'PruneLast=true' in publisher_app['spec']['syncPolicy']['syncOptions']
