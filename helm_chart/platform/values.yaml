@@ -14,9 +14,9 @@ runtime: {}
 argocd:
   onboarding:
     enabled: true
-    # Add environments here to discover deploy/environments.yaml (staging/production).
-    # Azure PostgreSQL is provisioned before enabling persistent environments.
-    profiles: [previews, environments]
+    # Persistent environments are drained before the managed PostgreSQL server.
+    # Add environments after provisioning that server and its Atlas binding.
+    profiles: [previews]
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
     chartRevision: 47b878c366ad88a9d819180e096c35bc180ee942
 
