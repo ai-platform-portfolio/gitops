@@ -17,7 +17,7 @@ argocd:
     # Add environments after provisioning Azure PostgreSQL and its Atlas binding.
     profiles: [previews]
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
-    chartRevision: 47b878c366ad88a9d819180e096c35bc180ee942
+    chartRevision: 11ac9f34624f14e4da7b8024c5fbdd80115ed254
 
   registry:
     name: localacrk8s
