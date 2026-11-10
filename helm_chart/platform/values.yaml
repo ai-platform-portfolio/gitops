@@ -25,7 +25,7 @@ argocd:
         resourceGroup: rg-management
       telemetryEndpoint: http://opentelemetry-collector.opentelemetry.svc.cluster.local:4318
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
-    chartRevision: c1e8375398311dbe3adfdda7a87b80023870b1b7
+    chartRevision: 60646d7f60ec40f5324c87796924aee0c1bb0313
 
   registry:
     name: localacrk8s
