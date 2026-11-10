@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main, teardown_connection
+from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main, teardown_connection, foundry_account_name
 from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
 from bootstrap.scripts import wait_for_aks as aks_readiness
 
@@ -200,6 +200,16 @@ class HealthWaitTests(unittest.TestCase):
 
 
 class PlatformInputTests(unittest.TestCase):
+    def test_foundry_handoff_reads_current_key_vault_value(self):
+        with patch('helm_chart.scripts.cluster.run', return_value='foundry-example-20261110-12345678\n') as command:
+            self.assertEqual(foundry_account_name('https://example.vault.azure.net/'),
+                             'foundry-example-20261110-12345678')
+        self.assertIn('https://example.vault.azure.net/secrets/foundry-management-account-name',
+                      command.call_args.args)
+        with patch('helm_chart.scripts.cluster.run', return_value=''):
+            with self.assertRaisesRegex(RuntimeError, 'invalid Foundry account name'):
+                foundry_account_name('https://example.vault.azure.net/')
+
     def test_package_configuration_is_not_taken_from_terraform(self):
         cluster = Cluster.__new__(Cluster)
         cluster.settings = {'cluster': {'name': 'management', 'role': 'management'},
@@ -1451,7 +1461,8 @@ class CertificateLifecycleOrderingTests(unittest.TestCase):
         self.assertNotIn('private diagnostic', str(output.call_args))
 
     def test_up_restores_public_tls_before_any_platform_seed(self):
-        cluster = Mock(settings={'runtime': {}, 'storage_containers': {}})
+        cluster = Mock(settings={'runtime': {'AZURE_KEY_VAULT_URI': 'https://example.vault.azure.net/'},
+                                 'storage_containers': {}})
         cluster.sso.return_value = {}
         cluster.object.return_value = None
         cluster.account = {'tenant_id': 'tenant', 'subscription_id': 'subscription'}
@@ -1461,6 +1472,7 @@ class CertificateLifecycleOrderingTests(unittest.TestCase):
         cluster.ingress_ready.side_effect = lambda _: events.append('https')
         with patch('sys.argv', ['cluster.py', 'up', '--infra-dir', '/bootstrap']), \
              patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
+             patch('helm_chart.scripts.cluster.foundry_account_name', return_value='foundry-example'), \
              patch('helm_chart.scripts.cluster.certificates.restore', side_effect=lambda _: events.append('restore')), \
              patch('helm_chart.scripts.cluster.prepare_credentials'), \
              patch('helm_chart.scripts.cluster.prepare_sonarqube', side_effect=lambda *args: events.append('sonarqube')):

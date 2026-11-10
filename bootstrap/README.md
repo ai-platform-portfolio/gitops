@@ -31,8 +31,11 @@ same name; a complete `make down` followed by a new spin-up produces a new one.
 `FOUNDRY_SPINUP_DATE=YYYYMMDD make plan` overrides the injected date for a
 controlled dry run, but does not rotate an account already held in state.
 The resolved name is also written to the existing persistent Key Vault secret
-`foundry-management-account-name`. The sensitive `platform_settings` output
-supplies that value to the management Argo runtime, where the Holmes model
+`foundry-management-account-name`. During startup, the lifecycle reads that
+versionless secret into the management Argo runtime. A targeted Terraform
+apply does not necessarily refresh the aggregate `platform_settings` output,
+so the Key Vault value is the authoritative handoff for scoped rebuilds. The
+sensitive output also carries the name after a full apply. The Holmes model
 endpoint, publisher project endpoint, and ASO role scopes derive from it.
 Workload-cluster onboarding passes the same runtime name to child clusters.
 Terraform manages the secret version, so full teardown deletes this version;
