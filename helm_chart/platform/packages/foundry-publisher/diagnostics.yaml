@@ -94,3 +94,66 @@ spec:
   principalIdFromConfig: {name: foundry-diagnostic-broker-identity, key: principalId}
   principalType: ServicePrincipal
   roleDefinitionReference: {wellKnownName: Foundry User}
+
+---
+# Coding uses a distinct Foundry principal; the diagnostic broker never gets
+# source-editing or GitHub publication credentials.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: foundry-coding-worker
+  namespace: foundry-publisher
+
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: foundry-coding-worker
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  azureName: id-{{ .Values.cluster.name }}-foundry-coding-worker
+  location: {{ required "foundryPublisher.location is required" $p.location | quote }}
+  owner: {armId: {{ printf "/subscriptions/%s/resourceGroups/%s" $sub $group | quote }}}
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: foundry-coding-worker-identity
+        key: clientId
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^foundry-publisher$"
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^foundry-publisher$"
+      principalId: {name: foundry-coding-worker-identity, key: principalId}
+
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: foundry-coding-worker
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  owner: {name: foundry-coding-worker}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:foundry-publisher:foundry-coding-worker
+
+---
+{{- $codingHash := sha256sum (printf "foundry-coding-worker/%s/%s" .Values.cluster.name $project) | trunc 32 -}}
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: foundry-coding-worker-user-{{ $codingHash | trunc 12 }}
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $codingHash) (substr 8 12 $codingHash) (substr 12 16 $codingHash) (substr 16 20 $codingHash) (substr 20 32 $codingHash) | quote }}
+  owner: {armId: {{ $project | quote }} }
+  principalIdFromConfig: {name: foundry-coding-worker-identity, key: principalId}
+  principalType: ServicePrincipal
+  roleDefinitionReference: {wellKnownName: Foundry User}
