@@ -243,6 +243,19 @@ def main():
             'AZURE_SUBSCRIPTION_ID': runtime['AZURE_SUBSCRIPTION_ID'],
             'USE_WORKLOAD_IDENTITY_AUTH': 'true',
         }
+        role = next(d for d in rendered if d['kind'] == 'RoleDefinition')
+        assert role['spec']['permissions'][0]['actions'] == []
+        assert set(role['spec']['permissions'][0]['dataActions']) == {
+            'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read',
+            'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write',
+            'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/add/action',
+        }
+        assert role['spec']['assignableScopesReferences'] == [role['spec']['owner']]
+        previews = next(d for d in rendered if d['kind'] == 'ApplicationSet' and d['metadata']['name'] == 'application-previews')
+        shared = previews['spec']['template']['spec']['sources'][0]['helm']['valuesObject']['platform']
+        assert shared['azure']['blobRoleId'].endswith('/' + role['spec']['azureName'])
+        assert shared['azure']['storageAccount']['resourceGroup'] == 'kubernetes'
+        assert shared['models']['chat']['deployment'] == 'chat'
         applications = [d for d in rendered if d['kind'] == 'Application']
         names = {app['metadata']['name'] for app in applications}
         assert len(applications) == len(names), 'Duplicate Application names'

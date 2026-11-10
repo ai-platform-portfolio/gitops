@@ -317,7 +317,7 @@ identities = {
       }
       storage_roles = {
         scope                = "storage_account"
-        role_definition_name = "Role Based Access Control Administrator"
+        role_definition_name = "User Access Administrator"
       }
       foundry_roles = {
         scope                = "foundry_account"
