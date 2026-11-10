@@ -281,6 +281,8 @@ def main():
         assert int(broker_identity['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(broker_role['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
         broker_access = next(d for d in publisher_docs if d['kind'] == 'ClusterRole' and d['metadata']['name'] == 'foundry-diagnostic-broker-read')
         assert {verb for rule in broker_access['rules'] for verb in rule['verbs']} <= {'get', 'list'}
+        assert any(rule['apiGroups'] == ['argoproj.io'] and rule['resources'] == ['rollouts']
+                   and rule['verbs'] == ['get'] for rule in broker_access['rules'])
         assert not {resource for rule in broker_access['rules'] for resource in rule['resources']} & {'secrets', 'configmaps'}
         assert not any(d['kind'] == 'ClusterRoleBinding' and d['metadata']['name'] == 'foundry-diagnostic-broker-read' for d in publisher_docs)
         # ASO forbids changing a RoleAssignment's Azure name or owner in place.
