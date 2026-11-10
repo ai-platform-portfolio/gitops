@@ -14,9 +14,8 @@ runtime: {}
 argocd:
   onboarding:
     enabled: true
-    # Add environments here to discover deploy/environments.yaml (staging/production).
-    # Azure PostgreSQL is provisioned before enabling persistent environments.
-    profiles: [previews, environments]
+    # Add environments after provisioning Azure PostgreSQL and its Atlas binding.
+    profiles: [previews]
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
     chartRevision: 47b878c366ad88a9d819180e096c35bc180ee942
 
@@ -246,8 +245,8 @@ kargo:
 # Flexible Server. Application identities and databases remain chart-owned.
 atlas:
   azurePostgres:
-    # The existing Terraform-owned server is provisioned before this binding.
-    enabled: true
+    # Enable after provisioning the Terraform-owned server for persistent environments.
+    enabled: false
     serverName: pg-ai-platform-portfolio-management
     serverResourceGroup: rg-management
     identityName: id-atlas-postgres-management
