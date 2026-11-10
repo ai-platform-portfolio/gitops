@@ -16,8 +16,16 @@ argocd:
     enabled: true
     # Add environments after provisioning Azure PostgreSQL and its Atlas binding.
     profiles: [previews]
+    dependencies:
+      storageResourceGroup: kubernetes
+      location: uksouth
+      model:
+        deployment: chat
+        project: management
+        resourceGroup: rg-management
+      telemetryEndpoint: http://opentelemetry-collector.opentelemetry.svc.cluster.local:4318
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
-    chartRevision: f83510d3d5f787ad93bac962e343b9a7f728b5f9
+    chartRevision: 3db44dd6dbdb05c75035cdd2b33890943439543e
 
   registry:
     name: localacrk8s

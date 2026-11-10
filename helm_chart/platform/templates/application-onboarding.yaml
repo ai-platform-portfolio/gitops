@@ -4,6 +4,33 @@
 {{- end -}}
 {{- $onboarding := .Values.argocd.onboarding -}}
 {{- $pg := .Values.atlas.azurePostgres -}}
+{{- $deps := $onboarding.dependencies -}}
+{{- $storageScope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s" $.Values.runtime.AZURE_SUBSCRIPTION_ID $deps.storageResourceGroup $.Values.runtime.AZURE_STORAGE_ACCOUNT -}}
+{{- $hash := sha256sum (printf "application-blob-data/%s/%s" $.Values.cluster.name $storageScope) | trunc 32 -}}
+{{- $roleID := printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) -}}
+# Shared data-only permission definition: no container administration or SAS delegation.
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleDefinition
+metadata:
+  name: application-blob-data-{{ $hash | trunc 12 }}
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: '30'
+spec:
+  azureName: {{ $roleID | quote }}
+  owner: {armId: {{ $storageScope | quote }}}
+  assignableScopesReferences: [{armId: {{ $storageScope | quote }}}]
+  roleName: {{ printf "Application Blob Data %s" ($hash | trunc 12) | quote }}
+  type: CustomRole
+  description: Blob object access only; assignments additionally restrict each preview container.
+  permissions:
+    - actions: []
+      notActions: []
+      dataActions:
+        - Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read
+        - Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write
+        - Microsoft.Storage/storageAccounts/blobServices/containers/blobs/add/action
+      notDataActions: []
 {{- range $profile := $onboarding.profiles }}
 {{- if not (has $profile (list "previews" "environments")) -}}
 {{- fail "argocd.onboarding.profiles supports only previews and environments" -}}
@@ -57,6 +84,14 @@ spec:
             valueFiles: [{{ printf "$intent/deploy/%s.yaml" $profile | quote }}]
             valuesObject:
               platform:
+                models:
+                  chat:
+                    endpoint: {{ printf "https://%s.services.ai.azure.com/api/projects/%s/openai/v1/" (include "platform.foundryName" $) $deps.model.project | quote }}
+                    account: {{ include "platform.foundryName" $ | quote }}
+                    project: {{ $deps.model.project | quote }}
+                    resourceGroup: {{ $deps.model.resourceGroup | quote }}
+                    deployment: {{ $deps.model.deployment | quote }}
+                telemetryEndpoint: {{ $deps.telemetryEndpoint | quote }}
                 argocd:
                   repository: {{ "{{.url}}" | quote }}
                   chartRepository: {{ $onboarding.chartRepository | quote }}
@@ -77,11 +112,13 @@ spec:
                 atlas:
                   azureAdminUser: {{ $pg.identityName | quote }}
                 azure:
+                  storageAccount: {name: {{ $.Values.runtime.AZURE_STORAGE_ACCOUNT | quote }}, resourceGroup: {{ $deps.storageResourceGroup | quote }}}
+                  blobRoleId: {{ printf "%s/providers/Microsoft.Authorization/roleDefinitions/%s" $storageScope $roleID | quote }}
                   tenantId: {{ $.Values.runtime.AZURE_TENANT_ID | quote }}
                   subscriptionId: {{ $.Values.runtime.AZURE_SUBSCRIPTION_ID | quote }}
                   oidcIssuerUrl: {{ $.Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
-                  location: {{ $pg.location | quote }}
-                  identityResourceGroup: {{ $pg.identityResourceGroup | quote }}
+                  location: {{ ternary $deps.location $pg.location (eq $profile "previews") | quote }}
+                  identityResourceGroup: {{ ternary $.Values.runtime.CLUSTER_RESOURCE_GROUP $pg.identityResourceGroup (eq $profile "previews") | quote }}
         - repoURL: {{ "{{.url}}" | quote }}
           targetRevision: {{ "{{.sha}}" | quote }}
           ref: intent
