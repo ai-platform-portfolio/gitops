@@ -63,7 +63,6 @@ clusterOnboarding:
 holmes:
   enabled: true
   model: azure/chat
-  modelEndpoint: https://foundry-management-portfolio-v2.cognitiveservices.azure.com/
   modelApiVersion: "2025-04-01-preview"
   modelCidrs: []
   apiCidrs: []
@@ -72,14 +71,12 @@ holmes:
   azure:
     location: uksouth
     foundryResourceGroupName: rg-management
-    foundryResourceName: foundry-management-portfolio-v2
 
 # One shared workload identity publishes versioned agents from private AKS.
 foundryPublisher:
   enabled: true
   location: uksouth
   resourceGroup: rg-management
-  account: foundry-management-portfolio-v2
   project: management
 
 # Package choices live in GitOps, not Terraform/tfvars. Atlantis requires the

@@ -45,6 +45,7 @@ data "azurerm_key_vault_secret" "foundry_ip_ranges" {
 
 locals {
   argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
+  foundry_name    = "${var.foundry.name_prefix}-${terraform_data.foundry_spinup_date.output}-${random_integer.foundry_index.result}"
 
   # The ConfigMap remains readable YAML; Terraform fills only deployment context.
   argocd_configmap = yamldecode(templatefile("${path.module}/${var.argocd.configmap_file}", {
@@ -60,6 +61,28 @@ locals {
     key_vault       = data.azurerm_key_vault.platform.id
     storage_account = data.azurerm_storage_account.platform.id
   }, { for name, registry in data.azurerm_container_registry.existing : "registry_${name}" => registry.id })
+}
+
+# Reusing a deleted Foundry subdomain produced a hosted-runtime 404 even after
+# ARM and agent metadata succeeded. A full state destroy yields a fresh name;
+# retries and partial applies keep the same date and random index.
+resource "terraform_data" "foundry_spinup_date" {
+  input = var.foundry_spinup_date
+
+  lifecycle {
+    ignore_changes = [input]
+  }
+}
+
+resource "random_integer" "foundry_index" {
+  min = 10000000
+  max = 99999999
+}
+
+resource "azurerm_key_vault_secret" "foundry_name" {
+  name         = "foundry-management-account-name"
+  value        = local.foundry_name
+  key_vault_id = data.azurerm_key_vault.platform.id
 }
 
 resource "azurerm_resource_group" "this" {
@@ -222,7 +245,7 @@ module "aso_identity" {
 # retain separate ownership of their runtime identities and role assignments.
 module "foundry" {
   source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=b87f2b35381b36b6951bf9a067e22d8ab6a8ee40"
-  name                       = var.foundry.name
+  name                       = local.foundry_name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
   managed_identity_id        = module.identities["foundry"].identity_id
@@ -251,6 +274,7 @@ module "foundry" {
   }
 
   depends_on = [
+    azurerm_key_vault_secret.foundry_name,
     module.network["foundry"],
     azurerm_virtual_network_peering.management_to_foundry,
     azurerm_virtual_network_peering.foundry_to_management,

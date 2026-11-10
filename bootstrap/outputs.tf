@@ -53,6 +53,7 @@ output "platform_settings" {
     }
 
     runtime = {
+      FOUNDRY_ACCOUNT_NAME     = azurerm_key_vault_secret.foundry_name.value
       ASO_CLIENT_ID            = module.aso_identity.client_id
       ONBOARDING_CLIENT_ID     = module.identities["cluster_onboarding"].client_id
       ONBOARDING_PRINCIPAL_ID  = module.identities["cluster_onboarding"].principal_id

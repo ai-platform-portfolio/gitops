@@ -13,7 +13,7 @@ operator:
 modelList:
   approved:
     model: {{ .Values.holmes.model | quote }}
-    api_base: {{ .Values.holmes.modelEndpoint | quote }}
+    api_base: {{ printf "https://%s.cognitiveservices.azure.com/" (include "platform.foundryName" .) | quote }}
     api_version: {{ .Values.holmes.modelApiVersion | quote }}
 
 extraEnvVarsSecrets:

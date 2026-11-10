@@ -32,12 +32,12 @@ validate the deployed model before using the service:
 | Value | Requirement |
 | --- | --- |
 | `model` | Preconfigured as `azure/chat`; verify the deployed name. |
-| `modelEndpoint` | Preconfigured HTTPS Foundry endpoint; verify private DNS resolution. |
+| Model endpoint | Derived from bootstrap's `FOUNDRY_ACCOUNT_NAME`; verify private DNS resolution. |
 | `modelApiVersion` | Preconfigured from current Holmes documentation; confirm with a live model request. |
 | `modelCidrs` | Address inputs for the staged model egress policy; currently unenforced. |
 | `apiCidrs` | Address inputs for the staged Kubernetes API egress policy; currently unenforced. |
 | `entraCidrs` | Address inputs for the staged Entra egress policy; currently unenforced. |
-| `azure.foundryResourceGroupName` / `foundryResourceName` | Preconfigured new management account; verify it exists before enabling. |
+| `azure.foundryResourceGroupName` | Account name comes from bootstrap runtime; verify it exists before enabling. |
 
 The package's Azure resources are GitOps owned by ASO: a managed identity in
 the existing management resource group, an AKS federated credential and a

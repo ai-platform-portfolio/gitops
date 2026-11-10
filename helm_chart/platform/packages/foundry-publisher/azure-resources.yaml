@@ -1,7 +1,7 @@
 {{- $p := .Values.foundryPublisher -}}
 {{- $sub := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
 {{- $clusterGroup := required "runtime.CLUSTER_RESOURCE_GROUP is required" .Values.runtime.CLUSTER_RESOURCE_GROUP -}}
-{{- $projectScope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s/projects/%s" $sub (required "foundryPublisher.resourceGroup is required" $p.resourceGroup) (required "foundryPublisher.account is required" $p.account) (required "foundryPublisher.project is required" $p.project) -}}
+{{- $projectScope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s/projects/%s" $sub (required "foundryPublisher.resourceGroup is required" $p.resourceGroup) (include "platform.foundryName" .) (required "foundryPublisher.project is required" $p.project) -}}
 {{- $hash := sha256sum (printf "foundry-publisher/%s/%s" .Values.cluster.name $projectScope) | trunc 32 -}}
 apiVersion: managedidentity.azure.com/v1api20230131
 kind: UserAssignedIdentity
