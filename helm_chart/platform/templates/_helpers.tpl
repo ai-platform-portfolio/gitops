@@ -1,4 +1,8 @@
 {{/* Shared reconciliation settings; package sources and ordering are explicit. */}}
+{{- define "platform.foundryName" -}}
+{{- required "runtime.FOUNDRY_ACCOUNT_NAME is required" .Values.runtime.FOUNDRY_ACCOUNT_NAME -}}
+{{- end -}}
+
 {{- define "platform.syncPolicy" -}}
 # Normalize only AKS-owned expressions; namespace labels and other drift stay visible.
 ignoreDifferences:

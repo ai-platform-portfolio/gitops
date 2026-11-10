@@ -12,4 +12,4 @@ metadata:
   namespace: foundry-publisher
 data:
   tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
-  projectEndpoint: {{ printf "https://%s.services.ai.azure.com/api/projects/%s" .Values.foundryPublisher.account .Values.foundryPublisher.project | quote }}
+  projectEndpoint: {{ printf "https://%s.services.ai.azure.com/api/projects/%s" (include "platform.foundryName" .) .Values.foundryPublisher.project | quote }}

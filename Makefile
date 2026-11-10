@@ -20,7 +20,9 @@ export TERRAFORM
 define run_terraform
 	@subscription_id="$$(az account show --query id -o tsv --only-show-errors)" && \
 	  tenant_id="$$(az account show --query tenantId -o tsv --only-show-errors)" && \
-	  ARM_SUBSCRIPTION_ID="$$subscription_id" ARM_TENANT_ID="$$tenant_id" $(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" $(1)
+	  ARM_SUBSCRIPTION_ID="$$subscription_id" ARM_TENANT_ID="$$tenant_id" \
+	  TF_VAR_foundry_spinup_date="$${FOUNDRY_SPINUP_DATE:-$$(date -u +%Y%m%d)}" \
+	  $(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" $(1)
 endef
 
 help:

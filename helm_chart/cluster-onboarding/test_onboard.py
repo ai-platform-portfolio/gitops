@@ -45,12 +45,15 @@ class HealthGateTests(unittest.TestCase):
         lookup.side_effect = lambda host, *_args, **_kwargs: [
             (2, 1, 6, '', ('20.1.2.3', 443))] if host == 'aks.example.test' else [
             (2, 1, 6, '', ('10.2.3.4', 443)), (2, 1, 6, '', ('52.1.2.3', 443))]
-        original = {'holmes': {'enabled': True, 'modelEndpoint': 'https://foundry.example.test/',
+        original = {'holmes': {'enabled': True,
                                'apiCidrs': ['1.1.1.1/32'], 'modelCidrs': [], 'entraCidrs': []},
                     'entraPrefixes': ['40.1.0.0/16']}
-        result = onboard.workload_settings(original, {'server': 'https://aks.example.test'})
+        result = onboard.workload_settings(original, {'server': 'https://aks.example.test'},
+                                           {'FOUNDRY_ACCOUNT_NAME': 'foundry'})
         self.assertEqual(result['holmes']['apiCidrs'], ['20.1.2.3/32'])
         self.assertEqual(result['holmes']['modelCidrs'], ['10.2.3.4/32'])
+        self.assertTrue(any(call.args[0] == 'foundry.cognitiveservices.azure.com'
+                            for call in lookup.call_args_list))
         self.assertEqual(result['holmes']['entraCidrs'], ['40.1.0.0/16'])
         self.assertEqual(original['holmes']['apiCidrs'], ['1.1.1.1/32'])
 

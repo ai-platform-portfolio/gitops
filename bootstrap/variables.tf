@@ -82,7 +82,7 @@ variable "foundry" {
   description = "Private management Foundry account and regional model deployment choices."
 
   type = object({
-    name                        = string
+    name_prefix                 = string
     authorized_ip_ranges_secret = string
     location                    = string
     private_endpoint_subnet_key = string
@@ -115,6 +115,16 @@ variable "foundry" {
     }))
   })
 
+}
+
+variable "foundry_spinup_date" {
+  description = "UTC YYYYMMDD injected by the lifecycle command; captured once per Terraform state lifecycle."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{8}$", var.foundry_spinup_date))
+    error_message = "foundry_spinup_date must be UTC YYYYMMDD."
+  }
 }
 
 variable "postgres" {

@@ -1,6 +1,6 @@
 {{- $azure := .Values.holmes.azure -}}
 {{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
-{{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s" $subscription $azure.foundryResourceGroupName $azure.foundryResourceName -}}
+{{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s" $subscription $azure.foundryResourceGroupName (include "platform.foundryName" .) -}}
 {{- $identityGroup := printf "/subscriptions/%s/resourceGroups/%s" $subscription (required "runtime.CLUSTER_RESOURCE_GROUP is required" .Values.runtime.CLUSTER_RESOURCE_GROUP) -}}
 {{- $hash := sha256sum (printf "holmes/%s/%s" .Values.cluster.name $scope) | trunc 32 -}}
 apiVersion: managedidentity.azure.com/v1api20230131

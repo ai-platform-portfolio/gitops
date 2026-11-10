@@ -33,6 +33,7 @@ def main():
     runtime = {name: 'example' for path in (HELM_CHART / 'platform').rglob('*') if path.is_file()
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
     runtime.update(DNS_ZONE='example.test', ARGOCD_HOSTNAME='argocd-management.example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
+                   FOUNDRY_ACCOUNT_NAME='foundry-management-portfolio-20261110-48273106',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
                    SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
                    AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
@@ -269,7 +270,7 @@ def main():
         assert publisher_identity['metadata']['namespace'] == 'azure-resources'
         assert next(d for d in publisher_docs if d['kind'] == 'FederatedIdentityCredential')['spec']['subject'] == 'system:serviceaccount:foundry-publisher:foundry-publisher'
         publisher_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment')
-        assert publisher_role['spec']['owner']['armId'].endswith('/accounts/foundry-management-portfolio-v2/projects/management')
+        assert publisher_role['spec']['owner']['armId'].endswith(f'/accounts/{runtime["FOUNDRY_ACCOUNT_NAME"]}/projects/management')
         assert publisher_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry Project Manager'
         broker_identity = next(d for d in publisher_docs if d['kind'] == 'UserAssignedIdentity' and d['metadata']['name'] == 'foundry-diagnostic-broker')
         broker_fic = next(d for d in publisher_docs if d['kind'] == 'FederatedIdentityCredential' and d['metadata']['name'] == 'foundry-diagnostic-broker')
@@ -292,11 +293,13 @@ def main():
         publisher_values = tmp / 'publisher-scope.json'
         scopes = set()
         role_names = set()
-        for account, project in [('foundry-management-portfolio-v2', 'management'),
-                                 ('foundry-management-portfolio', 'management'),
-                                 ('foundry-management-portfolio-v2', 'another-project')]:
-            publisher_values.write_text(json.dumps({**json.loads(values.read_text()),
-                                                   'foundryPublisher': {'account': account, 'project': project}}))
+        for account, project in [(runtime['FOUNDRY_ACCOUNT_NAME'], 'management'),
+                                 ('foundry-management-portfolio-20261111-48273106', 'management'),
+                                 (runtime['FOUNDRY_ACCOUNT_NAME'], 'another-project')]:
+            scoped_values = json.loads(values.read_text())
+            scoped_values['runtime']['FOUNDRY_ACCOUNT_NAME'] = account
+            scoped_values['foundryPublisher'] = {'project': project}
+            publisher_values.write_text(json.dumps(scoped_values))
             scoped_app = yaml.safe_load(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'),
                                                '-f', str(publisher_values), '--show-only', 'templates/foundry-publisher.yaml'))
             scoped_role = next(d for d in yaml.safe_load_all(scoped_app['spec']['source']['helm']['valuesObject']['manifests'])
@@ -305,7 +308,7 @@ def main():
             assert scope.endswith(f'/accounts/{account}/projects/{project}')
             role_name = scoped_role['metadata']['name']
             assert role_name not in role_names and scope not in scopes, 'New scopes must create new ASO resources'
-            if account == 'foundry-management-portfolio-v2' and project == 'management':
+            if account == runtime['FOUNDRY_ACCOUNT_NAME'] and project == 'management':
                 assert scoped_role == publisher_role, 'Reapplying the same scope must preserve the grant'
             role_hash = hashlib.sha256(f'foundry-publisher/management/{scope}'.encode()).hexdigest()[:32]
             assert scoped_role['spec']['azureName'].replace('-', '') == role_hash, 'Existing Azure grant names must remain stable'
@@ -564,7 +567,6 @@ def main():
             'holmes': {
                 'enabled': True,
                 'model': 'azure/test',
-                'modelEndpoint': 'https://model.example.test/v1',
                 'modelApiVersion': '2025-04-01-preview',
                 'modelCidrs': ['10.1.2.5/32'],
                 'apiCidrs': ['10.1.0.5/32'],
@@ -572,7 +574,6 @@ def main():
                 'azure': {
                     'location': 'uksouth',
                     'foundryResourceGroupName': 'rg-foundry',
-                    'foundryResourceName': 'foundry-test',
                 },
             },
         }))
@@ -594,9 +595,11 @@ def main():
         assert int(holmes_identity['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(holmes_grant['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
         holmes_scope_values = tmp / 'holmes-scope.json'
         holmes_grant_names = set()
-        for group, account in [('rg-foundry', 'foundry-test'), ('rg-foundry', 'foundry-next'), ('rg-another', 'foundry-test')]:
+        for group, account in [('rg-foundry', runtime['FOUNDRY_ACCOUNT_NAME']),
+                               ('rg-foundry', 'foundry-next'), ('rg-another', runtime['FOUNDRY_ACCOUNT_NAME'])]:
             scoped_values = json.loads(values.read_text())
-            scoped_values['holmes']['azure'].update(foundryResourceGroupName=group, foundryResourceName=account)
+            scoped_values['holmes']['azure']['foundryResourceGroupName'] = group
+            scoped_values['runtime']['FOUNDRY_ACCOUNT_NAME'] = account
             holmes_scope_values.write_text(json.dumps(scoped_values))
             scoped_app = yaml.safe_load(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'),
                                                '-f', str(holmes_scope_values), '--show-only', 'templates/holmes-azure.yaml'))
@@ -610,7 +613,7 @@ def main():
             assert grant['metadata']['name'] not in holmes_grant_names, 'Different scopes require different ASO resources'
             assert grant['spec']['roleDefinitionReference'] == holmes_grant['spec']['roleDefinitionReference']
             assert grant['spec']['principalIdFromConfig'] == holmes_grant['spec']['principalIdFromConfig']
-            if group == 'rg-foundry' and account == 'foundry-test':
+            if group == 'rg-foundry' and account == runtime['FOUNDRY_ACCOUNT_NAME']:
                 assert grant == holmes_grant, 'Same scope must preserve the complete grant'
             holmes_grant_names.add(grant['metadata']['name'])
         config_app = next(app for app in with_holmes if app['metadata']['name'] == 'configuration')

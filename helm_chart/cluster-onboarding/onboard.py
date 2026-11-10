@@ -195,7 +195,7 @@ def foundation_values(name, profile, aks, hub_runtime, settings, hub_config):
                        "vaultName": urlparse(vault_uri).hostname.split(".")[0],
                        "vaultUri": vault_uri,
                        "vaultResourceGroup": settings["clusterOnboarding"]["vaultResourceGroup"],
-                       "foundryName": settings["holmes"]["azure"]["foundryResourceName"],
+                       "foundryName": hub_runtime["FOUNDRY_ACCOUNT_NAME"],
                        "foundryResourceGroup": settings["holmes"]["azure"]["foundryResourceGroupName"]},
             "onboarding": {"workerPrincipalId": hub_runtime["ONBOARDING_PRINCIPAL_ID"],
                            "managementArgoPrincipalId": json.loads(hub_config["identity"])["principal_id"]},
@@ -319,11 +319,12 @@ def cidrs_for_host(url, private=False):
     return result
 
 
-def workload_settings(settings, cluster):
+def workload_settings(settings, cluster, runtime):
     result = copy.deepcopy(settings)
     if result["holmes"]["enabled"]:
         result["holmes"]["apiCidrs"] = cidrs_for_host(cluster["server"])
-        result["holmes"]["modelCidrs"] = cidrs_for_host(result["holmes"]["modelEndpoint"], private=True)
+        model_endpoint = f'https://{runtime["FOUNDRY_ACCOUNT_NAME"]}.cognitiveservices.azure.com/'
+        result["holmes"]["modelCidrs"] = cidrs_for_host(model_endpoint, private=True)
         result["holmes"]["entraCidrs"] = result["holmes"]["entraCidrs"] or result["entraPrefixes"]
         if not result["holmes"]["entraCidrs"]:
             raise RuntimeError("Entra token endpoint egress is not configured")
@@ -403,7 +404,7 @@ def process(hub, credential, request, platform, hub_config, argocd_config):
     child_argocd(hub, child, name, cluster, git, argocd_config)
     prepare_credentials(child)
     child_runtime = runtime_for(name, profile, aks, runtime, hub)
-    settings = workload_settings(settings, cluster)
+    settings = workload_settings(settings, cluster, child_runtime)
     status(hub, name, "Platform", "Reconciling platform services")
     root = child_platform(child, name, child_runtime, settings, git, False)
     retry(lambda: platform_ready(child, False), "platform foundations", 7200)

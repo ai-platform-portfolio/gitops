@@ -24,6 +24,21 @@ remain separate controls. Their presence does not imply pod-network isolation.
 The management root also declares a Foundry account in France Central, one
 management project, a `gpt-6.1-sol` EU Data Zone Standard chat deployment, three
 private DNS zones and a private endpoint in a France Central dedicated subnet.
+`make` injects the UTC spin-up date as `TF_VAR_foundry_spinup_date`. Terraform
+captures that date and a random eight-digit index once in state, producing
+`<foundry.name_prefix>-<YYYYMMDD>-<index>`. A retry or partial apply keeps the
+same name; a complete `make down` followed by a new spin-up produces a new one.
+`FOUNDRY_SPINUP_DATE=YYYYMMDD make plan` overrides the injected date for a
+controlled dry run, but does not rotate an account already held in state.
+The resolved name is also written to the existing persistent Key Vault secret
+`foundry-management-account-name`. The sensitive `platform_settings` output
+supplies that value to the management Argo runtime, where the Holmes model
+endpoint, publisher project endpoint, and ASO role scopes derive from it.
+Workload-cluster onboarding passes the same runtime name to child clusters.
+Terraform manages the secret version, so full teardown deletes this version;
+Key Vault soft delete and the persistent Terraform backend remain in place.
+The name is configuration rather than a credential, but Key Vault secret values
+are still retained in encrypted Terraform state.
 Its delegated `/24` agent subnet enables hosted and prompt-agent egress. Global
 VNet peering connects that VNet to management AKS in UK South; both VNets link
 the Foundry private DNS zones so AKS reaches the endpoint through the peering.
