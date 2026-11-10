@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import socket
 from pathlib import Path
 import subprocess
@@ -25,6 +26,18 @@ else:
 def run(*args, capture=False, timeout=None):
     return subprocess.run(args, check=True, text=True, timeout=timeout,
                           stdout=subprocess.PIPE if capture else None).stdout
+
+
+def foundry_account_name(vault_uri):
+    # Scoped Terraform applies can leave aggregate outputs stale; Key Vault holds
+    # the generated account name that the Foundry apply actually created.
+    secret_id = vault_uri.rstrip('/') + '/secrets/foundry-management-account-name'
+    name = run('az', 'keyvault', 'secret', 'show', '--id', secret_id,
+               '--query', 'value', '-o', 'tsv', '--only-show-errors',
+               capture=True, timeout=30).strip()
+    if not re.fullmatch(r'[a-z][a-z0-9-]{0,62}[a-z0-9]', name):
+        raise RuntimeError('Key Vault returned an invalid Foundry account name')
+    return name
 
 
 def wait_for(check, description, timeout=3600, retry_command_errors=False):
@@ -733,6 +746,7 @@ def main():
         runtime = {**cluster.settings['runtime'],
                    'AZURE_TENANT_ID': cluster.account['tenant_id'],
                    'AZURE_SUBSCRIPTION_ID': cluster.account['subscription_id']}
+        runtime['FOUNDRY_ACCOUNT_NAME'] = foundry_account_name(runtime['AZURE_KEY_VAULT_URI'])
         cluster.check_dns(runtime)
         existing = cluster.object('applications.argoproj.io', 'platform', 'argocd')
         runtime.update(cluster.sso())
