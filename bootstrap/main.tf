@@ -112,6 +112,9 @@ resource "azurerm_virtual_network_peering" "management_to_foundry" {
   resource_group_name       = azurerm_resource_group.this.name
   virtual_network_name      = var.network.name
   remote_virtual_network_id = module.network["foundry"].vnet_id
+
+  # VNet IDs exist before their subnet and DNS-link writes have completed.
+  depends_on = [module.network["management"], module.network["foundry"]]
 }
 
 resource "azurerm_virtual_network_peering" "foundry_to_management" {
@@ -120,7 +123,8 @@ resource "azurerm_virtual_network_peering" "foundry_to_management" {
   virtual_network_name      = var.foundry.network.name
   remote_virtual_network_id = module.network["management"].vnet_id
 
-  depends_on = [module.network["foundry"]]
+  # Azure peering operations must run sequentially, including during teardown.
+  depends_on = [azurerm_virtual_network_peering.management_to_foundry]
 }
 
 # Apply this ownership transfer before teardown; retain the existing Entra object.
