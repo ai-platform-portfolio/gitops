@@ -50,10 +50,15 @@ The account region alone does not set the processing boundary: the deployment's
 owns zone definitions; `vnet_link` defaults to `false`, and the reusable network
 module creates links only for zones that opt in. Foundry selects zones by key, so
 other resources can use the same DNS configuration. The account uses
-its own user-assigned identity. The reusable module defaults to private-only
-networking and disabled local key authentication. This bootstrap uses those
-defaults: public data-plane access is disabled, including the former operator
-IP exception. Operator access now requires a path to the private endpoint.
+its own user-assigned identity. The reusable module and this root's optional
+`foundry.network_access` input default to private-only networking; local key
+authentication remains disabled. For this portfolio demonstration,
+`terraform.tfvars` explicitly enables public access with `default_action = "Allow"`
+and no IP allowlist. Public clients still require Entra authentication and the
+appropriate RBAC permissions. The private endpoint and DNS remain configured for
+clients on the connected VNets. This demonstrates private connectivity, not
+enforced network isolation. Deployment choices belong in `foundry.network_access`;
+the shared module's secure defaults are unchanged.
 [Model and deployment-type availability](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability?pivots=standard&tabs=az-europe).
 
 The former Foundry operator IP allowlist secret remains in Key Vault but is no
@@ -145,7 +150,9 @@ AKS, an APIM instance, PostgreSQL, Argo, federated credentials or platform packa
 No Kubernetes tooling or cluster context is needed for these commands.
 
 Foundry retains its private endpoint and disabled local key authentication.
-Clients need private network connectivity and appropriate Entra permissions.
+With the demonstration settings in `terraform.tfvars`, clients can use the public
+endpoint from any network with appropriate Entra permissions. Private endpoint
+clients still need the connected network and private DNS path.
 Bootstrap grants the AKS administrator group
 `Foundry Owner`; other clients need their own role assignments.
 

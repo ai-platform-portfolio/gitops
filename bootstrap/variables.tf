@@ -79,15 +79,19 @@ variable "private_dns" {
 }
 
 variable "foundry" {
-  description = "Private management Foundry account and regional model deployment choices."
+  description = "Management Foundry account, connectivity and regional model deployment choices."
 
   type = object({
     name_prefix                 = string
-    authorized_ip_ranges_secret = string
     location                    = string
     private_endpoint_subnet_key = string
     agent_subnet_key            = string
     private_dns_zone_keys       = set(string)
+
+    network_access = optional(object({
+      public_network_access_enabled = optional(bool, false)
+      default_action                = optional(string, "Deny")
+    }), {})
 
     network = object({
       name          = string
@@ -115,6 +119,10 @@ variable "foundry" {
     }))
   })
 
+  validation {
+    condition     = contains(["Allow", "Deny"], var.foundry.network_access.default_action)
+    error_message = "Foundry network default_action must be Allow or Deny."
+  }
 }
 
 variable "foundry_spinup_date" {

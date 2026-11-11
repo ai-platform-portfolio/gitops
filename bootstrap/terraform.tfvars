@@ -117,11 +117,16 @@ private_dns = {
 
 foundry = {
   name_prefix                 = "foundry-management-portfolio"
-  authorized_ip_ranges_secret = "foundry-authorized-ip-ranges"
   location                    = "francecentral"
   private_endpoint_subnet_key = "snet-pe-foundry"
   agent_subnet_key            = "snet-agent-foundry"
   private_dns_zone_keys       = ["openai", "cognitiveservices", "services_ai"]
+
+  # Demonstrate private connectivity while allowing authenticated public clients.
+  network_access = {
+    public_network_access_enabled = true
+    default_action                = "Allow"
+  }
 
   network = {
     name          = "vnet-foundry-management"
