@@ -11,6 +11,11 @@ data "azuread_group" "aks_admin" {
   display_name = var.aks.admin_group.display_name
 }
 
+# Reuse the existing GitHub CI publisher; its registration and federation remain external.
+data "azuread_service_principal" "ci_publisher" {
+  display_name = var.ci_publisher.service_principal_display_name
+}
+
 data "azuread_service_principal" "microsoft_graph" {
   client_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
 }
@@ -182,6 +187,16 @@ module "aks" {
   }
 
   tags = var.azure.tags
+}
+
+# Lets GitHub Actions publish and manage hosted Foundry agent versions across
+# the subscription, independently of AKS. Only this new grant is Terraform-owned;
+# the existing SPN, GitHub federation and other grants are not adopted here.
+resource "azurerm_role_assignment" "ci_publisher_foundry" {
+  scope                = local.role_scopes["subscription"]
+  role_definition_name = var.ci_publisher.foundry_role_definition_name
+  principal_id         = data.azuread_service_principal.ci_publisher.object_id
+  principal_type       = "ServicePrincipal"
 }
 
 module "identities" {

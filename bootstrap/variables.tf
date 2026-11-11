@@ -6,6 +6,14 @@ variable "container_registries" {
   }))
 }
 
+variable "ci_publisher" {
+  description = "Existing GitHub CI service principal and its subscription-scoped Foundry deployment role."
+  type = object({
+    service_principal_display_name = string
+    foundry_role_definition_name   = string
+  })
+}
+
 variable "entra_applications" {
   description = "Terraform-owned bootstrap applications, workload federation and explicit Microsoft Graph consent."
   type = map(object({
