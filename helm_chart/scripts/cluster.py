@@ -664,14 +664,18 @@ class Cluster:
                 raise RuntimeError('Remove application Rollouts before tearing down their controller and traffic-routing dependencies')
         aso_resources = []
         if any(a['metadata']['name'] == 'azure-service-operator' for a in apps):
-            # External consumer CRs must finish deletion first. Only exact Azure
-            # resources tracked by platform-owned consumer Applications may
-            # remain: reverse waves delete them before ASO and its credential.
+            # Consumer cleanup is complete. Verify child-owned Azure resources
+            # and root-owned shared roles before removing either ownership layer.
             root = next((a for a in apps if a['metadata']['name'] == 'platform'), {})
             packages = {r['name'] for r in root.get('status', {}).get('resources', [])
                         if r.get('group') == 'argoproj.io' and r.get('kind') == 'Application'
                         and r.get('namespace') == 'argocd'}
-            owned = {}
+            root_roles = {(r['group'], r['kind'], r['namespace'], r['name']):
+                          f"platform:{r['group']}/{r['kind']}:{r['namespace']}/{r['name']}"
+                          for r in root.get('status', {}).get('resources', [])
+                          if r.get('group') == 'authorization.azure.com'
+                          and r.get('kind') == 'RoleDefinition' and r.get('namespace')}
+            owned = dict(root_roles)
             for app in apps:
                 metadata = app['metadata']
                 name = metadata['name']
@@ -690,6 +694,7 @@ class Cluster:
                             '-l', 'app.kubernetes.io/name=azure-service-operator',
                             '-o', 'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
                             capture=True).splitlines()
+            shared_roles = []
             for resource in aso_resources:
                 for obj in self.objects(resource):
                     key = (obj.get('apiVersion', '').split('/')[0], obj.get('kind'),
@@ -698,6 +703,13 @@ class Cluster:
                     if key not in owned or tracking != owned[key]:
                         raise RuntimeError('Remove ASO Azure resources and wait for finalizers before teardown: '
                                            f'unverified ownership for {key[1]} {key[2]}/{key[3]}')
+                    if key in root_roles:
+                        shared_roles.append((resource, key[2], key[3]))
+
+            # Registrations and PostDelete hooks drained above. Keep ASO and its
+            # credentials available until these shared role finalizers finish.
+            for resource, namespace, name in shared_roles:
+                self.delete(resource, [name], namespace)
         managed = [a for a in self.objects('applications.argoproj.io', 'argocd')
                    if a['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/managed') == 'true']
         suspend(managed)

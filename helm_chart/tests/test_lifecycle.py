@@ -724,6 +724,76 @@ class TeardownTests(unittest.TestCase):
                                          [package, azure_package, 'configuration',
                                           'azure-service-operator', 'platform'])
 
+    def test_root_roles_drain_after_registrations_and_before_aso_dependencies(self):
+        for state in ['active', 'deleting', 'absent', 'timeout', 'root-inventory', 'tracking', 'foreign']:
+            with self.subTest(state=state):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                apps = self.tracked_platform([
+                    {'metadata': {'name': name, 'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
+                    for name in ['configuration', 'azure-service-operator']])
+                registration_root, discovery = self.onboarding()
+                role_ref = {'group': 'authorization.azure.com', 'kind': 'RoleDefinition',
+                            'namespace': 'azure-resources', 'name': 'shared-blob-role'}
+                apps[0]['status']['resources'] += registration_root['status']['resources']
+                if state != 'root-inventory':
+                    apps[0]['status']['resources'].append(role_ref)
+                role = {'apiVersion': 'authorization.azure.com/v1api20220401', 'kind': 'RoleDefinition',
+                        'metadata': {'name': role_ref['name'], 'namespace': role_ref['namespace'], 'annotations': {
+                            'argocd.argoproj.io/tracking-id':
+                            'platform:authorization.azure.com/RoleDefinition:azure-resources/shared-blob-role'}}}
+                if state == 'deleting':
+                    role['metadata']['deletionTimestamp'] = 'now'
+                if state == 'tracking':
+                    role['metadata']['annotations'].clear()
+                drained = False
+                deleted = []
+                resource_type = 'roledefinitions.authorization.azure.com'
+
+                def objects(kind, namespace=None):
+                    if kind == 'applications.argoproj.io':
+                        return apps
+                    if kind == 'applicationsets.argoproj.io':
+                        return [] if drained else [discovery]
+                    if kind == resource_type:
+                        self.assertTrue(drained, 'Role inspected before registration/PostDelete drain')
+                        if state == 'foreign':
+                            return [role, {**role, 'metadata': {**role['metadata'], 'name': 'unowned-role'}}]
+                        return [] if state == 'absent' or role_ref['name'] in deleted else [role]
+                    return []
+
+                def delete(kind, names, namespace=None, foreground=False):
+                    nonlocal drained
+                    if kind == 'applicationsets.argoproj.io':
+                        self.assertTrue(foreground)
+                        drained = True
+                    if kind == resource_type:
+                        self.assertTrue(drained)
+                        self.assertEqual(namespace, role_ref['namespace'])
+                        if state == 'timeout':
+                            raise TimeoutError('Waiting for shared role finalizer')
+                    deleted.extend(names)
+
+                cluster.objects = Mock(side_effect=objects)
+                cluster.delete = Mock(side_effect=delete)
+                with patch('helm_chart.scripts.cluster.run', return_value=resource_type):
+                    if state in ['root-inventory', 'tracking', 'foreign']:
+                        with self.assertRaisesRegex(RuntimeError, 'unverified ownership'):
+                            cluster.cleanup()
+                        self.assertEqual(deleted, ['repository-discovery'])
+                    elif state == 'timeout':
+                        with self.assertRaisesRegex(TimeoutError, 'shared role finalizer'):
+                            cluster.cleanup()
+                        self.assertEqual(deleted, ['repository-discovery'])
+                    else:
+                        cluster.cleanup()
+                        expected = ['repository-discovery']
+                        if state != 'absent':
+                            expected.append(role_ref['name'])
+                        self.assertEqual(deleted, expected + ['configuration', 'azure-service-operator', 'platform'])
+
     def test_incomplete_platform_ownership_cannot_allow_azure_deletion(self):
         for fault in ['root-inventory', 'managed-label', 'package-tracking', 'resource-tracking']:
             with self.subTest(fault=fault):
