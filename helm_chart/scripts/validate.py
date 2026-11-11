@@ -244,6 +244,7 @@ def main():
             'USE_WORKLOAD_IDENTITY_AUTH': 'true',
         }
         role = next(d for d in rendered if d['kind'] == 'RoleDefinition')
+        assert role['metadata']['annotations']['argocd.argoproj.io/sync-options'] == 'SkipDryRunOnMissingResource=true'
         assert role['spec']['permissions'][0]['actions'] == []
         assert set(role['spec']['permissions'][0]['dataActions']) == {
             'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read',

@@ -16,6 +16,8 @@ metadata:
   namespace: azure-resources
   annotations:
     argocd.argoproj.io/sync-wave: '30'
+    # ASO installs this CRD through an earlier child Application on cold startup.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   azureName: {{ $roleID | quote }}
   owner: {armId: {{ $storageScope | quote }}}
