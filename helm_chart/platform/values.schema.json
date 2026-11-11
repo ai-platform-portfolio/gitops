@@ -123,17 +123,6 @@
         "then": {"properties": {"image": {"pattern": "^\\S+@sha256:[a-f0-9]{64}$"}}}
       }]
     },
-    "foundryPublisher": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "location", "resourceGroup", "project"],
-      "properties": {
-        "enabled": {"type": "boolean"},
-        "location": {"type": "string", "minLength": 1},
-        "resourceGroup": {"type": "string", "minLength": 1},
-        "project": {"type": "string", "minLength": 1}
-      }
-    },
     "holmes": {
       "type": "object",
       "additionalProperties": false,

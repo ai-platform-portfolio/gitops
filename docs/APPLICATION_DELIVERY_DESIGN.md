@@ -12,8 +12,8 @@ The `preview-environments` application is the acceptance-test consumer.
 
 The ten delivery stages have passed their functional acceptance gates. This is
 a demonstration platform with a small dataset, not a production availability or
-scale certification. Hosted SRE agents and the financial-document application
-are separate consumers/workstreams, outside this document's completion claim.
+scale certification. The financial-document application is a separate
+consumer/workstream, outside this document's completion claim.
 
 ## Goals and boundaries
 

@@ -80,13 +80,6 @@ holmes:
     location: uksouth
     foundryResourceGroupName: rg-management
 
-# One shared workload identity publishes versioned agents from private AKS.
-foundryPublisher:
-  enabled: true
-  location: uksouth
-  resourceGroup: rg-management
-  project: management
-
 # Package choices live in GitOps, not Terraform/tfvars. Atlantis requires the
 # dedicated App installation and Key Vault credentials before this PR merges.
 atlantis:
