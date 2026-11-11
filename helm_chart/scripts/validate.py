@@ -266,7 +266,7 @@ def main():
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'langfuse-credentials', 'opentelemetry-collector',
             'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
-            'azure-service-operator', 'foundry-publisher', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
+            'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
             'backstage', 'backstage-credentials', 'backstage-reloader',
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
@@ -278,57 +278,6 @@ def main():
         assert {d['kind'] for d in acr_resources} == {'UserAssignedIdentity', 'FederatedIdentityCredential', 'RoleAssignment'}
         assert next(d for d in acr_resources if d['kind'] == 'FederatedIdentityCredential')['spec']['subject'] == 'system:serviceaccount:kargo:kargo-controller'
         assert next(d for d in acr_resources if d['kind'] == 'RoleAssignment')['spec']['roleDefinitionReference']['wellKnownName'] == 'AcrPull'
-        publisher_app = next(app for app in applications if app['metadata']['name'] == 'foundry-publisher')
-        publisher_docs = [d for d in yaml.safe_load_all(publisher_app['spec']['source']['helm']['valuesObject']['manifests']) if d]
-        publisher_identity = next(d for d in publisher_docs if d['kind'] == 'UserAssignedIdentity')
-        assert publisher_identity['metadata']['namespace'] == 'azure-resources'
-        assert next(d for d in publisher_docs if d['kind'] == 'FederatedIdentityCredential')['spec']['subject'] == 'system:serviceaccount:foundry-publisher:foundry-publisher'
-        publisher_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment')
-        assert publisher_role['spec']['owner']['armId'].endswith(f'/accounts/{runtime["FOUNDRY_ACCOUNT_NAME"]}/projects/management')
-        assert publisher_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry Project Manager'
-        broker_identity = next(d for d in publisher_docs if d['kind'] == 'UserAssignedIdentity' and d['metadata']['name'] == 'foundry-diagnostic-broker')
-        broker_fic = next(d for d in publisher_docs if d['kind'] == 'FederatedIdentityCredential' and d['metadata']['name'] == 'foundry-diagnostic-broker')
-        broker_role = next(d for d in publisher_docs if d['kind'] == 'RoleAssignment' and d['metadata']['name'].startswith('foundry-diagnostic-broker-user-'))
-        assert broker_fic['spec']['subject'] == 'system:serviceaccount:foundry-publisher:foundry-diagnostic-broker'
-        assert broker_role['spec']['roleDefinitionReference']['wellKnownName'] == 'Foundry User'
-        assert broker_role['spec']['owner']['armId'] == publisher_role['spec']['owner']['armId']
-        assert broker_role['spec']['principalIdFromConfig']['name'] != publisher_role['spec']['principalIdFromConfig']['name']
-        assert int(broker_identity['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(broker_role['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
-        broker_access = next(d for d in publisher_docs if d['kind'] == 'ClusterRole' and d['metadata']['name'] == 'foundry-diagnostic-broker-read')
-        assert {verb for rule in broker_access['rules'] for verb in rule['verbs']} <= {'get', 'list'}
-        assert any(rule['apiGroups'] == ['argoproj.io'] and rule['resources'] == ['rollouts']
-                   and rule['verbs'] == ['get'] for rule in broker_access['rules'])
-        assert not {resource for rule in broker_access['rules'] for resource in rule['resources']} & {'secrets', 'configmaps'}
-        assert not any(d['kind'] == 'ClusterRoleBinding' and d['metadata']['name'] == 'foundry-diagnostic-broker-read' for d in publisher_docs)
-        # ASO forbids changing a RoleAssignment's Azure name or owner in place.
-        assert publisher_app['spec']['syncPolicy']['automated']['prune'] is True
-        assert 'PruneLast=true' in publisher_app['spec']['syncPolicy']['syncOptions']
-        assert int(publisher_identity['metadata']['annotations']['argocd.argoproj.io/sync-wave']) < int(publisher_role['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
-        publisher_values = tmp / 'publisher-scope.json'
-        scopes = set()
-        role_names = set()
-        for account, project in [(runtime['FOUNDRY_ACCOUNT_NAME'], 'management'),
-                                 ('foundry-management-portfolio-20261111-48273106', 'management'),
-                                 (runtime['FOUNDRY_ACCOUNT_NAME'], 'another-project')]:
-            scoped_values = json.loads(values.read_text())
-            scoped_values['runtime']['FOUNDRY_ACCOUNT_NAME'] = account
-            scoped_values['foundryPublisher'] = {'project': project}
-            publisher_values.write_text(json.dumps(scoped_values))
-            scoped_app = yaml.safe_load(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'),
-                                               '-f', str(publisher_values), '--show-only', 'templates/foundry-publisher.yaml'))
-            scoped_role = next(d for d in yaml.safe_load_all(scoped_app['spec']['source']['helm']['valuesObject']['manifests'])
-                               if d and d['kind'] == 'RoleAssignment')
-            scope = scoped_role['spec']['owner']['armId']
-            assert scope.endswith(f'/accounts/{account}/projects/{project}')
-            role_name = scoped_role['metadata']['name']
-            assert role_name not in role_names and scope not in scopes, 'New scopes must create new ASO resources'
-            if account == runtime['FOUNDRY_ACCOUNT_NAME'] and project == 'management':
-                assert scoped_role == publisher_role, 'Reapplying the same scope must preserve the grant'
-            role_hash = hashlib.sha256(f'foundry-publisher/management/{scope}'.encode()).hexdigest()[:32]
-            assert scoped_role['spec']['azureName'].replace('-', '') == role_hash, 'Existing Azure grant names must remain stable'
-            assert role_name == 'foundry-publisher-project-manager-' + role_hash[:12]
-            scopes.add(scope)
-            role_names.add(role_name)
         kargo_identity = next(app for app in applications if app['metadata']['name'] == 'kargo-identity')
         kargo_resources = [d for d in yaml.safe_load_all(kargo_identity['spec']['source']['helm']['valuesObject']['manifests']) if d]
         kargo_public_client = next(d for d in kargo_resources if d['kind'] == 'PublicOIDCApplication')
@@ -453,8 +402,6 @@ def main():
         assert namespace['metadata']['labels']['gitops.platform/gateway'] == 'public'
         kargo_namespace = next(d for d in manifests('namespaces') if d['kind'] == 'Namespace' and d['metadata']['name'] == 'kargo')
         assert kargo_namespace['metadata']['labels']['gitops.platform/gateway'] == 'public'
-        publisher_namespace = next(d for d in manifests('namespaces') if d['kind'] == 'Namespace' and d['metadata']['name'] == 'foundry-publisher')
-        assert publisher_namespace['metadata']['labels']['pod-security.kubernetes.io/enforce'] == 'restricted'
         assert {'group': '', 'kind': 'ConfigMap', 'name': 'preview-refresh', 'namespace': 'cluster-onboarding',
                 'jsonPointers': ['/data']} in github_apps['platform-events']['spec']['ignoreDifferences']
         sender = next(app for app in applications if app['metadata']['name'] == 'atlantis')['spec']['source']['helm']['valuesObject']
@@ -533,7 +480,6 @@ def main():
         assert waves['configuration'] == waves['azure-service-operator']
         assert waves['crossplane-identity-api'] < waves['kargo-identity'] < waves['kargo'] < waves['routes']
         assert waves['azure-service-operator'] < waves['kargo-acr'] < waves['kargo']
-        assert waves['azure-service-operator'] < waves['foundry-publisher']
         atlas_token = next(doc for doc in staged_resources if doc['kind'] == 'ExternalSecret' and doc['metadata']['name'] == 'atlas-token-secret')
         assert atlas_token['metadata']['namespace'] == 'atlas-system'
         assert atlas_token['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
@@ -960,7 +906,7 @@ def main():
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
                                               'sonarqube', 'sonarqube-configure', 'crossplane',
                                               'crossplane-packages', 'crossplane-identity-api', 'argocd-route', 'argo-events', 'platform-events',
-                                              'kargo-acr', 'kargo-identity', 'kargo', 'foundry-publisher'}, 'Workload must install every ready package except management services'
+                                              'kargo-acr', 'kargo-identity', 'kargo'}, 'Workload must install every ready package except management services'
         assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
                 'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
