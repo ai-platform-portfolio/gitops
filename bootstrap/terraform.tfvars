@@ -7,6 +7,11 @@ container_registries = {
   }
 }
 
+ci_publisher = {
+  service_principal_display_name = "kubernetes-spn"
+  foundry_role_definition_name   = "Foundry Project Manager"
+}
+
 entra_applications = {
   argocd = {
     display_name                = "portfolio-argocd"
