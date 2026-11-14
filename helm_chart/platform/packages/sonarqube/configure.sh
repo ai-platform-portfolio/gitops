@@ -30,16 +30,18 @@ for permission in provisioning scan; do
   curl -fsS -u "admin:$ADMIN_PASSWORD" -X POST "$url/api/permissions/remove_group" \
     --data-urlencode "groupName=sonar-users" --data-urlencode "permission=$permission"
 done
-{{- if eq .Values.cluster.role "workload" }}
-# The application-specific federation metadata publishes only public signing keys.
-# Entra's managed certificate is ready before this Job is enabled.
-metadata_url='https://login.microsoftonline.com/{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}/federationmetadata/2007-06/federationmetadata.xml?appid={{ required "runtime.SONAR_SAML_METADATA_APP_ID is required" .Values.runtime.SONAR_SAML_METADATA_APP_ID }}'
+{{- $saml := .Values.sonarqube.saml -}}
+{{- $applicationId := $saml.applicationId -}}
+{{- $metadataAppId := $saml.metadataAppId -}}
+{{- if eq .Values.cluster.role "workload" -}}
+{{- $applicationId = required "runtime.SONAR_SAML_APPLICATION_ID is required" .Values.runtime.SONAR_SAML_APPLICATION_ID -}}
+{{- $metadataAppId = required "runtime.SONAR_SAML_METADATA_APP_ID is required" .Values.runtime.SONAR_SAML_METADATA_APP_ID -}}
+{{- end }}
+# Public application-specific metadata; no Graph permissions or private key access.
+metadata_url='https://login.microsoftonline.com/{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}/federationmetadata/2007-06/federationmetadata.xml?appid={{ $metadataAppId }}'
 certificate=$(curl -fsS "$metadata_url" | tr -d '\n\r' | grep -o '<X509Certificate>[^<]*</X509Certificate>' | head -n 1 | sed 's@</\?X509Certificate>@@g')
 test -n "$certificate"
-{{- else }}
-certificate=$(printf '%s' '{{ required "runtime.SONAR_SAML_CERTIFICATE is required" .Values.runtime.SONAR_SAML_CERTIFICATE }}' | tr -d '\n\r')
-{{- end }}
-setting sonar.auth.saml.applicationId '{{ required "runtime.SONAR_SAML_APPLICATION_ID is required" .Values.runtime.SONAR_SAML_APPLICATION_ID }}'
+setting sonar.auth.saml.applicationId '{{ $applicationId }}'
 setting sonar.auth.saml.providerName 'Microsoft Entra ID'
 setting sonar.auth.saml.providerId 'https://sts.windows.net/{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}/'
 setting sonar.auth.saml.loginUrl 'https://login.microsoftonline.com/{{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID }}/saml2'

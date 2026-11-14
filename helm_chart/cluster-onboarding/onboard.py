@@ -294,14 +294,14 @@ def child_argocd(hub, child, name, cluster, git, configmap):
           "child Argo CD", 3600)
 
 
-def child_platform(child, name, runtime, settings, git, sonar_ready):
+def child_platform(child, name, runtime, settings, git):
     atlantis = {**settings["atlantis"], "enabled": False}
     backstage = {**settings["backstage"], "enabled": False,
                  "clusterRequests": {"enabled": False}}
     root = application("platform", "https://kubernetes.default.svc", git["repository"],
                        git["revision"], "helm_chart/platform",
                        {"cluster": {"name": name, "role": "workload"}, "git": git,
-                        "runtime": runtime, "sonarqubeReady": sonar_ready,
+                        "runtime": runtime,
                         "holmes": settings["holmes"], "backstage": backstage,
                         "atlantis": atlantis, "langfuse": settings["langfuse"],
                         "testkube": settings["testkube"], "devlake": settings["devlake"]})
@@ -331,26 +331,13 @@ def workload_settings(settings, cluster, runtime):
     return result
 
 
-def platform_ready(child, sonar_ready):
+def platform_ready(child):
     root = child.object("applications.argoproj.io", "platform", NAMESPACE)
     if not root or not root.get("status", {}).get("resources") or not app_ready(root):
         return False
     expected = {r["name"] for r in root["status"]["resources"] if r["kind"] == "Application"}
-    required = {"sonarqube", "sonarqube-configure"} if sonar_ready else {"postgres"}
-    if not required <= expected:
-        return False
     found = {a["metadata"]["name"]: a for a in child.objects("applications.argoproj.io", NAMESPACE)}
     return bool(expected) and expected <= found.keys() and all(app_ready(found[n]) for n in expected)
-
-
-def prepare_sonar(child):
-    retry(lambda: ready(child.object("clusters.postgresql.cnpg.io", "platform", "postgres") or {}),
-          "PostgreSQL", 3600)
-    role = child.object("secret", "sonarqube-role", "postgres")["data"]
-    ca = child.object("secret", "platform-ca", "postgres")["data"]["ca.crt"]
-    child.manifest({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-                    "metadata": {"name": "sonarqube-jdbc", "namespace": "sonarqube"},
-                    "data": {"jdbc-password": role["password"], "ca.crt": ca}})
 
 
 def endpoints_ready(runtime, settings):
@@ -406,11 +393,8 @@ def process(hub, credential, request, platform, hub_config, argocd_config):
     child_runtime = runtime_for(name, profile, aks, runtime, hub)
     settings = workload_settings(settings, cluster, child_runtime)
     status(hub, name, "Platform", "Reconciling platform services")
-    root = child_platform(child, name, child_runtime, settings, git, False)
-    retry(lambda: platform_ready(child, False), "platform foundations", 7200)
-    prepare_sonar(child)
-    root = child_platform(child, name, child_runtime, settings, git, True)
-    retry(lambda: platform_ready(child, True), "full platform", 7200)
+    root = child_platform(child, name, child_runtime, settings, git)
+    retry(lambda: platform_ready(child), "full platform", 7200)
     retry(lambda: endpoints_ready(child_runtime, settings), "public DNS and TLS endpoints", 1800)
     register(hub, name, cluster, hub_config, "ready", root)
     status(hub, name, "Healthy", "Current root and every child Application are Synced and Healthy")

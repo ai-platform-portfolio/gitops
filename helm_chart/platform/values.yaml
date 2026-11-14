@@ -44,8 +44,11 @@ gateway:
     certificateSecret: preview-tls
     clusterIssuer: letsencrypt-azuredns
 
-# The lifecycle enables SonarQube after PostgreSQL is ready and its CA is copied.
-sonarqubeReady: false
+# Existing retained enterprise application; only public SAML metadata is fetched.
+sonarqube:
+  saml:
+    applicationId: api://e0c91577-522a-42b9-9e55-878e147d5db9
+    metadataAppId: e0c91577-522a-42b9-9e55-878e147d5db9
 
 # Shared management-cluster orchestration. Maps contain native Argo specifications.
 events:

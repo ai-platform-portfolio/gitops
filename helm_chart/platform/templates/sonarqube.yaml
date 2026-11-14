@@ -1,4 +1,35 @@
-{{- if .Values.sonarqubeReady }}
+# PostgreSQL is healthy before ESO reads its CA and role Secret. Keeping this
+# separate from early configuration avoids waiting for a CA before CNPG exists.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarqube-credentials
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sonarqube
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/sonarqube/database-secret.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
 # The PostgreSQL role, Database and JDBC Secret are ready.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -28,10 +59,8 @@ spec:
 {{ tpl (.Files.Get "packages/sonarqube/values.yaml") . | indent 8 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
-{{- end }}
 
 ---
-{{- if .Values.sonarqubeReady }}
 # Configure SonarQube after its application is healthy.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -61,4 +90,3 @@ spec:
 {{ tpl (.Files.Get "packages/sonarqube/configure-job.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
-{{- end }}

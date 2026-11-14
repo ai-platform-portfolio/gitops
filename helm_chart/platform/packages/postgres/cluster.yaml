@@ -43,7 +43,6 @@ spec:
       replication: false
       passwordSecret:
         name: testkube-role
-{{- if .Values.sonarqubeReady }}
     - name: sonarqube
       ensure: present
       login: true
@@ -53,7 +52,6 @@ spec:
       replication: false
       passwordSecret:
         name: sonarqube-role
-{{- end }}
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
     - name: backstage
       ensure: present

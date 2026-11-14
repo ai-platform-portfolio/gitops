@@ -16,11 +16,11 @@ import urllib.request
 if __package__:
     from . import certificates
     from .azure import current_account
-    from .credentials import prepare as prepare_credentials, prepare_sonarqube
+    from .credentials import prepare as prepare_credentials
 else:
     import certificates
     from azure import current_account
-    from credentials import prepare as prepare_credentials, prepare_sonarqube
+    from credentials import prepare as prepare_credentials
 
 
 def run(*args, capture=False, timeout=None):
@@ -222,26 +222,6 @@ class Cluster:
         wait_for(lambda: not any(o['metadata']['name'] in names for o in self.objects(kind, namespace)),
                  f'Waiting for {kind}: {", ".join(names)}')
 
-    def sso(self):
-        # Read public SAML metadata only. Private signing keys remain in Entra.
-        display_name = self.settings['sonarqube_sso_display_name']
-        principals = json.loads(run('az', 'ad', 'sp', 'list', '--display-name', display_name,
-                                    '-o', 'json', capture=True))
-        principals = [p for p in principals if p['displayName'] == display_name]
-        if len(principals) != 1:
-            raise RuntimeError('Expected one retained SonarQube Entra service principal')
-        principal = json.loads(run('az', 'rest', '--method', 'GET', '--url',
-            'https://graph.microsoft.com/v1.0/servicePrincipals/' + principals[0]['id'] +
-            '?$select=appId,keyCredentials,preferredTokenSigningKeyThumbprint', capture=True))
-        thumbprint = (principal.get('preferredTokenSigningKeyThumbprint') or '').upper()
-        certs = [c for c in principal.get('keyCredentials', [])
-                 if c.get('usage') == 'Verify' and c.get('key')
-                 and base64.b64decode(c.get('customKeyIdentifier') or '').hex().upper() == thumbprint]
-        if len(certs) != 1 or not certs[0].get('key'):
-            raise RuntimeError('Cannot find the active public Entra SAML certificate')
-        return {'SONAR_SAML_APPLICATION_ID': 'api://' + principal['appId'],
-                'SONAR_SAML_CERTIFICATE': certs[0]['key']}
-
     def oidc_issuer(self):
         connection = self.connection
         result = subprocess.run(['az', 'aks', 'show', '--subscription', connection['subscription_id'],
@@ -253,7 +233,7 @@ class Cluster:
             raise RuntimeError('Cannot read the AKS OIDC issuer required by ASO-managed federation')
         return issuer
 
-    def root(self, runtime, sonar_ready):
+    def root(self, runtime):
         settings = self.settings
         return {'apiVersion': 'argoproj.io/v1alpha1', 'kind': 'Application',
                 'metadata': {'name': 'platform', 'namespace': 'argocd'},
@@ -262,7 +242,7 @@ class Cluster:
                     'source': {'repoURL': settings['git']['repository'],
                                'targetRevision': settings['git']['revision'], 'path': 'helm_chart/platform',
                                'helm': {'valuesObject': {'cluster': settings['cluster'], 'git': settings['git'],
-                                                        'runtime': runtime, 'sonarqubeReady': sonar_ready}}},
+                                                        'runtime': runtime}}},
                     'syncPolicy': {'automated': {'prune': True, 'selfHeal': True},
                                    'retry': {'limit': 10, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '3m'}}}}}
 
@@ -353,7 +333,7 @@ class Cluster:
                 report(['platform: resource inventory not ready'])
                 return False
             expected = {r['name'] for r in root['status']['resources'] if r['kind'] == 'Application'}
-            required = {'sonarqube', 'sonarqube-configure'}
+            required = set()
             if self.settings['cluster']['role'] == 'management':
                 required.add('argocd-route')
             if not required <= expected:
@@ -748,17 +728,12 @@ def main():
                    'AZURE_SUBSCRIPTION_ID': cluster.account['subscription_id']}
         runtime['FOUNDRY_ACCOUNT_NAME'] = foundry_account_name(runtime['AZURE_KEY_VAULT_URI'])
         cluster.check_dns(runtime)
-        existing = cluster.object('applications.argoproj.io', 'platform', 'argocd')
-        runtime.update(cluster.sso())
         runtime.update({'STORAGE_' + key.upper(): value for key, value in cluster.settings['storage_containers'].items()})
         # Generic context for GitOps-owned service federation.
         runtime['AKS_OIDC_ISSUER_URL'] = cluster.oidc_issuer()
         certificates.restore(cluster)
         prepare_credentials(cluster)
-        sonar_ready = bool(existing and existing['spec']['source']['helm']['valuesObject'].get('sonarqubeReady'))
-        cluster.seed(cluster.root(runtime, sonar_ready))
-        prepare_sonarqube(cluster, run, wait_for)
-        cluster.seed(cluster.root(runtime, True))
+        cluster.seed(cluster.root(runtime))
         cluster.ready()
         cluster.ingress_ready(runtime)
         print('Platform reconciled; portfolio data is disposable on teardown.', flush=True)
