@@ -168,6 +168,14 @@ foundry = {
       capacity      = 10
       sku_name      = "DataZoneStandard"
     }
+
+    # Foundry managed memory embeds reviewed context; retain EU Data Zone processing.
+    embedding = {
+      model_name    = "text-embedding-3-small"
+      model_version = "1"
+      capacity      = 1
+      sku_name      = "DataZoneStandard"
+    }
   }
 }
 
