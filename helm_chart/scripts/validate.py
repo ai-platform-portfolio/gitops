@@ -35,7 +35,8 @@ def main():
     runtime.update(DNS_ZONE='example.test', ARGOCD_HOSTNAME='argocd-management.example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    FOUNDRY_ACCOUNT_NAME='foundry-management-portfolio-20261110-48273106',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
-                   SONAR_SAML_CERTIFICATE='YWJj', SONAR_SAML_APPLICATION_ID='api://example',
+                   SONAR_SAML_METADATA_APP_ID='00000000-0000-0000-0000-000000000002',
+                   SONAR_SAML_APPLICATION_ID='api://example',
                    AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
     for key in ['AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_CLIENT_ID',
                 'POSTGRES_AZURE_CLIENT_ID', 'CROSSPLANE_CLIENT_ID', 'CROSSPLANE_PRINCIPAL_ID',
@@ -154,7 +155,7 @@ def main():
                 },
             },
         }
-        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True,
+        values.write_text(json.dumps({'runtime': runtime,
                                       'atlantis': {'enabled': False},
                                       'clusterOnboarding': {'enabled': False},
                                       'backstage': {'clusterRequests': {'enabled': False}}}))
@@ -188,7 +189,7 @@ def main():
                 continue
             raise AssertionError('Invalid Atlantis GitOps input was accepted: ' + label)
         # Also validate the explicitly restored staging/production configuration.
-        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis,
+        values.write_text(json.dumps({'runtime': runtime, 'atlantis': atlantis,
                                       'argocd': {'onboarding': {'profiles': ['previews', 'environments']}},
                                       'atlas': {'azurePostgres': {'enabled': True}}}))
         argo_values = tmp / 'argocd.json'
@@ -251,7 +252,7 @@ def main():
             'clickhouse-operator', 'cert-manager', 'cloudnative-pg', 'configuration',
             'external-dns', 'gateway', 'argocd-route', 'argocd-registry', 'argocd-github', 'plugin-barman-cloud', 'postgres', 'clickhouse',
             'loki', 'grafana', 'tempo', 'mimir', 'langfuse', 'langfuse-credentials', 'opentelemetry-collector', 'opentelemetry-networking',
-            'k8s-monitoring', 'sonarqube', 'sonarqube-configure', 'routes',
+            'k8s-monitoring', 'sonarqube-credentials', 'sonarqube', 'sonarqube-configure', 'routes',
             'azure-service-operator', 'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure',
             'crossplane', 'crossplane-packages', 'crossplane-identity-api', 'service-identities', 'langfuse-reloader',
             'backstage', 'backstage-credentials', 'backstage-reloader',
@@ -297,7 +298,7 @@ def main():
         disabled_docs = yaml.safe_load_all(disabled_events['spec']['source']['helm']['valuesObject']['manifests'])
         assert not any(d and d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in disabled_docs)
         github_values = tmp / 'github-events.json'
-        github_values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True,
+        github_values.write_text(json.dumps({'runtime': runtime,
                                             'events': {'github': {'enabled': True}}}))
         github_render = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform',
                          str(HELM_CHART / 'platform'), '-f', str(github_values))) if d]
@@ -573,7 +574,7 @@ def main():
         aso_credential = next(resource for resource in holmes_resources if resource['metadata']['name'] == 'aso-credential')
         assert aso_credential['kind'] == 'Secret'
         assert base64.b64decode(aso_credential['data']['AZURE_CLIENT_ID']).decode() == runtime['ASO_CLIENT_ID']
-        values.write_text(json.dumps({'runtime': runtime, 'sonarqubeReady': True, 'atlantis': atlantis}))
+        values.write_text(json.dumps({'runtime': runtime, 'atlantis': atlantis}))
         for app_name, workload in [('testkube-storage', 'testkube-s3'), ('testkube', 'testkube-api-server'), ('testkube-nats', 'testkube-nats')]:
             app = next(a for a in applications if a['metadata']['name'] == app_name)
             assert any(rule.get('name') == workload and rule.get('jsonPointers') == ['/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from'] for rule in app['spec']['ignoreDifferences'])
@@ -836,6 +837,22 @@ def main():
                     assert identity['spec']['redirectUri'] == 'https://langfuse.example.test/api/auth/callback/azure-ad'
                     assignments = [d for d in documents if d['kind'] == 'RoleAssignment' and d['metadata']['namespace'] == 'langfuse']
                     assert assignments and all(d['spec']['forProvider']['resourceObjectIdRef']['name'] == 'langfuse-sso' for d in assignments)
+                if app['metadata']['name'] == 'configuration':
+                    sonar_secrets = [d for d in documents if d['kind'] == 'ExternalSecret' and d['metadata']['name'] in {'sonarqube-role', 'sonarqube-monitoring', 'sonarqube-admin'}]
+                    assert len(sonar_secrets) == 3
+                    for secret in sonar_secrets:
+                        assert secret['spec']['refreshPolicy'] == 'CreatedOnce'
+                        assert secret['spec']['target']['immutable'] is True
+                        assert secret['spec']['target']['creationPolicy'] == 'Orphan'
+                if app['metadata']['name'] == 'sonarqube-credentials':
+                    secret = next(d for d in documents if d['kind'] == 'ExternalSecret')
+                    assert secret['spec']['target']['name'] == 'sonarqube-jdbc'
+                    assert secret['spec']['refreshInterval'] == '1m'
+                    assert {d['secretKey']: d['remoteRef'] for d in secret['spec']['data']} == {
+                        'jdbc-password': {'key': 'sonarqube-role', 'property': 'password'},
+                        'ca.crt': {'key': 'platform-ca', 'property': 'ca.crt'}}
+                    reader = next(d for d in documents if d['kind'] == 'Role')
+                    assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['sonarqube-role', 'platform-ca'], 'verbs': ['get']}]
                 if app['metadata']['name'] == 'sonarqube-configure':
                     job = next(d for d in documents if d['kind'] == 'Job')
                     annotations = job['metadata'].get('annotations', {})
@@ -845,6 +862,8 @@ def main():
                     subprocess.run(['sh', '-n'], input=script, text=True, check=True)
                     assert 'sonar.auth.saml.enabled true' in script and 'sonar.forceAuthentication true' in script
                     assert 'api/settings/values?keys=sonar.auth.saml.enabled' in script
+                    assert 'federationmetadata/2007-06/federationmetadata.xml?appid=' in script
+                    assert 'az ad' not in script and 'graph.microsoft.com' not in script
                 if app['metadata']['name'] == 'argocd-route':
                     listener = next(d for d in documents if d['kind'] == 'ListenerSet')
                     assert listener['spec']['listeners'][0]['hostname'] == 'argocd-management.example.test'
@@ -890,7 +909,7 @@ def main():
         workload = [d for d in workload if d and d['kind'] == 'Application']
         workload_names = {a['metadata']['name'] for a in workload}
         assert workload_names == expected - {'backstage', 'backstage-credentials', 'backstage-reloader',
-                                              'sonarqube', 'sonarqube-configure', 'crossplane',
+                                              'crossplane',
                                               'crossplane-packages', 'crossplane-identity-api', 'argocd-route', 'argo-events', 'platform-events',
                                               'kargo-acr', 'kargo-identity', 'kargo'}, 'Workload must install every ready package except management services'
         assert {'atlantis', 'atlantis-azure', 'holmes', 'holmes-azure', 'azure-service-operator',
@@ -908,17 +927,17 @@ def main():
         workload_atlantis = next(a for a in workload if a['metadata']['name'] == 'atlantis-azure')
         workload_atlantis_docs = [d for d in yaml.safe_load_all(workload_atlantis['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert next(d for d in workload_atlantis_docs if d['kind'] == 'ResourceGroup')['spec']['azureName'] == 'rg-dev-atlantis'
-        assert not any(a['metadata']['name'].startswith('sonarqube') for a in workload), 'Sonar must wait for cluster credential preparation'
+        assert {'sonarqube-credentials', 'sonarqube', 'sonarqube-configure'} <= {a['metadata']['name'] for a in workload}
         initial_postgres = next(a for a in workload if a['metadata']['name'] == 'postgres')
         initial_database_docs = [d for d in yaml.safe_load_all(initial_postgres['spec']['source']['helm']['valuesObject']['manifests']) if d]
-        assert not any(d['kind'] == 'Database' and d['metadata']['name'] == 'sonarqube' for d in initial_database_docs), 'Sonar database waits for credentials'
+        assert any(d['kind'] == 'Database' and d['metadata']['name'] == 'sonarqube' for d in initial_database_docs)
         assert any(d['kind'] == 'Database' and d['metadata']['name'] == 'testkube' for d in initial_database_docs)
         routes = next(a for a in workload if a['metadata']['name'] == 'routes')
         initial_routes = [d for d in yaml.safe_load_all(routes['spec']['source']['helm']['valuesObject']['manifests']) if d]
-        assert not any(d['metadata']['namespace'] == 'sonarqube' for d in initial_routes), 'Initial routes must not block on a Sonar backend that has not been installed'
+        assert any(d['metadata']['namespace'] == 'sonarqube' for d in initial_routes)
         assert waves['configuration'] < waves['postgres'] < waves['devlake-credentials'] < waves['grafana'] < waves['devlake'] < waves['devlake-configure'] < waves['devlake-collection'] < waves['routes']
         assert waves['service-identities'] < waves['devlake']
-        assert waves['routes'] > waves['sonarqube'], 'Activate routes after backend health'
+        assert waves['configuration'] < waves['postgres'] < waves['sonarqube-credentials'] < waves['sonarqube'] < waves['sonarqube-configure'] < waves['routes']
         assert waves['envoy-gateway'] < waves['cert-manager'] < waves['configuration'], 'Install Gateway API CRDs before cert-manager and issuers after it'
         assert waves['azure-service-operator'] > waves['cert-manager'], 'ASO certificates require cert-manager'
         assert waves['cert-manager'] < waves['clickhouse-operator'] < waves['clickhouse'], 'ClickHouse webhook certificates require cert-manager before the operator and database'
@@ -932,7 +951,6 @@ def main():
         assert 'argo-rollouts' in {a['metadata']['name'] for a in workload}, 'Each cluster needs its own Rollouts controller'
         assert not {'kargo', 'kargo-acr', 'kargo-identity'} & {a['metadata']['name'] for a in workload}
 
-
         # Exercise the opt-in package separately so default package ownership
         # remains unchanged and workloads cannot acquire a second portal.
         portal = {'enabled': True, 'image': 'registry.example.test/backstage@sha256:' + 'a' * 64,
@@ -941,7 +959,7 @@ def main():
         backstage_resources = []
         for role in ['management', 'workload']:
             values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': role, 'role': role},
-                                         'sonarqubeReady': True, 'backstage': portal, 'atlantis': atlantis}))
+                                         'backstage': portal, 'atlantis': atlantis}))
             enabled_apps = list(yaml.safe_load_all(command('helm', 'template', 'platform',
                                 str(HELM_CHART / 'platform'), '-f', str(values))))
             enabled_apps = [a for a in enabled_apps if a and a['kind'] == 'Application']
@@ -1043,7 +1061,6 @@ def main():
         assert not any('devlake' in json.dumps(a) for a in without), 'Disabling DevLake must remove every package dependency'
         assert next(a for a in without if a['metadata']['name'] == 'grafana')['metadata']['annotations']['argocd.argoproj.io/sync-wave'] == '30'
         print('DevLake: stable images, deferred ESO templates, PostgreSQL reuse, SSO/API isolation and access gates verified.')
-
 
 
         def render(app):
@@ -1398,7 +1415,6 @@ def main():
         with ThreadPoolExecutor(max_workers=4) as executor:
             list(executor.map(render, applications))
         print(f'{len(applications)} management Applications rendered; workload package parity and upstream charts verified.')
-
 
 if __name__ == '__main__':
     main()

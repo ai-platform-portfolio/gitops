@@ -269,7 +269,6 @@ variable "platform" {
       }))
     })
 
-    sonarqube_sso_display_name = optional(string, "REPLACE_WITH_ENTRA_SAML_APP_NAME")
   })
 
   validation {

@@ -2,6 +2,18 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "sonarqube": {
+      "type": "object", "additionalProperties": false, "required": ["saml"],
+      "properties": {
+        "saml": {
+          "type": "object", "additionalProperties": false, "required": ["applicationId", "metadataAppId"],
+          "properties": {
+            "applicationId": {"type": "string", "pattern": "^api://[A-Za-z0-9./_-]+$"},
+            "metadataAppId": {"type": "string", "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"}
+          }
+        }
+      }
+    },
     "gateway": {
       "type": "object",
       "properties": {

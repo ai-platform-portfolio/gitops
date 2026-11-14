@@ -226,10 +226,9 @@ argocd = {
 }
 
 platform = {
-  cluster_name               = "management"
-  cluster_role               = "management"
-  sonarqube_sso_display_name = "portfolio-sonarqube"
-  acme_email                 = "michaelalinks@gmail.com"
+  cluster_name = "management"
+  cluster_role = "management"
+  acme_email   = "michaelalinks@gmail.com"
 
   key_vault = {
     name                = "localdevenv"

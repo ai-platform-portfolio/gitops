@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main, teardown_connection, foundry_account_name
-from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
+from helm_chart.scripts.credentials import ensure_secret
 from bootstrap.scripts import wait_for_aks as aks_readiness
 
 
@@ -115,71 +115,6 @@ class CredentialTests(unittest.TestCase):
         self.assertNotIn('private-value', str(error.exception))
         cluster.manifest.assert_not_called()
 
-    def test_sonar_tls_copy_preserves_the_existing_database_password(self):
-        cluster = Mock()
-        cluster.kube = ['kubectl']
-        cluster.object.side_effect = [
-            {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}},
-            {'data': {'password': encoded('existing-password')}},
-            {'data': {'ca.crt': encoded('current-ca')}},
-        ]
-        run = Mock(return_value='clusters.postgresql.cnpg.io\n')
-        wait = lambda check, description, timeout: self.assertTrue(check())
-        prepare_sonarqube(cluster, run, wait)
-        doc = cluster.manifest.call_args.args[0]
-        self.assertEqual(doc['data'], {'jdbc-password': encoded('existing-password'), 'ca.crt': encoded('current-ca')})
-        self.assertEqual(doc['metadata']['namespace'], 'sonarqube')
-
-    def test_sonar_wait_resumes_root_when_new_revision_is_compared_after_seed(self):
-        cluster = Cluster.__new__(Cluster)
-        cluster.kube = ['kubectl']
-
-        def root(compared, phase='Running'):
-            return {'status': {'sync': {'revision': compared}, 'operationState': {
-                'phase': phase, 'syncResult': {'revision': 'old'}}}}
-
-        cluster.object = Mock(side_effect=[
-            root('old'), None,  # First check: new revision not yet compared; no database.
-            root('new'), root('new', 'Failed'),  # Later comparison permits termination.
-            {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}},
-            {'data': {'password': encoded('existing-password')}},
-            {'data': {'ca.crt': encoded('current-ca')}},
-        ])
-        cluster.manifest = Mock()
-        discovery = Mock(return_value='clusters.postgresql.cnpg.io\n')
-
-        def wait(check, description, timeout):
-            self.assertFalse(check())
-            cluster.manifest.assert_not_called()
-            self.assertTrue(check())
-
-        with patch('helm_chart.scripts.cluster.run') as run:
-            prepare_sonarqube(cluster, discovery, wait)
-        run.assert_called_once()
-        self.assertEqual(json.loads(run.call_args.args[-1]),
-                         {'status': {'operationState': {'phase': 'Terminating'}}})
-        self.assertEqual(cluster.manifest.call_args.args[0]['data'], {
-            'jdbc-password': encoded('existing-password'), 'ca.crt': encoded('current-ca')})
-
-    def test_sonar_waits_for_transient_cnpg_api_denial(self):
-        cluster = Mock()
-        cluster.kube = ['kubectl']
-        cluster.object.side_effect = [
-            subprocess.CalledProcessError(1, ['kubectl', 'get', 'clusters.postgresql.cnpg.io']),
-            {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}},
-            {'data': {'password': encoded('existing-password')}},
-            {'data': {'ca.crt': encoded('current-ca')}},
-        ]
-        run = Mock(return_value='clusters.postgresql.cnpg.io\n')
-
-        def wait(check, description, timeout):
-            self.assertFalse(check())
-            self.assertTrue(check())
-
-        prepare_sonarqube(cluster, run, wait)
-        self.assertEqual(cluster.manifest.call_args.args[0]['metadata']['name'], 'sonarqube-jdbc')
-
-
 class HealthWaitTests(unittest.TestCase):
     def test_temporary_kubernetes_command_errors_do_not_abort_health_wait(self):
         error = subprocess.CalledProcessError(1, ['kubectl', 'get', 'applications.argoproj.io'])
@@ -215,7 +150,7 @@ class PlatformInputTests(unittest.TestCase):
         cluster.settings = {'cluster': {'name': 'management', 'role': 'management'},
                             'git': {'repository': 'https://example.test/gitops', 'revision': 'main'},
                             'atlantis': {'enabled': True, 'github_app_id': 'legacy-output'}}
-        values = cluster.root({}, False)['spec']['source']['helm']['valuesObject']
+        values = cluster.root({})['spec']['source']['helm']['valuesObject']
         self.assertNotIn('atlantis', values)
 
     def test_stale_root_operation_is_terminated_after_new_revision_is_seen(self):
@@ -246,7 +181,7 @@ class PlatformInputTests(unittest.TestCase):
         cluster.kube = ['kubectl']
         cluster.settings = {'cluster': {'role': 'management'}}
         resources = [{'kind': 'Application', 'name': name}
-                     for name in ('sonarqube', 'sonarqube-configure', 'argocd-route')]
+                     for name in ('argocd-route',)]
         def root(compared, active, healthy=False):
             return {'metadata': {'name': 'platform'}, 'spec': {}, 'status': {
                 'resources': resources, 'sync': {'revision': compared,
@@ -256,7 +191,7 @@ class PlatformInputTests(unittest.TestCase):
                     'syncResult': {'revision': active}}}}
         children = [{'metadata': {'name': name}, 'spec': {}, 'status': {
             'sync': {'status': 'Synced'}, 'health': {'status': 'Healthy'}}}
-            for name in ('sonarqube', 'sonarqube-configure', 'argocd-route')]
+            for name in ('argocd-route',)]
         cluster.objects = Mock(side_effect=[
             [root('old', 'old'), *children],
             [root('new', 'old'), *children],
@@ -270,6 +205,20 @@ class PlatformInputTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
         self.assertEqual(json.loads(run.call_args.args[-1]),
                          {'status': {'operationState': {'phase': 'Terminating'}}})
+
+    def test_selected_service_health_still_blocks_platform_startup(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.settings = {'cluster': {'role': 'management'}}
+        cluster.resume_stale_root_sync = Mock()
+        names = ['platform', 'argocd-route', 'sonarqube']
+        apps = [{'metadata': {'name': name}, 'spec': {}, 'status': {
+            'sync': {'status': 'Synced'}, 'health': {'status': 'Healthy'}}} for name in names]
+        apps[0]['status']['resources'] = [{'kind': 'Application', 'name': n} for n in names[1:]]
+        pending = {**apps[-1], 'status': {'sync': {'status': 'Synced'}, 'health': {'status': 'Progressing'}}}
+        cluster.objects = Mock(side_effect=[[*apps[:-1], pending], apps])
+        with patch('helm_chart.scripts.cluster.time.sleep') as sleep:
+            cluster.ready()
+        sleep.assert_called_once()
 
     def test_startup_waits_for_discovery_and_registration_but_not_failed_prs(self):
         cluster = Cluster.__new__(Cluster)
@@ -1463,7 +1412,6 @@ class CertificateLifecycleOrderingTests(unittest.TestCase):
     def test_up_restores_public_tls_before_any_platform_seed(self):
         cluster = Mock(settings={'runtime': {'AZURE_KEY_VAULT_URI': 'https://example.vault.azure.net/'},
                                  'storage_containers': {}})
-        cluster.sso.return_value = {}
         cluster.object.return_value = None
         cluster.account = {'tenant_id': 'tenant', 'subscription_id': 'subscription'}
         events = []
@@ -1474,10 +1422,12 @@ class CertificateLifecycleOrderingTests(unittest.TestCase):
              patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
              patch('helm_chart.scripts.cluster.foundry_account_name', return_value='foundry-example'), \
              patch('helm_chart.scripts.cluster.certificates.restore', side_effect=lambda _: events.append('restore')), \
-             patch('helm_chart.scripts.cluster.prepare_credentials'), \
-             patch('helm_chart.scripts.cluster.prepare_sonarqube', side_effect=lambda *args: events.append('sonarqube')):
+             patch('helm_chart.scripts.cluster.prepare_credentials'):
             main()
-        self.assertEqual(events, ['restore', 'seed', 'sonarqube', 'seed', 'ready', 'https'])
+        self.assertEqual(events, ['restore', 'seed', 'ready', 'https'])
+        cluster.sso.assert_not_called()
+        runtime = cluster.root.call_args.args[0]
+        self.assertFalse(any(key.startswith('SONAR_') for key in runtime))
 
 
 if __name__ == '__main__':

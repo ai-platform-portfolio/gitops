@@ -549,3 +549,11 @@ before activation, preserving unrelated live settings. Verify API process uptime
 request/retry rates, controller leases and automatic registration reconciliation
 under comparable startup/recovery load before claiming the reliability fix works.
 No AKS tier or worker-size change is part of this repair.
+
+### SonarQube package boundary
+
+Bootstrap has no SonarQube identity input or output. Its GitOps package owns
+credentials, JDBC CA delivery and public SAML metadata configuration. The lifecycle
+seeds the platform once; normal Argo package health replaces the former
+SonarQube-specific two-stage preparation. Existing SonarQube Entra objects remain
+under their existing ownership.

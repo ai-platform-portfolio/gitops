@@ -78,10 +78,11 @@ health check in `../../bootstrap/argocd-configmap.yaml` waits for current-source
 and health before the parent advances. ApplicationSet creation order alone does
 not provide these dependency gates.
 
-The lifecycle initially supplies `sonarqubeReady: false`, prepares credentials,
-waits for PostgreSQL and copies its CA. It then sets the flag to true. That enables
-SonarQube's managed role, Database, application, configuration job and routes.
-The role and Database are applied by the `postgres` Application before wave 60.
+SonarQube setup is package-owned: early ESO credential generation, CNPG role and
+database reconciliation, wave-40 JDBC credential/CA delivery, wave-60 service and
+wave-70 SAML configuration. The lifecycle seeds the root once and waits for its
+actual package inventory; it does not discover SonarQube SSO metadata or toggle
+a service-specific startup flag.
 
 ## Making a change
 

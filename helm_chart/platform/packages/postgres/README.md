@@ -14,13 +14,13 @@ health gate so custom resources are applied after their operators are ready.
 | `storage-class.yaml` | Azure Premium disk class for database storage |
 | `namespace.yaml`, `operator-namespace.yaml` | Database and operator namespaces |
 
-The `postgres` Application also applies `../sonarqube/database.yaml` after the
-lifecycle enables `sonarqubeReady`. CNPG reconciles the role and Database before
+The `postgres` Application also applies `../sonarqube/database.yaml`. Early ESO
+configuration supplies its role password. CNPG reconciles the role and Database before
 SonarQube starts. SonarQube currently connects directly to the `platform-rw`
 service; the pooler is available separately.
 
-The lifecycle copies the current PostgreSQL CA and role password into SonarQube's
-JDBC Secret. There is one PostgreSQL instance and no synchronous standby
+SonarQube's package-owned ESO resources deliver the current PostgreSQL CA and
+role password into its JDBC Secret after PostgreSQL is healthy. There is one PostgreSQL instance and no synchronous standby
 requirement. Backups demonstrate the Barman integration during the cluster
 lifetime; the backup container and database volumes are disposable on teardown.
 No cross-teardown restore or final-backup gate is configured.

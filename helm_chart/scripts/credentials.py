@@ -2,7 +2,6 @@
 import base64
 import json
 import secrets
-import subprocess
 
 
 def secret(cluster, namespace, name, data, secret_type='Opaque', labels=None):
@@ -39,40 +38,10 @@ def prepare(cluster):
                 'credentials': [{'accessKey': 'langfuse', 'secretKey': s3_password}],
                 'actions': ['Admin', 'Read', 'Write', 'List', 'Tagging']}]})},
     }
-    for namespace in ['lgtm', 'langfuse', 'postgres', 'sonarqube']:
+    for namespace in ['lgtm', 'langfuse', 'postgres']:
         labels = {'gitops.platform/gateway': 'public'} if namespace != 'postgres' else {}
         cluster.manifest({'apiVersion': 'v1', 'kind': 'Namespace',
                           'metadata': {'name': namespace, 'labels': labels}})
     for key, data in definitions.items():
         namespace, name = key.split('/')
         ensure_secret(cluster, namespace, name, data)
-    ensure_secret(cluster, 'postgres', 'sonarqube-role',
-                  {'username': 'sonarqube', 'password': password()},
-                  'kubernetes.io/basic-auth', {'cnpg.io/reload': 'true'})
-    ensure_secret(cluster, 'sonarqube', 'sonarqube-monitoring', {'passcode': password()})
-    ensure_secret(cluster, 'sonarqube', 'sonarqube-admin',
-                  {'password': 'Aa1_' + secrets.token_urlsafe(29), 'currentPassword': 'admin'})
-
-
-def prepare_sonarqube(cluster, run, wait):
-    def ready():
-        # Argo may compare a newer revision after the initial root seed.
-        cluster.resume_stale_root_sync()
-        try:
-            api = run(*cluster.kube, 'api-resources', '-o', 'name', capture=True).splitlines()
-            if 'clusters.postgresql.cnpg.io' not in api:
-                return False
-            database = cluster.object('clusters.postgresql.cnpg.io', 'platform', 'postgres')
-        except subprocess.CalledProcessError:
-            # Discovery and access can briefly disagree while the CNPG CRD and
-            # AKS authorization caches settle during a fresh installation.
-            return False
-        return bool(database and any(c['type'] == 'Ready' and c['status'] == 'True'
-                    for c in database.get('status', {}).get('conditions', [])))
-
-    wait(ready, 'Waiting for PostgreSQL before configuring SonarQube TLS', timeout=3600)
-    role = cluster.object('secret', 'sonarqube-role', 'postgres')['data']
-    ca = cluster.object('secret', 'platform-ca', 'postgres')['data']['ca.crt']
-    secret(cluster, 'sonarqube', 'sonarqube-jdbc',
-           {'jdbc-password': base64.b64decode(role['password']).decode(),
-            'ca.crt': base64.b64decode(ca).decode()})

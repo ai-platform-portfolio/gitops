@@ -1,4 +1,3 @@
-{{- if .Values.sonarqubeReady }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: ListenerSet
 metadata:
@@ -24,9 +23,7 @@ spec:
     allowedRoutes:
       namespaces:
         from: Same
-{{- end }}
 ---
-{{- if .Values.sonarqubeReady }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -45,9 +42,7 @@ spec:
   - backendRefs:
     - name: sonarqube
       port: 9000
-{{- end }}
 ---
-{{- if .Values.sonarqubeReady }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -66,4 +61,3 @@ spec:
       requestRedirect:
         scheme: https
         statusCode: 301
-{{- end }}
