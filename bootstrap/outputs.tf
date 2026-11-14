@@ -26,6 +26,9 @@ output "foundry_project_endpoint" {
 output "foundry_location" {
   description = "Foundry region for agent delivery, independently of the AKS region."
   value       = var.foundry.location
+
+  # Include this input-only output in targeted Foundry startup applies.
+  depends_on = [module.foundry]
 }
 
 output "aks_connection" {
