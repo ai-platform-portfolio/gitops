@@ -187,3 +187,18 @@ for newly provisioned environments, not existing data: changing a populated
 environment's backend requires a separate data/ownership migration. Runtime
 client authentication and the combined document pipeline are later acceptance
 steps, not functionality established by registration rendering.
+
+Application dependency defaults are supplied through
+`argocd.onboarding.dependencies`: the existing storage account's resource group,
+identity location, shared model target and optional telemetry endpoint. These are
+shared platform targets; repositories declare only logical dependency intent.
+The application chart owns per-release identities, conditioned grants and cleanup.
+Both registration profiles receive metadata, independently of PostgreSQL choice.
+
+The shared Blob role permits object read/write/add, with no container management
+or SAS delegation. ASO creates it once at the existing account scope; per-release
+assignments add container conditions. Bootstrap's existing ASO storage-account
+grant uses User Access Administrator because the RBAC Administrator role cannot
+create/delete the custom role definition. The permission is scoped to this storage
+account; this PR does not apply Terraform. Ordered teardown drains registrations
+and their assignments before removing this shared definition and ASO credentials.

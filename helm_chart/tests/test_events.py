@@ -145,7 +145,8 @@ class EventTemplateTests(unittest.TestCase):
                         else:
                             self.assertNotIn('postgres', platform)
                             self.assertNotIn('atlas', platform)
-                            self.assertNotIn('azure', platform)
+                            self.assertEqual(platform['azure']['storageAccount']['name'], 'example')
+                            self.assertEqual(platform['models']['chat']['deployment'], 'chat')
         rejected = self.render({}, argocd={'onboarding': {'databaseBackends': {'previews': 'invalid'}}})
         self.assertNotEqual(rejected.returncode, 0)
 

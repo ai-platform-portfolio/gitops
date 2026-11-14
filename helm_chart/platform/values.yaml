@@ -19,8 +19,16 @@ argocd:
     databaseBackends:
       previews: cnpg
       environments: azure
+    dependencies:
+      storageResourceGroup: kubernetes
+      location: uksouth
+      model:
+        deployment: chat
+        project: management
+        resourceGroup: rg-management
+      telemetryEndpoint: http://opentelemetry-collector.opentelemetry.svc.cluster.local:4318
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
-    chartRevision: d705aa86bb34a536b802156f795d7e6a5159fb8f
+    chartRevision: 925efc5ffeeb2ad65af24bafbe8d75ce37ca064d
 
   registry:
     name: localacrk8s
