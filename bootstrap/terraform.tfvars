@@ -355,7 +355,13 @@ identities = {
   foundry = {
     name                  = "id-management-foundry"
     federated_credentials = {}
-    role_assignments      = {}
+    role_assignments = {
+      # The existing project identity pulls the private prebuilt agent images.
+      agent_images = {
+        scope                = "registry_platform"
+        role_definition_name = "AcrPull"
+      }
+    }
   }
 
   platform = {
