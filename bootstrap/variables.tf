@@ -7,11 +7,18 @@ variable "container_registries" {
 }
 
 variable "ci_publisher" {
-  description = "Existing GitHub CI service principal and its subscription-scoped Foundry deployment role."
+  description = "Existing CI service principal, Foundry deployment role and organization-wide project configuration."
   type = object({
     service_principal_display_name = string
     foundry_role_definition_name   = string
+    github_organization            = string
+    foundry_project_key            = string
   })
+
+  validation {
+    condition     = contains(keys(var.foundry.projects), var.ci_publisher.foundry_project_key)
+    error_message = "The CI publisher project must be declared in foundry.projects."
+  }
 }
 
 variable "entra_applications" {

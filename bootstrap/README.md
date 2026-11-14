@@ -141,7 +141,8 @@ make foundry-plan
 make foundry-up
 ```
 
-These commands target `module.foundry` and Terraform includes its dependencies.
+These commands target `module.foundry` and the existing
+`azurerm_role_assignment.ci_publisher_foundry`; Terraform includes their dependencies.
 With the current configuration this provisions the resource group, three VNets,
 subnets, NSGs, private DNS zones and links, the Foundry-management peerings, six
 managed identities, and the Foundry account, project, model deployment and private
@@ -155,6 +156,45 @@ endpoint from any network with appropriate Entra permissions. Private endpoint
 clients still need the connected network and private DNS path.
 Bootstrap grants the AKS administrator group
 `Foundry Owner`; other clients need their own role assignments.
+
+### CI configuration after rebuild
+
+`ci_publisher` selects the existing CI service principal, its subscription-scoped
+`Foundry Project Manager` grant, the GitHub organization and a project key from
+`foundry.projects`. Both targeted startup paths include this grant, so a full
+teardown/rebuild no longer omits it. This does not adopt the principal, its GitHub
+federation or its other roles.
+
+After a successful Terraform apply, `make foundry-up`, `make aks-up` and `make up`
+publish these non-secret organization Actions variables from the `foundry_ci`
+output using native `gh variable set --visibility all`:
+
+| Variable | Source |
+| --- | --- |
+| `FOUNDRY_PROJECT_ENDPOINT` | The selected project's Azure-reported `AI Foundry API` endpoint |
+| `FOUNDRY_LOCATION` | `foundry.location`, independently of the AKS region |
+
+The operator needs an authenticated `gh` CLI with organization-variable write
+access. For a classic OAuth login, authorize `admin:org` with
+`gh auth refresh -h github.com -s admin:org`. No token is stored in Terraform or
+added to application CI. Any publication failure fails startup; after correcting
+access, `make foundry-config` retries publication without applying infrastructure.
+Each successful startup creates or overwrites both variables, including when the
+generated Foundry account name changes. Plans never publish configuration.
+
+The organization variables serve all eligible consumers without a repository list
+in GitOps. Repository/environment variables of the same names override them;
+remove stale overrides before consuming this contract. GitHub Free does not expose
+organization variables to private repositories; this portfolio's catalog is public.
+See [GitHub variable access and precedence](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-variables)
+and [the native CLI command](https://cli.github.com/manual/gh_variable_set).
+
+Publication is two idempotent API updates, not an atomic transaction or a cloud
+deployment lock. If interrupted, retry before delivering agents. `make down`
+destroys the Azure resources and grant; the non-secret GitHub variables remain
+and are overwritten on the next successful startup. They do not indicate Azure
+availability. This handoff does not prove CI OIDC, image pull or agent inference;
+those require the first real agent delivery acceptance run.
 
 This is an intentionally partial apply in the same bootstrap state, not a separate
 environment. Terraform warns about targeting: it does not evaluate all outstanding
@@ -174,6 +214,7 @@ make aks-up
 ```
 
 `make aks-up` provisions AKS, Argo and the existing identity/storage prerequisites,
+restores the CI publisher grant and publishes the current Foundry configuration,
 then runs the same `cluster.py up` lifecycle as `make up`: seed the platform root,
 install the enabled packages, configure SonarQube and wait for reconciliation,
 repository discovery, preview automation and verified Argo HTTPS. It also selects
