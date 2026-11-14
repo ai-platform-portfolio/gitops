@@ -20,7 +20,7 @@ argocd:
       previews: cnpg
       environments: azure
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
-    chartRevision: 78f9f3bd8f47c51ffb59f36406b7e070ed5eaa90
+    chartRevision: 993c9983a6e91b48a1a36172d335504aba9216ae
 
   registry:
     name: localacrk8s
