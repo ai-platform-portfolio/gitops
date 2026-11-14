@@ -18,6 +18,16 @@ output "argocd_url" {
   value       = "https://${local.argocd_hostname}"
 }
 
+output "foundry_project_endpoint" {
+  description = "Current management project endpoint for agent delivery."
+  value       = module.foundry.projects["management"].endpoints["AI Foundry API"]
+}
+
+output "foundry_location" {
+  description = "Foundry region for agent delivery, independently of the AKS region."
+  value       = var.foundry.location
+}
+
 output "aks_connection" {
   sensitive = true
 

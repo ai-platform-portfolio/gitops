@@ -26,6 +26,15 @@ define run_terraform
 	  $(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" $(1)
 endef
 
+# Refresh non-secret CI settings after a successful apply, including rebuilds.
+define publish_foundry_config
+	@endpoint="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_project_endpoint)" && \
+	  location="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_location)" && \
+	  organization="$$(gh repo view --json owner --jq .owner.login)" && \
+	  gh variable set FOUNDRY_PROJECT_ENDPOINT --org "$$organization" --visibility all --body "$$endpoint" && \
+	  gh variable set AZURE_LOCATION --org "$$organization" --visibility all --body "$$location"
+endef
+
 help:
 	@printf '%s\n' \
 	  'make up    Provision infrastructure, install packages and wait for health' \
@@ -55,6 +64,7 @@ foundry-plan: init
 
 foundry-up: init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry)
+	$(publish_foundry_config)
 
 postgres-plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.postgres)
@@ -68,12 +78,14 @@ aks-plan: init
 aks-up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" $(AKS_TARGETS))
+	$(publish_foundry_config)
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
 
 up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
+	$(publish_foundry_config)
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
 

@@ -156,6 +156,17 @@ clients still need the connected network and private DNS path.
 Bootstrap grants the AKS administrator group
 `Foundry Owner`; other clients need their own role assignments.
 
+After Terraform succeeds, `make foundry-up`, `make aks-up` and `make up` refresh
+organization Actions variables `FOUNDRY_PROJECT_ENDPOINT` and `AZURE_LOCATION`
+from the management project's Azure-reported endpoint and Foundry region. This
+uses native `gh variable set` in the Makefile; the GitHub organization comes from
+the checkout's repository owner. The operator needs an authenticated `gh` with
+organization-variable write access (`admin:org` for a classic OAuth login).
+Publication failure fails startup; rerunning updates the same variables. GitHub
+Free exposes organization variables to public consumers such as agent-catalog;
+repository/environment variables can override them. The non-secret settings
+remain through teardown and are refreshed after the next successful apply.
+
 This is an intentionally partial apply in the same bootstrap state, not a separate
 environment. Terraform warns about targeting: it does not evaluate all outstanding
 platform changes, and root outputs may be incomplete. Review `make plan` before
