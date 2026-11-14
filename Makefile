@@ -12,10 +12,7 @@ AKS_TARGETS := -target=module.aks -target=module.argocd \
   -target=azurerm_storage_container.platform \
   -target=azurerm_role_assignment.ci_publisher_foundry
 
-# The publisher grant is a root resource, not a dependency of module.foundry.
-FOUNDRY_TARGETS := -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry
-
-.PHONY: help init plan foundry-plan foundry-up foundry-config postgres-plan postgres-up aks-plan aks-up up down context validate preflight
+.PHONY: help init plan foundry-plan foundry-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -36,7 +33,6 @@ help:
 	  'make plan  Preview bootstrap changes' \
 	  'make foundry-plan  Preview Foundry and its networking/identity dependencies' \
 	  'make foundry-up  Provision Foundry and its dependencies without platform services' \
-	  'make foundry-config  Republish current Foundry settings to GitHub organization variables' \
 	  'make postgres-plan  Preview the private PostgreSQL server and its dependencies' \
 	  'make postgres-up  Provision the private PostgreSQL server and its dependencies' \
 	  'make aks-plan  Preview AKS, Argo and platform bootstrap prerequisites' \
@@ -53,15 +49,12 @@ init:
 plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")
 
+# The publisher grant is a root resource, outside module.foundry dependencies.
 foundry-plan: init
-	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" $(FOUNDRY_TARGETS))
+	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry)
 
 foundry-up: init
-	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" $(FOUNDRY_TARGETS))
-	$(PYTHON) bootstrap/scripts/foundry_config.py --infra-dir "$(BOOTSTRAP_DIR)"
-
-foundry-config: init
-	$(PYTHON) bootstrap/scripts/foundry_config.py --infra-dir "$(BOOTSTRAP_DIR)"
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry)
 
 postgres-plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.postgres)
@@ -75,14 +68,12 @@ aks-plan: init
 aks-up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" $(AKS_TARGETS))
-	$(PYTHON) bootstrap/scripts/foundry_config.py --infra-dir "$(BOOTSTRAP_DIR)"
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
 
 up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
-	$(PYTHON) bootstrap/scripts/foundry_config.py --infra-dir "$(BOOTSTRAP_DIR)"
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
 

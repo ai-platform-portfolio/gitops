@@ -18,15 +18,6 @@ output "argocd_url" {
   value       = "https://${local.argocd_hostname}"
 }
 
-output "foundry_ci" {
-  description = "Non-secret Foundry settings published by startup to GitHub organization variables."
-  value = {
-    organization = var.ci_publisher.github_organization
-    endpoint     = module.foundry.projects[var.ci_publisher.foundry_project_key].endpoints["AI Foundry API"]
-    location     = var.foundry.location
-  }
-}
-
 output "aks_connection" {
   sensitive = true
 

@@ -9,58 +9,10 @@ from unittest.mock import Mock, patch
 from helm_chart.scripts.cluster import Cluster, wait_for, owned_dns, cleanup_stale_dns, already_down, main, teardown_connection, foundry_account_name
 from helm_chart.scripts.credentials import ensure_secret, prepare_sonarqube
 from bootstrap.scripts import wait_for_aks as aks_readiness
-from bootstrap.scripts import foundry_config
 
 
 def encoded(value):
     return base64.b64encode(value.encode()).decode()
-
-
-class FoundryCIConfigTests(unittest.TestCase):
-    def test_repeated_startup_replaces_the_endpoint_after_rebuild(self):
-        published = {}
-
-        def command(args, **kwargs):
-            if 'output' in args:
-                return Mock(stdout=json.dumps(self.settings))
-            self.assertEqual(args[0:3], ['gh', 'variable', 'set'])
-            self.assertEqual(args[4:8], ['--org', 'example-org', '--visibility', 'all'])
-            published[args[3]] = args[-1]
-
-        with patch.object(foundry_config.subprocess, 'run', side_effect=command):
-            for account in ['first-account', 'rebuilt-account', 'rebuilt-account']:
-                self.settings = {'organization': 'example-org', 'location': 'francecentral',
-                                 'endpoint': f'https://{account}.services.ai.azure.com/api/projects/management'}
-                foundry_config.publish('/example/bootstrap')
-                self.assertEqual(published, {'FOUNDRY_LOCATION': 'francecentral',
-                                             'FOUNDRY_PROJECT_ENDPOINT': self.settings['endpoint']})
-
-    def test_invalid_output_and_github_failure_stop_publication(self):
-        settings = {'organization': 'example-org', 'location': 'francecentral', 'endpoint': ''}
-        with patch.object(foundry_config.subprocess, 'run', return_value=Mock(stdout=json.dumps(settings))) as run:
-            with self.assertRaises(ValueError):
-                foundry_config.publish('/example/bootstrap')
-            self.assertEqual(run.call_count, 1)
-
-        settings['endpoint'] = 'https://example.services.ai.azure.com/api/projects/management'
-        with patch.object(foundry_config.subprocess, 'run', side_effect=[
-                Mock(stdout=json.dumps(settings)), subprocess.CalledProcessError(1, ['gh'])]) as run:
-            with self.assertRaises(subprocess.CalledProcessError):
-                foundry_config.publish('/example/bootstrap')
-            self.assertEqual(run.call_count, 2)
-
-    def test_startup_targets_restore_the_grant_and_publish_only_after_apply(self):
-        root = Path(__file__).resolve().parents[2]
-        for target in ['foundry-plan', 'foundry-up', 'aks-plan', 'aks-up', 'up']:
-            with self.subTest(target=target):
-                commands = subprocess.run(['make', '-n', target], cwd=root, check=True,
-                                          text=True, capture_output=True).stdout
-                if target != 'up':
-                    self.assertIn('-target=azurerm_role_assignment.ci_publisher_foundry', commands)
-                if target.endswith('plan'):
-                    self.assertNotIn('foundry_config.py', commands)
-                else:
-                    self.assertLess(commands.index('apply -input=false'), commands.index('foundry_config.py'))
 
 
 class AKSReadinessTests(unittest.TestCase):
