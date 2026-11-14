@@ -14,6 +14,37 @@ PUBLISHER = CHART / 'packages/atlantis/publish-signal.sh'
 
 
 class EventTemplateTests(unittest.TestCase):
+    def test_private_telemetry_ingress_reuses_controller_and_certificate_automation(self):
+        result = self.render({})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        apps = [d for d in yaml.safe_load_all(result.stdout) if d]
+        gateway = next(d for d in apps if d['kind'] == 'Application' and d['metadata']['name'] == 'gateway')
+        manifests = list(yaml.safe_load_all(gateway['spec']['source']['helm']['valuesObject']['manifests']))
+        private = next(d for d in manifests if d['kind'] == 'Gateway' and d['metadata']['name'] == 'private')
+        self.assertEqual([(l['protocol'], l['port']) for l in private['spec']['listeners']], [('HTTPS', 443)])
+        self.assertEqual(private['metadata']['annotations']['cert-manager.io/cluster-issuer'], 'letsencrypt-azuredns')
+        proxy = next(d for d in manifests if d['kind'] == 'EnvoyProxy')
+        service = proxy['spec']['provider']['kubernetes']['envoyService']
+        self.assertEqual(service['annotations']['service.beta.kubernetes.io/azure-load-balancer-internal'], 'true')
+        self.assertEqual(service['loadBalancerSourceRanges'], ['10.61.0.0/24'])
+        self.assertNotIn('Certificate', [d['kind'] for d in manifests])
+        networking = next(d for d in apps if d['kind'] == 'Application' and d['metadata']['name'] == 'opentelemetry-networking')
+        route = yaml.safe_load(networking['spec']['source']['helm']['valuesObject']['manifests'])
+        self.assertEqual(route['spec']['rules'][0]['matches'], [{'path': {'type': 'Exact', 'value': '/v1/traces'}, 'method': 'POST'}])
+        self.assertEqual(route['spec']['hostnames'], ['otel.internal.example.test'])
+        disabled = self.render({}, gateway={'private': {'enabled': False}})
+        self.assertEqual(disabled.returncode, 0, disabled.stderr)
+        disabled_apps = [d for d in yaml.safe_load_all(disabled.stdout) if d]
+        self.assertNotIn('opentelemetry-networking', [d['metadata']['name'] for d in disabled_apps])
+        disabled_gateway = next(d for d in disabled_apps if d['kind'] == 'Application' and d['metadata']['name'] == 'gateway')
+        disabled_manifests = list(yaml.safe_load_all(disabled_gateway['spec']['source']['helm']['valuesObject']['manifests']))
+        public = lambda docs: next(d for d in docs if d['kind'] == 'Gateway' and d['metadata']['name'] == 'public')
+        self.assertEqual(public(manifests), public(disabled_manifests))
+
+    def test_private_gateway_rejects_unrestricted_empty_source_configuration(self):
+        result = self.render({}, gateway={'private': {'sourceRanges': []}})
+        self.assertNotEqual(result.returncode, 0)
+
     def render(self, events, **settings):
         runtime = {key: 'example' for p in CHART.rglob('*') if p.is_file()
                    for key in re.findall(r'\.Values.runtime\.([A-Z_]+)', p.read_text())}
