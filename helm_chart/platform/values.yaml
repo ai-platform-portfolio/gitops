@@ -30,6 +30,13 @@ argocd:
 
 # Shared preview TLS stays with the Gateway; apps attach exact-host routes.
 gateway:
+  private:
+    enabled: true
+    # Existing Foundry delegated subnet; shared ingress policy, not an app ACL.
+    sourceRanges: [10.61.0.0/24]
+    hostname: 'otel.internal.{{ .Values.runtime.DNS_ZONE }}'
+    clusterIssuer: letsencrypt-azuredns
+
   preview:
     enabled: true
     hostname: '*.previews.{{ .Values.runtime.DNS_ZONE }}'

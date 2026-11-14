@@ -54,3 +54,59 @@ spec:
             gitops.platform/gateway: public
             gitops.platform/preview: "true"
   {{- end }}
+
+{{- if .Values.gateway.private.enabled }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: private
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        annotations:
+          service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+        loadBalancerSourceRanges:
+{{ required "gateway.private.sourceRanges must restrict private ingress" .Values.gateway.private.sourceRanges | toYaml | indent 10 }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: private
+  namespace: envoy-gateway-system
+  annotations:
+    cert-manager.io/cluster-issuer: {{ required "gateway.private.clusterIssuer is required" .Values.gateway.private.clusterIssuer | quote }}
+spec:
+  gatewayClassName: envoy
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: private
+  allowedListeners:
+    namespaces:
+      from: Selector
+      selector:
+        matchLabels:
+          gitops.platform/gateway: private
+  # Installed Gateway API requires a base listener. Cert-manager manages its TLS;
+  # additional shared packages can attach their own issuer-annotated ListenerSets.
+  listeners:
+  - name: otlp-https
+    hostname: {{ tpl (required "gateway.private.hostname is required" .Values.gateway.private.hostname) . | quote }}
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: otel-private-tls
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            gitops.platform/gateway: private
+{{- end }}

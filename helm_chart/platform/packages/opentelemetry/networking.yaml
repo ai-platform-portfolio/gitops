@@ -1,0 +1,23 @@
+{{- if .Values.gateway.private.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: otlp-private
+  namespace: opentelemetry
+spec:
+  hostnames:
+  - {{ tpl .Values.gateway.private.hostname . | quote }}
+  parentRefs:
+  - name: private
+    namespace: envoy-gateway-system
+    sectionName: otlp-https
+  rules:
+  - matches:
+    - path:
+        type: Exact
+        value: /v1/traces
+      method: POST
+    backendRefs:
+    - name: opentelemetry-collector
+      port: 4318
+{{- end }}
