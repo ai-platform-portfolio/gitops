@@ -14,10 +14,13 @@ runtime: {}
 argocd:
   onboarding:
     enabled: true
-    # Add environments after provisioning Azure PostgreSQL and its Atlas binding.
+    # Azure profiles require the shared server and Atlas binding to be ready.
     profiles: [previews]
+    databaseBackends:
+      previews: cnpg
+      environments: azure
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
-    chartRevision: 7efc33d38cc56cd7a48b885bc5b824dade3b47a7
+    chartRevision: 78f9f3bd8f47c51ffb59f36406b7e070ed5eaa90
 
   registry:
     name: localacrk8s

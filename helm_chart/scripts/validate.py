@@ -95,7 +95,7 @@ def main():
         azure_docs = [d for d in yaml.safe_load_all(atlas_azure['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert {d['kind'] for d in azure_docs} == {'UserAssignedIdentity', 'FederatedIdentityCredential'}, 'Deferred server must not block Atlas identity setup'
         for profiles, message in [
-            (['previews', 'environments'], 'environments onboarding requires atlas.azurePostgres.enabled'),
+            (['previews', 'environments'], 'environments onboarding with azure requires atlas.azurePostgres.enabled'),
             (['unknown'], 'argocd.onboarding.profiles supports only previews and environments'),
         ]:
             values.write_text(json.dumps({'runtime': runtime, 'argocd': {'onboarding': {'profiles': profiles}},

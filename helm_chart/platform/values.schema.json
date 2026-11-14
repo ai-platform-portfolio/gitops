@@ -2,6 +2,23 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "argocd": {
+      "type": "object",
+      "properties": {
+        "onboarding": {
+          "type": "object",
+          "properties": {
+            "databaseBackends": {
+              "type": "object", "additionalProperties": false, "required": ["previews", "environments"],
+              "properties": {
+                "previews": {"enum": ["cnpg", "azure"]},
+                "environments": {"enum": ["cnpg", "azure"]}
+              }
+            }
+          }
+        }
+      }
+    },
     "sonarqube": {
       "type": "object", "additionalProperties": false, "required": ["saml"],
       "properties": {

@@ -120,6 +120,35 @@ class EventTemplateTests(unittest.TestCase):
                 self.assertNotEqual(names[0], names[1])
                 self.assertEqual(names[0], names[2])
 
+    def test_database_backend_policy_is_independent_of_registration_profile(self):
+        for backend in ['cnpg', 'azure']:
+            for azure_ready in [False, True]:
+                with self.subTest(backend=backend, azure_ready=azure_ready):
+                    result = self.render({}, argocd={'onboarding': {
+                        'profiles': ['previews', 'environments'],
+                        'databaseBackends': {'previews': backend, 'environments': backend}}},
+                        atlas={'azurePostgres': {'enabled': azure_ready}})
+                    if backend == 'azure' and not azure_ready:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn('onboarding with azure requires atlas.azurePostgres.enabled', result.stderr)
+                        continue
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    sets = [d for d in yaml.safe_load_all(result.stdout) if d and d['kind'] == 'ApplicationSet']
+                    self.assertEqual(len(sets), 2)
+                    for appset in sets:
+                        platform = appset['spec']['template']['spec']['sources'][0]['helm']['valuesObject']['platform']
+                        for profile in ['previews', 'environments']:
+                            self.assertEqual(platform['argocd'][profile]['postgresBackend'], backend)
+                        if backend == 'azure':
+                            self.assertEqual(platform['postgres']['azure']['serverName'], 'pg-ai-platform-portfolio-management')
+                            self.assertEqual(platform['atlas']['azureAdminUser'], 'id-atlas-postgres-management')
+                        else:
+                            self.assertNotIn('postgres', platform)
+                            self.assertNotIn('atlas', platform)
+                            self.assertNotIn('azure', platform)
+        rejected = self.render({}, argocd={'onboarding': {'databaseBackends': {'previews': 'invalid'}}})
+        self.assertNotEqual(rejected.returncode, 0)
+
     def test_workload_cluster_cannot_register_organization_applications(self):
         result = self.render({}, cluster={'role': 'workload'})
         self.assertEqual(result.returncode, 0, result.stderr)

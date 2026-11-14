@@ -156,3 +156,34 @@ issuance precedes Redis, which precedes Langfuse; teardown reverses that order.
 `redis.enabled` installs the package. `langfuse.redis.useShared` selects the
 client connection; it is enabled for this unused installation.
 Argo retains its dedicated bootstrap Redis. No network policies are added.
+
+## Application database backend policy
+
+Choose database placement independently of application delivery profile:
+
+```yaml
+argocd:
+  onboarding:
+    databaseBackends:
+      previews: cnpg
+      environments: azure
+```
+
+These defaults preserve current placement. Either entry accepts `cnpg` or `azure`.
+Only profiles listed in `argocd.onboarding.profiles` are installed. Any active
+Azure profile requires the existing shared Flexible Server and
+`atlas.azurePostgres.enabled`; persistent CNPG registration does not. Selection
+never enables that server/binding or provisions a database during discovery.
+
+The onboarding template supplies the profile choices to the pinned application
+chart. Azure target/Atlas-admin/identity metadata comes from shared platform
+configuration only when that profile selects Azure. CNPG uses the application
+chart's existing shared cluster and client-certificate defaults. App repositories
+keep logical database intent and migrations; they add no provider resources.
+Installed platform services retain their current database configuration.
+
+The chart pin must include both registration selectors. This changes placement
+for newly provisioned environments, not existing data: changing a populated
+environment's backend requires a separate data/ownership migration. Runtime
+client authentication and the combined document pipeline are later acceptance
+steps, not functionality established by registration rendering.
