@@ -1145,6 +1145,10 @@ def main():
         assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['litellm-postgres-client', 'platform-ca'], 'verbs': ['get']}]
         redis_config = next(d for d in litellm_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'redis')['data']['redis.conf']
         assert '~litellm:* &litellm:*' in redis_config
+        litellm_acl = next(line.split() for line in redis_config.splitlines() if line.startswith('user litellm '))
+        assert {'+subscribe', '+unsubscribe', '+publish', '-@dangerous', '-@admin'} <= set(litellm_acl)
+        assert [rule for rule in litellm_acl if rule.startswith(('~', '&'))] == ['~litellm:*', '&litellm:*']
+        assert not {'+@pubsub', '+@all', 'allchannels', 'allkeys', 'nopass'} & set(litellm_acl)
         assert not any(d['kind'] in {'HTTPRoute', 'ListenerSet', 'Ingress'} and d['metadata'].get('namespace') == 'litellm' for d in litellm_resources)
         values.write_text(json.dumps({'runtime': runtime, 'litellm': {'enabled': False}}))
         disabled = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]

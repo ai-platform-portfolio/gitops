@@ -34,7 +34,7 @@ data:
     user default reset off
     user redis-probe reset on resetpass +ping
 {{- if .Values.litellm.enabled }}
-    user litellm reset on resetpass ~litellm:* &litellm:* +@read +@write +@connection +@transaction +@scripting -@dangerous -@admin -client +info +client|setname +client|setinfo
+    user litellm reset on resetpass ~litellm:* &litellm:* +@read +@write +@connection +@transaction +@scripting -@dangerous -@admin -client +info +client|setname +client|setinfo +subscribe +unsubscribe +publish
 {{- end }}
     user langfuse reset on resetpass ~langfuse:* &langfuse:* +@read +@write +@connection +@transaction +@scripting +@pubsub -@dangerous -@admin -client +info +client|setname +client|setinfo +client|id +client|unblock
 
