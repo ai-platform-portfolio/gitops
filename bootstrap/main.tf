@@ -30,6 +30,11 @@ data "azurerm_storage_account" "platform" {
   resource_group_name = var.platform.storage.resource_group_name
 }
 
+data "azurerm_storage_account" "terraform_backend" {
+  name                = var.ci_publisher.backend_storage_account.name
+  resource_group_name = var.ci_publisher.backend_storage_account.resource_group_name
+}
+
 data "azurerm_key_vault" "platform" {
   name                = var.platform.key_vault.name
   resource_group_name = var.platform.key_vault.resource_group_name
@@ -195,6 +200,15 @@ module "aks" {
 resource "azurerm_role_assignment" "ci_publisher_foundry" {
   scope                = local.role_scopes["subscription"]
   role_definition_name = var.ci_publisher.foundry_role_definition_name
+  principal_id         = data.azuread_service_principal.ci_publisher.object_id
+  principal_type       = "ServicePrincipal"
+}
+
+# State read/write and blob leases for CI plans/applies, on the existing backend.
+# The account is external; this grant follows the bootstrap root's lifecycle.
+resource "azurerm_role_assignment" "ci_publisher_backend" {
+  scope                = data.azurerm_storage_account.terraform_backend.id
+  role_definition_name = var.ci_publisher.backend_role_definition_name
   principal_id         = data.azuread_service_principal.ci_publisher.object_id
   principal_type       = "ServicePrincipal"
 }
