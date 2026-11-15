@@ -55,8 +55,9 @@ shared application chart, never shared client credentials or per-app GitOps list
 
 cert-manager creates a dedicated CA in `redis`. Server, probe and Langfuse leaves
 last 30 days, renew seven days before expiry and generate fresh private keys.
-Only the Langfuse leaf Secret (including its public CA certificate) is reflected
-to the exact `^langfuse$` namespace. No server, probe or CA signing key is copied.
+Only client leaf Secrets (including their public CA certificates) are reflected
+to their exact namespaces: Langfuse to `^langfuse$` and, when enabled, LiteLLM
+to `^litellm$`. No server, probe or CA signing key is copied.
 The existing Langfuse Reloader restarts web/worker after the delivered Secret
 changes; the Redis-scoped Reloader restarts Redis after its mounted certificates
 or configuration change. Argo ignores only each reloader's rollout annotation.
@@ -97,3 +98,13 @@ Sources: [Redis release](https://github.com/redis/redis/releases/tag/8.10.3),
 [Langfuse cache configuration](https://langfuse.com/self-hosting/deployment/infrastructure/cache),
 [CA issuer limitations](https://cert-manager.io/docs/configuration/ca/),
 [Reflector namespace restrictions](https://github.com/emberstack/kubernetes-reflector#usage).
+
+## LiteLLM coordination
+
+When `litellm.enabled` is true, the shared service also creates a distinct
+`litellm` certificate/ACL identity restricted to `litellm:*` keys/channels. The
+proxy uses this store for coordination, without enabling response caching or
+sharing Langfuse's credentials. Its own namespace-scoped Reloader handles leaf
+renewal. Disabling LiteLLM omits its configured ACL and certificate; full data
+cleanup and certificate revocation are not implied. See the
+[LiteLLM package](../litellm/README.md) for ordering and validation limits.

@@ -26,6 +26,16 @@ spec:
       replication: false
       passwordSecret:
         name: atlas-role-manager
+{{- if .Values.litellm.enabled }}
+    # Platform gateway only; model-provider credentials are unrelated to SQL.
+    - name: litellm
+      ensure: present
+      login: true
+      superuser: false
+      createdb: false
+      createrole: false
+      replication: false
+{{- end }}
     # Langfuse authenticates with its renewable client certificate.
     - name: langfuse
       ensure: present
@@ -132,6 +142,9 @@ spec:
     - hostnossl all all all reject
     - hostssl postgres atlas_role_manager all cert map=atlas_clients
     - hostssl app app all scram-sha-256
+{{- if .Values.litellm.enabled }}
+    - hostssl litellm litellm all cert
+{{- end }}
     - hostssl langfuse langfuse all cert
     - hostssl testkube testkube all scram-sha-256
     - hostssl sonarqube sonarqube all scram-sha-256

@@ -202,3 +202,18 @@ grant uses User Access Administrator because the RBAC Administrator role cannot
 create/delete the custom role definition. The permission is scoped to this storage
 account; this PR does not apply Terraform. Ordered teardown drains registrations
 and their assignments before removing this shared definition and ASO credentials.
+
+## Internal AI gateway
+
+[LiteLLM](packages/litellm/README.md) installs the pinned stable upstream proxy
+on each cluster, sharing CNPG and Redis through dedicated client certificates.
+`litellm.enabled` controls the package and its dependencies; `litellm.modelList`
+is the native model list, initially empty. Namespace/ESO setup precedes client
+certificates and backing services; credentials at wave 35 precede LiteLLM at 40.
+The service is cluster-local. The existing Key Vault supplies master/encryption
+keys: the wave-20 package seeds missing entries through native ESO generators and
+PushSecrets, with a dedicated ASO-managed writer identity; wave 35 reads the vault
+through the existing read-only store. Existing vault values are preserved on
+rebuild and retained on teardown. No managed PostgreSQL/Redis service is added.
+Provider onboarding, external gateway policies and task-based model selection
+are separate from installing this package.

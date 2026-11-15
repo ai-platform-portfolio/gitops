@@ -263,3 +263,12 @@ atlas:
     identityName: id-atlas-postgres-management
     identityResourceGroup: rg-management
     location: uksouth
+
+# Internal AI gateway; provider access and task selection are configured separately.
+litellm:
+  enabled: true
+  modelList: []
+  keyVault:
+    # Reuse the existing vault selected by runtime.AZURE_KEY_VAULT_URI.
+    resourceGroup: kubernetes
+    identityLocation: uksouth

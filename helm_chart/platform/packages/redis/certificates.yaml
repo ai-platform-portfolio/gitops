@@ -40,7 +40,11 @@ spec:
   ca:
     secretName: redis-ca
 
-{{- range $name, $identity := dict "redis-server" (dict "cn" "redis-server" "usage" "server auth") "redis-probe" (dict "cn" "redis-probe" "usage" "client auth") "langfuse-redis" (dict "cn" "langfuse" "usage" "client auth") }}
+{{- $leaves := dict "redis-server" (dict "cn" "redis-server" "usage" "server auth") "redis-probe" (dict "cn" "redis-probe" "usage" "client auth") "langfuse-redis" (dict "cn" "langfuse" "usage" "client auth") }}
+{{- if .Values.litellm.enabled }}
+{{- $_ := set $leaves "litellm-redis" (dict "cn" "litellm" "usage" "client auth") }}
+{{- end }}
+{{- range $name, $identity := $leaves }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -63,12 +67,12 @@ spec:
     size: 256
   usages: [digital signature, {{ $identity.usage }}]
   issuerRef: {name: redis-ca, kind: Issuer}
-{{- if eq $name "langfuse-redis" }}
+{{- if or (eq $name "langfuse-redis") (eq $name "litellm-redis") }}
   secretTemplate:
     annotations:
       reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^langfuse$"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^{{ $identity.cn }}$"
       reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^langfuse$"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^{{ $identity.cn }}$"
 {{- end }}
 {{- end }}

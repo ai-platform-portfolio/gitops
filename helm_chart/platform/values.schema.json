@@ -67,6 +67,22 @@
         }
       }
     },
+    "litellm": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "modelList", "keyVault"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "modelList": {"type": "array", "items": {"type": "object"}},
+        "keyVault": {
+          "type": "object", "additionalProperties": false,
+          "required": ["resourceGroup", "identityLocation"],
+          "properties": {
+            "resourceGroup": {"type": "string", "minLength": 1},
+            "identityLocation": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
     "langfuse": {
       "type": "object",
       "properties": {

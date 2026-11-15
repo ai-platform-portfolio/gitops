@@ -1,0 +1,21 @@
+# Key Vault is authoritative; the pod consumes an immutable local copy.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: litellm-keys
+  namespace: litellm
+spec:
+  secretStoreRef: {name: azure-kv, kind: ClusterSecretStore}
+  # Encryption-salt changes require coordinated migration, never silent rotation.
+  refreshPolicy: CreatedOnce
+  target:
+    name: litellm-keys
+    creationPolicy: Orphan
+    immutable: true
+  data:
+    - secretKey: master-key
+      remoteRef:
+        key: platform-{{ .Values.cluster.name }}-litellm-master
+    - secretKey: LITELLM_SALT_KEY
+      remoteRef:
+        key: platform-{{ .Values.cluster.name }}-litellm-salt
