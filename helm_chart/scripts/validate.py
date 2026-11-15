@@ -1087,6 +1087,11 @@ def main():
                          for name, a in litellm_apps.items()}
         assert litellm_waves['configuration'] < litellm_waves['postgres'] < litellm_waves['litellm-credentials'] < litellm_waves['litellm']
         assert litellm_waves['redis-certificates'] < litellm_waves['redis'] < litellm_waves['litellm']
+        credentials = list(yaml.safe_load_all(litellm_apps['litellm-credentials']['spec']['source']['helm']['valuesObject']['manifests']))
+        runtime_account = next(d for d in credentials if d['kind'] == 'ServiceAccount' and d['metadata']['name'] == 'litellm')
+        assert runtime_account['metadata']['namespace'] == 'litellm'
+        assert runtime_account['automountServiceAccountToken'] is False
+        assert not runtime_account['metadata'].get('annotations'), 'The runtime account has no cloud identity or hook lifecycle'
         cluster = next(d for d in litellm_resources if d['kind'] == 'Cluster')
         role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'litellm')
         assert not role.get('passwordSecret') and not any(role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
@@ -1176,8 +1181,7 @@ def main():
                     container = pod['containers'][0]
                     assert container['image'] == 'ghcr.io/berriai/litellm:v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9'
                     assert pod['serviceAccountName'] == 'litellm', 'The proxy must never run as the vault writer'
-                    service_account = next(d for d in docs if d['kind'] == 'ServiceAccount')
-                    assert service_account['automountServiceAccountToken'] is False
+                    assert not any(d['kind'] == 'ServiceAccount' for d in docs), 'The earlier credentials Application owns the migration/proxy account'
                     assert not any(d['kind'] in {'Secret', 'StatefulSet', 'PersistentVolumeClaim', 'Ingress'} for d in docs)
                     assert next(d for d in docs if d['kind'] == 'Service')['spec']['type'] == 'ClusterIP'
                     env = {e['name']: e for e in container['env']}
@@ -1191,6 +1195,7 @@ def main():
                     job = next(d for d in docs if d['kind'] == 'Job')
                     assert job['metadata']['annotations']['argocd.argoproj.io/hook'] == 'PreSync'
                     assert job['spec']['activeDeadlineSeconds'] == 600
+                    assert job['spec']['template']['spec']['serviceAccountName'] == runtime_account['metadata']['name']
                     migration = job['spec']['template']['spec']['containers'][0]
                     assert migration['image'] == container['image']
                     assert next(e for e in migration['env'] if e['name'] == 'DATABASE_URL')['value'] == url
