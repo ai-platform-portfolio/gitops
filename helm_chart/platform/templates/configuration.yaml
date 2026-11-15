@@ -31,6 +31,10 @@ spec:
 {{ tpl (.Files.Get "packages/sonarqube/network-policy.yaml") . | indent 10 }}
           ---
 {{ tpl (.Files.Get "packages/sonarqube/secrets.yaml") . | indent 10 }}
+{{- if .Values.litellm.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/litellm/configuration.yaml") . | indent 10 }}
+{{- end }}
           ---
 {{ tpl (.Files.Get "packages/external-secrets/secret-store.yaml") . | indent 10 }}
           ---

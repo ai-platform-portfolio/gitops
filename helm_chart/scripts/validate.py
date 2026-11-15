@@ -272,6 +272,7 @@ def main():
             'backstage', 'backstage-credentials', 'backstage-reloader',
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
             'redis', 'redis-certificates', 'redis-reloader',
+            'litellm', 'litellm-credentials', 'litellm-reloader',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         kargo_acr = next(app for app in applications if app['metadata']['name'] == 'kargo-acr')
@@ -630,19 +631,20 @@ def main():
         certificate_app = next(a for a in applications if a['metadata']['name'] == 'redis-certificates')
         certs = list(yaml.safe_load_all(certificate_app['spec']['source']['helm']['valuesObject']['manifests']))
         leaves = [d for d in certs if d['kind'] == 'Certificate' and not d['spec'].get('isCA')]
-        assert len(leaves) == 3
+        assert len(leaves) == 4
         for leaf in leaves:
             assert leaf['spec']['duration'] == '720h' and leaf['spec']['renewBefore'] == '168h'
             assert leaf['spec']['privateKey']['rotationPolicy'] == 'Always'
             template = leaf['spec'].get('secretTemplate', {})
-            if leaf['metadata']['name'] == 'langfuse-redis':
-                assert leaf['spec']['commonName'] == 'langfuse'
-                assert template['annotations']['reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces'] == '^langfuse$'
-                assert template['annotations']['reflector.v1.k8s.emberstack.com/reflection-auto-namespaces'] == '^langfuse$'
+            if leaf['metadata']['name'] in {'langfuse-redis', 'litellm-redis'}:
+                identity = leaf['metadata']['name'].removesuffix('-redis')
+                assert leaf['spec']['commonName'] == identity
+                assert template['annotations']['reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces'] == f'^{identity}$'
+                assert template['annotations']['reflector.v1.k8s.emberstack.com/reflection-auto-namespaces'] == f'^{identity}$'
             else:
                 assert not template, 'Never reflect the server or probe identity'
         for enabled, shared in [(False, False), (True, False), (True, True)]:
-            values.write_text(json.dumps({'runtime': runtime, 'redis': {'enabled': enabled}, 'langfuse': {'redis': {'useShared': shared}}}))
+            values.write_text(json.dumps({'runtime': runtime, 'redis': {'enabled': enabled}, 'litellm': {'enabled': enabled}, 'langfuse': {'redis': {'useShared': shared}}}))
             variants = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
             names_variant = {d['metadata']['name'] for d in variants}
             assert ('redis' in names_variant) == enabled
@@ -672,7 +674,7 @@ def main():
                 assert envs['REDIS_TLS_CERT_PATH']['value'] == '/etc/langfuse-redis/tls.crt'
                 assert not {'REDIS_PASSWORD', 'REDIS_AUTH'} & envs.keys()
                 assert 'langfuse-redis' in d['metadata']['annotations']['secret.reloader.stakater.com/reload'].split(',')
-        values.write_text(json.dumps({'runtime': runtime, 'redis': {'enabled': False}, 'langfuse': {'redis': {'useShared': True}}}))
+        values.write_text(json.dumps({'runtime': runtime, 'redis': {'enabled': False}, 'litellm': {'enabled': False}, 'langfuse': {'redis': {'useShared': True}}}))
         invalid = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)], text=True, capture_output=True)
         assert invalid.returncode and 'langfuse.redis.useShared requires redis.enabled' in invalid.stderr
         assert waves['configuration'] < waves['external-dns'] < min(waves[n] for n in ['platform-events', 'gateway', 'argocd-route', 'routes'])
@@ -1077,6 +1079,41 @@ def main():
         print('DevLake: stable images, deferred ESO templates, PostgreSQL reuse, SSO/API isolation and access gates verified.')
 
 
+        # The platform gateway has distinct SQL/Redis identities and ordered credentials.
+        litellm_apps = {a['metadata']['name']: a for a in applications}
+        litellm_resources = [d for a in applications for d in yaml.safe_load_all(
+            a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+        litellm_waves = {name: int(a['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
+                         for name, a in litellm_apps.items()}
+        assert litellm_waves['configuration'] < litellm_waves['postgres'] < litellm_waves['litellm-credentials'] < litellm_waves['litellm']
+        assert litellm_waves['redis-certificates'] < litellm_waves['redis'] < litellm_waves['litellm']
+        cluster = next(d for d in litellm_resources if d['kind'] == 'Cluster')
+        role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'litellm')
+        assert not role.get('passwordSecret') and not any(role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
+        assert 'hostssl litellm litellm all cert' in cluster['spec']['postgresql']['pg_hba']
+        assert next(d for d in litellm_resources if d['kind'] == 'Database' and d['metadata']['name'] == 'litellm')['spec']['owner'] == 'litellm'
+        key = next(d for d in litellm_resources if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'litellm-keys')
+        assert key['spec']['refreshPolicy'] == 'CreatedOnce' and key['spec']['target']['immutable']
+        assert key['spec']['target']['template']['data'] == {'master-key': 'sk-{{ .master }}', 'LITELLM_SALT_KEY': '{{ .salt }}'}
+        reader = next(d for d in litellm_resources if d['kind'] == 'Role' and d['metadata']['name'] == 'litellm-postgres-reader')
+        assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['litellm-postgres-client', 'platform-ca'], 'verbs': ['get']}]
+        redis_config = next(d for d in litellm_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'redis')['data']['redis.conf']
+        assert '~litellm:* &litellm:*' in redis_config
+        assert not any(d['kind'] in {'HTTPRoute', 'ListenerSet', 'Ingress'} and d['metadata'].get('namespace') == 'litellm' for d in litellm_resources)
+        values.write_text(json.dumps({'runtime': runtime, 'litellm': {'enabled': False}}))
+        disabled = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
+        assert not any(d['metadata']['name'].startswith('litellm') for d in disabled)
+        disabled_resources = [d for a in disabled if a['kind'] == 'Application' for d in yaml.safe_load_all(
+            a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+        assert not any(d['metadata']['name'].startswith('litellm') for d in disabled_resources)
+        disabled_cluster = next(d for d in disabled_resources if d['kind'] == 'Cluster')
+        assert not any(r['name'] == 'litellm' for r in disabled_cluster['spec']['managed']['roles'])
+        disabled_redis = next(d for d in disabled_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'redis')
+        assert 'user litellm ' not in disabled_redis['data']['redis.conf']
+        values.write_text(json.dumps({'runtime': runtime, 'redis': {'enabled': False}, 'langfuse': {'redis': {'useShared': False}}}))
+        invalid = subprocess.run(['helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values)], text=True, capture_output=True)
+        assert invalid.returncode and 'litellm.enabled requires redis.enabled' in invalid.stderr
+
         def render(app):
             source = app['spec'].get('source') or app['spec']['sources'][0]
             if 'chart' not in source:
@@ -1096,6 +1133,37 @@ def main():
                     '--kube-version', '1.34.1', '-f', str(values))
                 docs = [d for d in yaml.safe_load_all(output) if d]
                 assert docs, f'{name} rendered no resources'
+                if name == 'litellm':
+                    deployment = next(d for d in docs if d['kind'] == 'Deployment')
+                    assert deployment['spec']['replicas'] == 1
+                    pod = deployment['spec']['template']['spec']
+                    container = pod['containers'][0]
+                    assert container['image'] == 'ghcr.io/berriai/litellm:v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9'
+                    service_account = next(d for d in docs if d['kind'] == 'ServiceAccount')
+                    assert service_account['automountServiceAccountToken'] is False
+                    assert not any(d['kind'] in {'Secret', 'StatefulSet', 'PersistentVolumeClaim', 'Ingress'} for d in docs)
+                    assert next(d for d in docs if d['kind'] == 'Service')['spec']['type'] == 'ClusterIP'
+                    env = {e['name']: e for e in container['env']}
+                    assert env['PROXY_MASTER_KEY']['valueFrom']['secretKeyRef'] == {'name': 'litellm-keys', 'key': 'master-key'}
+                    assert env['DISABLE_SCHEMA_UPDATE']['value'] == 'true'
+                    url = env['DATABASE_URL']['value']
+                    assert all(v in url for v in ['postgresql://litellm@platform-rw', 'sslaccept=strict', 'sslidentity=/etc/litellm-postgres/keystore.p12', 'connection_limit=5'])
+                    assert not {'DATABASE_PASSWORD', 'REDIS_PASSWORD'} & env.keys()
+                    mounts = {v['mountPath']: v for v in container['volumeMounts']}
+                    assert mounts['/etc/litellm-postgres']['readOnly'] and mounts['/etc/litellm-redis']['readOnly']
+                    job = next(d for d in docs if d['kind'] == 'Job')
+                    assert job['metadata']['annotations']['argocd.argoproj.io/hook'] == 'PreSync'
+                    assert job['spec']['activeDeadlineSeconds'] == 600
+                    migration = job['spec']['template']['spec']['containers'][0]
+                    assert migration['image'] == container['image']
+                    assert next(e for e in migration['env'] if e['name'] == 'DATABASE_URL')['value'] == url
+                    assert migration['volumeMounts'] == source['helm']['valuesObject']['volumeMounts']
+                    configmap = next(d for d in docs if d['kind'] == 'ConfigMap')
+                    proxy = yaml.safe_load(configmap['data']['config.yaml'])
+                    assert proxy['model_list'] == []
+                    redis = proxy['general_settings']['coordination_redis']
+                    assert redis['namespace'] == 'litellm' and redis['ssl'] and redis['ssl_check_hostname']
+                    assert redis['ssl_cert_reqs'] == 'required' and redis['ssl_keyfile'] == '/etc/litellm-redis/tls.key'
                 if name == 'kargo':
                     controller = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'kargo-controller')
                     pod = controller['spec']['template']['spec']

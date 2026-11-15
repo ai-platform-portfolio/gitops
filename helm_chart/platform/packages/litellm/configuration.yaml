@@ -1,0 +1,49 @@
+# These are gateway credentials, not cloud-provider or database passwords.
+{{- range $name := list "master" "salt" }}
+{{- if ne $name "master" }}
+---
+{{- end }}
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: litellm-{{ $name }}
+  namespace: litellm
+spec:
+  length: 64
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+{{- end }}
+
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: litellm-keys
+  namespace: litellm
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: litellm-keys
+    creationPolicy: Orphan
+    immutable: true
+    template:
+      engineVersion: v2
+      data:
+        master-key: {{ `sk-{{ .master }}` | quote }}
+        LITELLM_SALT_KEY: {{ `{{ .salt }}` | quote }}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: litellm-master
+      rewrite:
+        - regexp: {source: password, target: master}
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: litellm-salt
+      rewrite:
+        - regexp: {source: password, target: salt}

@@ -1,0 +1,111 @@
+{{- if and .Values.litellm.enabled (not .Values.redis.enabled) }}
+{{- fail "litellm.enabled requires redis.enabled" }}
+{{- end }}
+{{- if .Values.litellm.enabled }}
+# The stable upstream chart owns the proxy and its schema migration Job.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+
+  source:
+    repoURL: ghcr.io/berriai
+    chart: litellm-helm
+    targetRevision: "1.109.1"
+    helm:
+      releaseName: litellm
+      valuesObject:
+{{ tpl (.Files.Get "packages/litellm/values.yaml") . | indent 8 }}
+
+{{- $policy := include "platform.syncPolicy" . | fromYaml }}
+{{- $reload := dict "group" "apps" "kind" "Deployment" "name" "litellm" "namespace" "litellm" "jsonPointers" (list "/spec/template/metadata/annotations/reloader.stakater.com~1last-reloaded-from") }}
+{{- $_ := set $policy "ignoreDifferences" (append $policy.ignoreDifferences $reload) }}
+{{ toYaml $policy | indent 2 }}
+
+---
+# Restart the client after cert-manager renews a delivered leaf certificate.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-reloader
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: "2.2.18"
+    helm:
+      releaseName: litellm-reloader
+      valuesObject:
+        reloader:
+          watchGlobally: false
+          ignoreConfigMaps: true
+          ignoreJobs: true
+          ignoreCronJobs: true
+          reloadStrategy: annotations
+          deployment:
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
+            resources:
+              requests: { cpu: 10m, memory: 32Mi }
+              limits: { memory: 128Mi }
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+
+---
+# Database and Redis leaves exist before the proxy's PreSync migration runs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-credentials
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "35"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/litellm/credentials.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
+{{- end }}

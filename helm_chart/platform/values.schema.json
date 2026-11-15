@@ -67,6 +67,14 @@
         }
       }
     },
+    "litellm": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "modelList"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "modelList": {"type": "array", "items": {"type": "object"}}
+      }
+    },
     "langfuse": {
       "type": "object",
       "properties": {

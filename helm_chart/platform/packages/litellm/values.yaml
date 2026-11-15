@@ -1,0 +1,93 @@
+# The upstream chart appVersion is pinned independently of its mutable defaults.
+fullnameOverride: litellm
+replicaCount: 1
+numWorkers: 1
+
+image:
+  repository: ghcr.io/berriai/litellm
+  tag: v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: litellm
+  automount: false
+
+service:
+  type: ClusterIP
+  port: 4000
+
+ingress:
+  enabled: false
+
+db:
+  deployStandalone: false
+  # Supply a certificate-only URL directly; useExisting injects a password ref.
+  useExisting: false
+
+redis:
+  enabled: false
+
+masterkeySecretName: litellm-keys
+masterkeySecretKey: master-key
+environmentSecrets: [litellm-keys]
+
+envVars:
+  DATABASE_URL: postgresql://litellm@platform-rw.postgres.svc.cluster.local:5432/litellm?sslmode=require&sslaccept=strict&sslcert=/etc/litellm-postgres/ca.crt&sslidentity=/etc/litellm-postgres/keystore.p12&sslpassword=changeit&connection_limit=5
+  # Bind clients to Git-managed configuration; provider onboarding is separate.
+  STORE_MODEL_IN_DB: "False"
+
+proxy_config:
+  model_list:
+{{ toYaml .Values.litellm.modelList | indent 4 }}
+  general_settings:
+    master_key: os.environ/PROXY_MASTER_KEY
+    coordination_redis:
+      host: redis.redis.svc.cluster.local
+      port: 6379
+      namespace: litellm
+      ssl: true
+      ssl_check_hostname: true
+      ssl_cert_reqs: required
+      ssl_ca_certs: /etc/litellm-redis/ca.crt
+      ssl_certfile: /etc/litellm-redis/tls.crt
+      ssl_keyfile: /etc/litellm-redis/tls.key
+
+podSecurityContext:
+  fsGroup: 1000
+  seccompProfile: {type: RuntimeDefault}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}
+
+nodeSelector:
+  agentpool: platform
+
+resources:
+  requests: {cpu: "1", memory: 4Gi}
+  limits: {memory: 4Gi}
+
+deploymentAnnotations:
+  secret.reloader.stakater.com/reload: litellm-postgres,litellm-redis
+
+volumes:
+  - name: postgres-client
+    secret: {secretName: litellm-postgres, defaultMode: 0440}
+  - name: redis-client
+    secret: {secretName: litellm-redis, defaultMode: 0440}
+
+volumeMounts:
+  - {name: postgres-client, mountPath: /etc/litellm-postgres, readOnly: true}
+  - {name: redis-client, mountPath: /etc/litellm-redis, readOnly: true}
+
+migrationJob:
+  enabled: true
+  activeDeadlineSeconds: 600
+  backoffLimit: 2
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  hooks:
+    argocd: {enabled: true}
+    helm: {enabled: false}

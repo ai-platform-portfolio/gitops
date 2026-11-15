@@ -107,6 +107,10 @@ spec:
 
           ---
 {{ tpl (.Files.Get "packages/langfuse/database.yaml") . | indent 10 }}
+{{- if .Values.litellm.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/litellm/database.yaml") . | indent 10 }}
+{{- end }}
 
 {{- if and .Values.backstage.enabled (eq .Values.cluster.role "management") }}
           ---
