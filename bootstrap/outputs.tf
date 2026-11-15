@@ -23,6 +23,12 @@ output "foundry_project_endpoint" {
   value       = module.foundry.projects["management"].endpoints["AI Foundry API"]
 }
 
+output "foundry_project_id" {
+  description = "Current management project ARM ID for native agent delivery."
+  value       = module.foundry.projects["management"].id
+  sensitive   = true
+}
+
 output "foundry_location" {
   description = "Foundry region for agent delivery, independently of the AKS region."
   value       = var.foundry.location

@@ -29,9 +29,11 @@ endef
 # Refresh non-secret CI settings after a successful apply, including rebuilds.
 define publish_foundry_config
 	@endpoint="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_project_endpoint)" && \
+	  project_id="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_project_id)" && \
 	  location="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_location)" && \
 	  organization="$$(gh repo view --json owner --jq .owner.login)" && \
 	  gh variable set FOUNDRY_PROJECT_ENDPOINT --org "$$organization" --visibility all --body "$$endpoint" && \
+	  gh variable set AZURE_AI_PROJECT_ID --org "$$organization" --visibility all --body "$$project_id" && \
 	  gh variable set AZURE_LOCATION --org "$$organization" --visibility all --body "$$location"
 endef
 
