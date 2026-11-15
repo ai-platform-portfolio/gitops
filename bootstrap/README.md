@@ -157,9 +157,11 @@ Bootstrap grants the AKS administrator group
 `Foundry Owner`; other clients need their own role assignments.
 
 After Terraform succeeds, `make foundry-up`, `make aks-up` and `make up` refresh
-organization Actions variables `FOUNDRY_PROJECT_ENDPOINT` and `AZURE_LOCATION`
-from the management project's Azure-reported endpoint and Foundry region. This
-uses native `gh variable set` in the Makefile; the GitHub organization comes from
+organization Actions variables `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_PROJECT_ID`
+and `AZURE_LOCATION` from the management project's Azure-reported endpoint, ARM ID
+and Foundry region. The project-ID output is sensitive so normal Terraform output
+does not display its embedded subscription ID; the publisher reads it with `-raw`.
+Publication uses native `gh variable set` in the Makefile; the GitHub organization comes from
 the checkout's repository owner. The operator needs an authenticated `gh` with
 organization-variable write access (`admin:org` for a classic OAuth login).
 Publication failure fails startup; rerunning updates the same variables. GitHub
