@@ -574,3 +574,7 @@ external backend account. The portfolio remains running, but CI state access is
 unavailable until bootstrap restores the grant. This is normal bootstrap ownership,
 not a retained-permission mechanism. Merge and apply the grant before rerunning
 the failed portfolio PR plan; source/CI validation alone does not grant access.
+
+The same SPN also receives Reader on each existing configured registry, since
+AcrPush authorizes images but not the ARM registry metadata lookup used by plans.
+These registry-scoped grants follow the same bootstrap startup/teardown lifecycle.
