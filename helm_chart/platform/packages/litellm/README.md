@@ -114,8 +114,10 @@ configured; live renewal/reconnection is a separate acceptance test. CA trust
 rollover and immediate revocation are not provided by leaf renewal.
 
 Defaults are one replica/worker, 1 CPU and 4Gi memory requested, a 4Gi memory limit,
-and five Prisma connections. The migration Job requests 100m/512Mi, is capped at
-1Gi, and has a 600-second deadline. These follow the upstream DB-connected worker
+and five Prisma connections. The migration Job requests 100m/1Gi, is capped at
+2Gi, and has a 600-second deadline. Its original 1Gi cap caused observed OOM kills
+after schema/index setup; the higher cap retains the native entrypoint and its
+Prisma client generation. Proxy sizing follows the upstream DB-connected worker
 memory guidance; no nodes, HA, additional stores or autoscaling are provisioned.
 Confirm available capacity before deployment. The official image retains its
 writable filesystem/default user; capabilities are dropped, privilege escalation

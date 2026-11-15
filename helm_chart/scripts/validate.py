@@ -1202,6 +1202,8 @@ def main():
                     assert job['spec']['activeDeadlineSeconds'] == 600
                     assert job['spec']['template']['spec']['serviceAccountName'] == runtime_account['metadata']['name']
                     migration = job['spec']['template']['spec']['containers'][0]
+                    assert migration['resources'] == {
+                        'requests': {'cpu': '100m', 'memory': '1Gi'}, 'limits': {'memory': '2Gi'}}
                     assert migration['image'] == container['image']
                     assert next(e for e in migration['env'] if e['name'] == 'DATABASE_URL')['value'] == url
                     assert migration['volumeMounts'] == source['helm']['valuesObject']['volumeMounts']
