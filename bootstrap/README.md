@@ -574,3 +574,18 @@ external backend account. The portfolio remains running, but CI state access is
 unavailable until bootstrap restores the grant. This is normal bootstrap ownership,
 not a retained-permission mechanism. Merge and apply the grant before rerunning
 the failed portfolio PR plan; source/CI validation alone does not grant access.
+
+The same SPN also receives Reader on each existing configured registry, since
+AcrPush authorizes images but not the ARM registry metadata lookup used by plans.
+These registry-scoped grants follow the same bootstrap startup/teardown lifecycle.
+
+CI grants now use one `azurerm_role_assignment.ci_publisher` for_each over
+`ci_publisher.role_assignments`. Each map entry selects an existing role scope
+and built-in role name. The user explicitly selected subscription Contributor
+for CI deployment. Moved blocks preserve all four existing assignment IDs.
+Contributor excludes IAM role-assignment writes; it is not an IAM-admin grant.
+
+The user now supplies subscription Owner externally. The redundant CI Contributor
+and ACR Reader grants have been removed; Owner is not adopted into Terraform.
+Backend Blob Data Contributor remains necessary for OIDC blob data access, which
+Owner alone does not grant. The pre-existing Foundry grant is unchanged.
