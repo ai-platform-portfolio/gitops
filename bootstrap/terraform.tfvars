@@ -168,6 +168,14 @@ foundry = {
       capacity      = 10
       sku_name      = "DataZoneStandard"
     }
+
+    # Foundry managed memory embeds reviewed context; retain EU Data Zone processing.
+    embedding = {
+      model_name    = "text-embedding-3-small"
+      model_version = "1"
+      capacity      = 1
+      sku_name      = "DataZoneStandard"
+    }
   }
 }
 
@@ -346,7 +354,13 @@ identities = {
   foundry = {
     name                  = "id-management-foundry"
     federated_credentials = {}
-    role_assignments      = {}
+    role_assignments = {
+      # The existing project identity pulls the private prebuilt agent images.
+      agent_images = {
+        scope                = "registry_platform"
+        role_definition_name = "AcrPull"
+      }
+    }
   }
 
   platform = {
