@@ -1092,6 +1092,11 @@ def main():
         assert runtime_account['metadata']['namespace'] == 'litellm'
         assert runtime_account['automountServiceAccountToken'] is False
         assert not runtime_account['metadata'].get('annotations'), 'The runtime account has no cloud identity or hook lifecycle'
+        postgres_leaf = next(d for d in credentials if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'litellm-postgres')
+        assert {d['secretKey']: d['remoteRef'] for d in postgres_leaf['spec']['data']} == {
+            key: {'key': 'litellm-postgres-client', 'property': key}
+            for key in ['keystore.p12', 'tls.crt', 'tls.key']
+        } | {'ca.crt': {'key': 'platform-ca', 'property': 'ca.crt'}}
         cluster = next(d for d in litellm_resources if d['kind'] == 'Cluster')
         role = next(r for r in cluster['spec']['managed']['roles'] if r['name'] == 'litellm')
         assert not role.get('passwordSecret') and not any(role[k] for k in ['superuser', 'createdb', 'createrole', 'replication'])
@@ -1200,6 +1205,14 @@ def main():
                     assert migration['image'] == container['image']
                     assert next(e for e in migration['env'] if e['name'] == 'DATABASE_URL')['value'] == url
                     assert migration['volumeMounts'] == source['helm']['valuesObject']['volumeMounts']
+                    for client in [container, migration]:
+                        client_env = {e['name']: e for e in client['env']}
+                        assert client_env['PGSSLCERT']['value'] == '/etc/litellm-postgres/tls.crt'
+                        assert client_env['PGSSLKEY']['value'] == '/etc/litellm-postgres/tls.key'
+                    assert next(v for v in pod['volumes'] if v['name'] == 'postgres-client')['secret'] == {
+                        'secretName': 'litellm-postgres', 'defaultMode': 0o440}
+                    assert job['spec']['template']['spec']['volumes'] == source['helm']['valuesObject']['volumes']
+                    assert deployment['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'litellm-postgres,litellm-redis'
                     configmap = next(d for d in docs if d['kind'] == 'ConfigMap')
                     proxy = yaml.safe_load(configmap['data']['config.yaml'])
                     assert proxy['model_list'] == []

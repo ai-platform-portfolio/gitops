@@ -56,7 +56,14 @@ The certificate-only URL is supplied through native environment values because
 the chart's `db.useExisting` helper otherwise injects a password Secret reference.
 
 Prisma receives the leaf as PKCS#12 plus the public server CA, using strict
-certificate validation. The public `changeit` wrapping value is not a PostgreSQL
+certificate validation. Native migration coordination and index checks use
+psycopg/libpq, which receives the same leaf's PEM certificate/key through
+`PGSSLCERT`/`PGSSLKEY`. LiteLLM converts the Prisma CA/strict URL settings to
+libpq's `sslrootcert`/`verify-full`; libpq cannot use Prisma's `sslidentity`.
+The existing ExternalSecret delivers both representations in the same read-only
+mount before migration. Renewal updates that Secret and the existing Reloader
+integration restarts the proxy; consumers are removed before credentials on teardown.
+The public `changeit` wrapping value is not a PostgreSQL
 password; Kubernetes RBAC protects the private key. The Redis client verifies the
 server hostname/CA and supplies its distinct PEM client leaf. Redis maps its CN
 to the `litellm` ACL user, without a Redis password or access to Langfuse keys.

@@ -35,6 +35,9 @@ environmentSecrets: [litellm-keys]
 
 envVars:
   DATABASE_URL: postgresql://litellm@platform-rw.postgres.svc.cluster.local:5432/litellm?sslmode=require&sslaccept=strict&sslcert=/etc/litellm-postgres/ca.crt&sslidentity=/etc/litellm-postgres/keystore.p12&sslpassword=changeit&connection_limit=5
+  # Native migration coordination uses libpq; Prisma keeps the PKCS#12 URL.
+  PGSSLCERT: /etc/litellm-postgres/tls.crt
+  PGSSLKEY: /etc/litellm-postgres/tls.key
   # Bind clients to Git-managed configuration; provider onboarding is separate.
   STORE_MODEL_IN_DB: "False"
 
