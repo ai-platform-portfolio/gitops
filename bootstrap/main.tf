@@ -214,15 +214,9 @@ moved {
   to   = azurerm_role_assignment.ci_publisher["backend"]
 }
 
-moved {
-  from = azurerm_role_assignment.ci_publisher_registry_reader["platform"]
-  to   = azurerm_role_assignment.ci_publisher["registry_reader"]
-}
 
-moved {
-  from = azurerm_role_assignment.ci_publisher_contributor
-  to   = azurerm_role_assignment.ci_publisher["deployment"]
-}
+
+
 
 module "identities" {
   for_each            = { for key, identity in var.identities : key => identity if key != "aso" }

@@ -584,3 +584,8 @@ CI grants now use one `azurerm_role_assignment.ci_publisher` for_each over
 and built-in role name. The user explicitly selected subscription Contributor
 for CI deployment. Moved blocks preserve all four existing assignment IDs.
 Contributor excludes IAM role-assignment writes; it is not an IAM-admin grant.
+
+The user now supplies subscription Owner externally. The redundant CI Contributor
+and ACR Reader grants have been removed; Owner is not adopted into Terraform.
+Backend Blob Data Contributor remains necessary for OIDC blob data access, which
+Owner alone does not grant. The pre-existing Foundry grant is unchanged.

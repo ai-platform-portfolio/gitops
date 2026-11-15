@@ -26,15 +26,9 @@ ci_publisher = {
       role_definition_name = "Storage Blob Data Contributor"
     }
 
-    registry_reader = {
-      scope                = "registry_platform"
-      role_definition_name = "Reader"
-    }
 
-    deployment = {
-      scope                = "subscription"
-      role_definition_name = "Contributor"
-    }
+
+
   }
 }
 
