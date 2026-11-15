@@ -559,3 +559,18 @@ credentials, JDBC CA delivery and public SAML metadata configuration. The lifecy
 seeds the platform once; normal Argo package health replaces the former
 SonarQube-specific two-stage preparation. Existing SonarQube Entra objects remain
 under their existing ownership.
+
+## CI backend permission
+
+`ci_publisher.backend_storage_account` selects the existing persistent backend
+account for a Storage Blob Data Contributor grant to the same existing CI SPN as
+the Foundry publisher grant. The scope is the storage account; no account key,
+container, state backend or identity is created. Actual backend initialization
+settings stay in ignored `backend.local.hcl`.
+
+The grant is included in the existing full, AKS and Foundry startup paths.
+A full `make down` removes this Terraform-owned assignment while preserving the
+external backend account. The portfolio remains running, but CI state access is
+unavailable until bootstrap restores the grant. This is normal bootstrap ownership,
+not a retained-permission mechanism. Merge and apply the grant before rerunning
+the failed portfolio PR plan; source/CI validation alone does not grant access.

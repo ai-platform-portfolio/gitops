@@ -10,6 +10,13 @@ container_registries = {
 ci_publisher = {
   service_principal_display_name = "kubernetes-spn"
   foundry_role_definition_name   = "Foundry Project Manager"
+  backend_role_definition_name   = "Storage Blob Data Contributor"
+
+  # Resource metadata for the grant; backend key/auth/config stay in backend.local.hcl.
+  backend_storage_account = {
+    name                = "localtfsa"
+    resource_group_name = "claudeaiportfolio"
+  }
 }
 
 entra_applications = {
