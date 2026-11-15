@@ -90,8 +90,8 @@ migrationJob:
   activeDeadlineSeconds: 600
   backoffLimit: 2
   resources:
-    requests: {cpu: 100m, memory: 512Mi}
-    limits: {memory: 1Gi}
+    requests: {cpu: 100m, memory: 1Gi}
+    limits: {memory: 2Gi}
   hooks:
     argocd: {enabled: true}
     helm: {enabled: false}
