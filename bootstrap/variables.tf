@@ -7,15 +7,17 @@ variable "container_registries" {
 }
 
 variable "ci_publisher" {
-  description = "Existing GitHub CI service principal and its Foundry/backend access."
+  description = "Existing GitHub CI SPN, backend account reference and explicit scoped roles."
   type = object({
     service_principal_display_name = string
-    foundry_role_definition_name   = string
-    backend_role_definition_name   = string
     backend_storage_account = object({
       name                = string
       resource_group_name = string
     })
+    role_assignments = map(object({
+      scope                = string
+      role_definition_name = string
+    }))
   })
 }
 

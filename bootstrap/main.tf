@@ -59,11 +59,12 @@ locals {
   }))
 
   role_scopes = merge({
-    subscription    = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
-    resource_group  = azurerm_resource_group.this.id
-    dns_zone        = data.azurerm_dns_zone.existing.id
-    key_vault       = data.azurerm_key_vault.platform.id
-    storage_account = data.azurerm_storage_account.platform.id
+    subscription      = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+    resource_group    = azurerm_resource_group.this.id
+    dns_zone          = data.azurerm_dns_zone.existing.id
+    key_vault         = data.azurerm_key_vault.platform.id
+    storage_account   = data.azurerm_storage_account.platform.id
+    terraform_backend = data.azurerm_storage_account.terraform_backend.id
   }, { for name, registry in data.azurerm_container_registry.existing : "registry_${name}" => registry.id })
 }
 
@@ -194,32 +195,33 @@ module "aks" {
   tags = var.azure.tags
 }
 
-# Lets GitHub Actions publish and manage hosted Foundry agent versions across
-# the subscription, independently of AKS. Only this new grant is Terraform-owned;
-# the existing SPN, GitHub federation and other grants are not adopted here.
-resource "azurerm_role_assignment" "ci_publisher_foundry" {
-  scope                = local.role_scopes["subscription"]
-  role_definition_name = var.ci_publisher.foundry_role_definition_name
+# Existing CI SPN: caller-selected roles at declared scopes, one assignment each.
+resource "azurerm_role_assignment" "ci_publisher" {
+  for_each             = var.ci_publisher.role_assignments
+  scope                = local.role_scopes[each.value.scope]
+  role_definition_name = each.value.role_definition_name
   principal_id         = data.azuread_service_principal.ci_publisher.object_id
   principal_type       = "ServicePrincipal"
 }
 
-# State read/write and blob leases for CI plans/applies, on the existing backend.
-# The account is external; this grant follows the bootstrap root's lifecycle.
-resource "azurerm_role_assignment" "ci_publisher_backend" {
-  scope                = data.azurerm_storage_account.terraform_backend.id
-  role_definition_name = var.ci_publisher.backend_role_definition_name
-  principal_id         = data.azuread_service_principal.ci_publisher.object_id
-  principal_type       = "ServicePrincipal"
+moved {
+  from = azurerm_role_assignment.ci_publisher_foundry
+  to   = azurerm_role_assignment.ci_publisher["foundry"]
 }
 
-# Image push/pull roles do not include ARM registry metadata reads used by plans.
-resource "azurerm_role_assignment" "ci_publisher_registry_reader" {
-  for_each             = data.azurerm_container_registry.existing
-  scope                = each.value.id
-  role_definition_name = "Reader"
-  principal_id         = data.azuread_service_principal.ci_publisher.object_id
-  principal_type       = "ServicePrincipal"
+moved {
+  from = azurerm_role_assignment.ci_publisher_backend
+  to   = azurerm_role_assignment.ci_publisher["backend"]
+}
+
+moved {
+  from = azurerm_role_assignment.ci_publisher_registry_reader["platform"]
+  to   = azurerm_role_assignment.ci_publisher["registry_reader"]
+}
+
+moved {
+  from = azurerm_role_assignment.ci_publisher_contributor
+  to   = azurerm_role_assignment.ci_publisher["deployment"]
 }
 
 module "identities" {

@@ -9,13 +9,32 @@ container_registries = {
 
 ci_publisher = {
   service_principal_display_name = "kubernetes-spn"
-  foundry_role_definition_name   = "Foundry Project Manager"
-  backend_role_definition_name   = "Storage Blob Data Contributor"
 
   # Resource metadata for the grant; backend key/auth/config stay in backend.local.hcl.
   backend_storage_account = {
     name                = "localtfsa"
     resource_group_name = "claudeaiportfolio"
+  }
+  role_assignments = {
+    foundry = {
+      scope                = "subscription"
+      role_definition_name = "Foundry Project Manager"
+    }
+
+    backend = {
+      scope                = "terraform_backend"
+      role_definition_name = "Storage Blob Data Contributor"
+    }
+
+    registry_reader = {
+      scope                = "registry_platform"
+      role_definition_name = "Reader"
+    }
+
+    deployment = {
+      scope                = "subscription"
+      role_definition_name = "Contributor"
+    }
   }
 }
 
