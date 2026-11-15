@@ -34,11 +34,11 @@ identity propagation. Keep health endpoints and the admin interface internal.
 | --- | --- | --- |
 | -10 | namespaces | LiteLLM namespace |
 | 5 | litellm-reloader | Existing upstream namespace-scoped Reloader chart |
-| 10 | configuration | ESO master-key/salt generators and stable output Secret |
+| 20 | litellm-key-vault | ASO writer identity/trust/grant, ESO create-if-missing vault entries |
 | 20 | redis-certificates | Dedicated `litellm` Redis client certificate |
 | 30 | postgres | CNPG database, role and PostgreSQL client certificate |
 | 30 | redis | Dedicated certificate-to-ACL user limited to `litellm:*` |
-| 35 | litellm-credentials | Named read-only ESO access to its PostgreSQL leaf and public server CA |
+| 35 | litellm-credentials | Read-only ESO delivery of vault keys, PostgreSQL leaf and public server CA |
 | 40 | litellm | Upstream proxy and PreSync Prisma migration Job |
 
 The bundled PostgreSQL and Redis subcharts are disabled. The proxy and migration
@@ -55,15 +55,44 @@ password; Kubernetes RBAC protects the private key. The Redis client verifies th
 server hostname/CA and supplies its distinct PEM client leaf. Redis maps its CN
 to the `litellm` ACL user, without a Redis password or access to Langfuse keys.
 Only this leaf is reflected into the exact `^litellm$` namespace. Neither database
-nor Redis CA signing keys are distributed. No Azure identity is needed until a
-provider is configured.
+nor Redis CA signing keys are distributed. This database/cache wiring needs no
+cloud-provider identity; the separate vault writer described below is used only
+for initial key creation.
 
-The stable master key and salt are necessary LiteLLM application credentials:
-virtual-key administration uses the master key and stored credential encryption
-uses the salt. ESO creates these once as an immutable orphan Secret. Re-rendering
-or syncing does not rotate them. Rotation is a separate coordinated operation;
-do not replace the salt against an existing populated database without following
-the upstream encryption migration process.
+## Key Vault source and initial creation
+
+The existing Key Vault selected by `runtime.AZURE_KEY_VAULT_URI` is authoritative
+for the stable master key and encryption salt. Their names are
+`platform-<cluster.name>-litellm-master` and `platform-<cluster.name>-litellm-salt`.
+Different clusters do not share these identities. The package reuses the existing
+vault, ESO, ASO and Reflector; it creates no vault, database server or cache service.
+The shared `azure-kv` ClusterSecretStore and its read-only identity are unchanged.
+
+At wave 20, native ESO Password generators and PushSecrets create entries only
+if absent (`updatePolicy: IfNotExists`, as supported by pinned ESO 2.12.0).
+`deletionPolicy: None` keeps the vault entries when the package/cluster is removed.
+The generated candidates are never the application's source: at wave 35 an
+ExternalSecret fetches the actual vault values through `azure-kv`, so existing
+entries win on reapply or a rebuild. No Helm randomness, setup Job, imperative
+secret creation or manual seeding is required.
+
+ASO creates one dedicated `id-<cluster.name>-litellm-key-writer` managed identity in
+the existing cluster resource group, federated only to
+`system:serviceaccount:litellm:litellm-key-writer`. Its **Key Vault Secrets Officer**
+role is scoped to the existing vault. This built-in role can manage all secrets
+in that vault; it is not restricted to the two entry names. Write authority is
+kept off the shared platform/ESO identity and off the LiteLLM pod. The writer's
+namespaced SecretStore is used only by the two PushSecrets. Only its public client
+ID is exported by ASO and reflected to `litellm`; no client secret is created.
+ESO's native `authSecretRef.clientId` resolves the ASO output without a bootstrap
+handoff. `keyVault.resourceGroup` and `identityLocation` are platform metadata;
+identity names, trust, assignment GUID and entry names are template-owned.
+
+The master key administers virtual keys; the salt protects stored credentials.
+The pod still needs an immutable Kubernetes Secret, populated once from Key Vault.
+Remote value changes deliberately do not rotate this running copy automatically.
+Rotation is a coordinated operation, particularly for the salt against a populated
+database. Follow upstream encryption migration guidance before replacing it.
 
 Both client leaves last 30 days, renew seven days before expiry, and rotate keys.
 ESO/Reflector deliver renewed leaves, then the namespace-scoped Reloader restarts
@@ -81,7 +110,9 @@ is disabled, the seccomp profile is RuntimeDefault and the ServiceAccount does
 not mount an API token. The chart's standard migration container is used unchanged.
 
 Teardown removes the proxy before credentials, backing services and controllers.
-The database uses the existing `retain` reclaim convention; disabling the package
+The writer identity, federation and role grant are removed after the consumers
+and credentials; the vault itself is never owned or deleted. The database uses
+the existing `retain` reclaim convention; disabling the package
 is not a promise of complete database deletion or a data-preserving pause. The
 platform remains disposable at full cluster teardown. ESO orphan keys remain
 until their namespace is deleted. No Terraform backend resource is affected.
@@ -89,7 +120,8 @@ until their namespace is deleted. No Terraform backend resource is affected.
 ## Validation and provenance
 
 `make validate` checks enabled/disabled rendering, distinct SQL/Redis identities,
-secret references, certificate delivery, dependency waves, migration configuration,
+secret references, create-if-missing/retain policies, cluster-isolated vault entry
+names, writer trust/role, certificate delivery, dependency waves, migration configuration,
 and the exact upstream deployment image. The upstream chart is rendered twice to
 check that it does not generate credentials during reconciliation.
 
@@ -105,7 +137,9 @@ Verified during preparation:
 
 These are source/render checks, not deployment or inference evidence. After merge
 and authorised deployment, check current-revision Argo health, migration completion,
-proxy readiness, database/Redis authentication and certificate renewal. Then test
+proxy readiness, first-time vault seeding and existing-value preservation, database/Redis
+authentication and certificate renewal. The writer role propagation and vault access
+remain live gates. Then test
 provider-specific streaming, tools and Responses compatibility when onboarding
 models. A healthy gateway with an empty model list proves no provider integration.
 
@@ -113,4 +147,7 @@ Sources: [stable release](https://github.com/BerriAI/litellm/releases/tag/v1.109
 [versioned upstream chart](https://github.com/BerriAI/litellm/tree/v1.109.1/helm/litellm-helm),
 [CNPG client certificates](https://cloudnative-pg.io/documentation/current/certificates/),
 [LiteLLM coordination Redis](https://docs.litellm.ai/docs/proxy/caching),
-[Enterprise feature boundary](https://docs.litellm.ai/docs/enterprise).
+[Enterprise feature boundary](https://docs.litellm.ai/docs/enterprise),
+[ESO PushSecret policies/generators](https://external-secrets.io/latest/guides/pushsecrets/),
+[ESO Key Vault workload-identity references](https://external-secrets.io/latest/provider/azure-key-vault/),
+[ASO identity output expressions](https://azure.github.io/azure-service-operator/guide/secrets/).

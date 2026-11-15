@@ -210,5 +210,10 @@ on each cluster, sharing CNPG and Redis through dedicated client certificates.
 `litellm.enabled` controls the package and its dependencies; `litellm.modelList`
 is the native model list, initially empty. Namespace/ESO setup precedes client
 certificates and backing services; credentials at wave 35 precede LiteLLM at 40.
-The service is cluster-local. Provider onboarding, external gateway policies and
-task-based model selection are separate from installing this package.
+The service is cluster-local. The existing Key Vault supplies master/encryption
+keys: the wave-20 package seeds missing entries through native ESO generators and
+PushSecrets, with a dedicated ASO-managed writer identity; wave 35 reads the vault
+through the existing read-only store. Existing vault values are preserved on
+rebuild and retained on teardown. No managed PostgreSQL/Redis service is added.
+Provider onboarding, external gateway policies and task-based model selection
+are separate from installing this package.

@@ -272,7 +272,7 @@ def main():
             'backstage', 'backstage-credentials', 'backstage-reloader',
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
             'redis', 'redis-certificates', 'redis-reloader',
-            'litellm', 'litellm-credentials', 'litellm-reloader',
+            'litellm', 'litellm-credentials', 'litellm-reloader', 'litellm-key-vault',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         kargo_acr = next(app for app in applications if app['metadata']['name'] == 'kargo-acr')
@@ -1094,7 +1094,43 @@ def main():
         assert next(d for d in litellm_resources if d['kind'] == 'Database' and d['metadata']['name'] == 'litellm')['spec']['owner'] == 'litellm'
         key = next(d for d in litellm_resources if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'litellm-keys')
         assert key['spec']['refreshPolicy'] == 'CreatedOnce' and key['spec']['target']['immutable']
-        assert key['spec']['target']['template']['data'] == {'master-key': 'sk-{{ .master }}', 'LITELLM_SALT_KEY': '{{ .salt }}'}
+        assert key['spec']['secretStoreRef'] == {'name': 'azure-kv', 'kind': 'ClusterSecretStore'}
+        assert {d['secretKey']: d['remoteRef']['key'] for d in key['spec']['data']} == {
+            'master-key': 'platform-management-litellm-master', 'LITELLM_SALT_KEY': 'platform-management-litellm-salt'}
+        assert 'dataFrom' not in key['spec'], 'The running service must read the vault, never a generated candidate'
+        assert litellm_waves['configuration'] < litellm_waves['litellm-key-vault'] < litellm_waves['litellm-credentials']
+        writers = [d for d in litellm_resources if d['kind'] == 'PushSecret']
+        assert len(writers) == 2
+        assert all(d['spec']['updatePolicy'] == 'IfNotExists' and d['spec']['deletionPolicy'] == 'None' for d in writers)
+        assert {d['spec']['data'][0]['match']['remoteRef']['remoteKey'] for d in writers} == {
+            'platform-management-litellm-master', 'platform-management-litellm-salt'}
+        assert all(d['spec']['secretStoreRefs'] == [{'name': 'litellm-key-writer', 'kind': 'SecretStore'}] for d in writers)
+        bootstrap = list(yaml.safe_load_all(litellm_apps['litellm-key-vault']['spec']['source']['helm']['valuesObject']['manifests']))
+        identity = next(d for d in bootstrap if d['kind'] == 'UserAssignedIdentity')
+        assert identity['metadata']['namespace'] == 'azure-resources'
+        assert identity['spec']['azureName'] == 'id-management-litellm-key-writer'
+        output = identity['spec']['operatorSpec']['secretExpressions'][0]
+        assert output['value'] == 'self.status.clientId'
+        assert output['annotations']['reflector.v1.k8s.emberstack.com/reflection-auto-namespaces'] == '\"^litellm$\"'
+        trust = next(d for d in bootstrap if d['kind'] == 'FederatedIdentityCredential')
+        assert trust['spec']['subject'] == 'system:serviceaccount:litellm:litellm-key-writer'
+        assignment = next(d for d in bootstrap if d['kind'] == 'RoleAssignment')
+        assert assignment['spec']['owner']['armId'].endswith('/resourceGroups/kubernetes/providers/Microsoft.KeyVault/vaults/example')
+        assert assignment['spec']['roleDefinitionReference'] == {'wellKnownName': 'Key Vault Secrets Officer'}
+        store = next(d for d in bootstrap if d['kind'] == 'SecretStore')
+        assert store['spec']['provider']['azurekv']['serviceAccountRef'] == {'name': 'litellm-key-writer'}
+        assert store['spec']['provider']['azurekv']['authSecretRef'] == {'clientId': {'name': 'litellm-key-writer', 'key': 'clientId'}}
+        assert not any(d['kind'] == 'Vault' for d in bootstrap), 'The existing vault must never be adopted or created'
+        for document in bootstrap:
+            if document['kind'] == 'PushSecret':
+                assert int(document['metadata']['annotations']['argocd.argoproj.io/sync-wave']) > 15
+        # Different clusters use different vault entries; a rebuild preserves names.
+        values.write_text(json.dumps({'runtime': runtime, 'cluster': {'name': 'second'}}))
+        second = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/litellm.yaml')) if d]
+        second_bootstrap = next(a for a in second if a['metadata']['name'] == 'litellm-key-vault')
+        second_pushes = [d for d in yaml.safe_load_all(second_bootstrap['spec']['source']['helm']['valuesObject']['manifests']) if d['kind'] == 'PushSecret']
+        assert {d['spec']['data'][0]['match']['remoteRef']['remoteKey'] for d in second_pushes} == {
+            'platform-second-litellm-master', 'platform-second-litellm-salt'}
         reader = next(d for d in litellm_resources if d['kind'] == 'Role' and d['metadata']['name'] == 'litellm-postgres-reader')
         assert reader['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['litellm-postgres-client', 'platform-ca'], 'verbs': ['get']}]
         redis_config = next(d for d in litellm_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'redis')['data']['redis.conf']
@@ -1139,6 +1175,7 @@ def main():
                     pod = deployment['spec']['template']['spec']
                     container = pod['containers'][0]
                     assert container['image'] == 'ghcr.io/berriai/litellm:v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9'
+                    assert pod['serviceAccountName'] == 'litellm', 'The proxy must never run as the vault writer'
                     service_account = next(d for d in docs if d['kind'] == 'ServiceAccount')
                     assert service_account['automountServiceAccountToken'] is False
                     assert not any(d['kind'] in {'Secret', 'StatefulSet', 'PersistentVolumeClaim', 'Ingress'} for d in docs)
@@ -1386,6 +1423,19 @@ def main():
                             'passwords.generators.external-secrets.io', 'githubaccesstokens.generators.external-secrets.io'} <= crds, 'Secret delivery and password generation APIs must be installed'
                     schemas = {d['spec']['names']['kind']: next(v['schema']['openAPIV3Schema'] for v in d['spec']['versions'] if v.get('storage'))
                                for d in docs if d['kind'] == 'CustomResourceDefinition'}
+                    for resource in litellm_resources:
+                        if resource['kind'] not in {'ExternalSecret', 'SecretStore', 'Password', 'PushSecret'}:
+                            continue
+                        schema = schemas[resource['kind']]['properties']['spec']
+                        assert resource['spec'].keys() <= schema['properties'].keys()
+                        # Kubernetes applies structural defaults before validation.
+                        required = {key for key in schema.get('required', []) if 'default' not in schema['properties'][key]}
+                        assert required <= resource['spec'].keys(), resource['metadata']['name']
+                        if resource['kind'] == 'PushSecret':
+                            assert resource['spec']['updatePolicy'] in schema['properties']['updatePolicy']['enum']
+                            assert 'generatorRef' in schema['properties']['selector']['properties']
+                    azure = schemas['SecretStore']['properties']['spec']['properties']['provider']['properties']['azurekv']['properties']
+                    assert 'authSecretRef' in azure and 'clientId' in azure['authSecretRef']['properties']
                     for resource in backstage_resources:
                         if resource['kind'] not in {'ExternalSecret', 'SecretStore', 'Password'}:
                             continue

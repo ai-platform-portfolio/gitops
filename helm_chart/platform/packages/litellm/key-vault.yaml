@@ -1,0 +1,138 @@
+{{- $subscription := required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID -}}
+{{- $vaultName := first (splitList "." (trimPrefix "https://" (required "runtime.AZURE_KEY_VAULT_URI is required" .Values.runtime.AZURE_KEY_VAULT_URI))) -}}
+{{- $vault := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.KeyVault/vaults/%s" $subscription .Values.litellm.keyVault.resourceGroup $vaultName -}}
+{{- $group := printf "/subscriptions/%s/resourceGroups/%s" $subscription (required "runtime.CLUSTER_RESOURCE_GROUP is required" .Values.runtime.CLUSTER_RESOURCE_GROUP) -}}
+{{- $hash := sha256sum (printf "litellm-key-writer/%s/%s" .Values.cluster.name $vault) | trunc 32 -}}
+# ASO's existing provisioner owns this identity, never the existing vault.
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: litellm-key-writer
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  azureName: id-{{ .Values.cluster.name }}-litellm-key-writer
+  location: {{ .Values.litellm.keyVault.identityLocation | quote }}
+  owner: {armId: {{ $group | quote }}}
+  operatorSpec:
+    configMaps:
+      principalId:
+        name: litellm-key-writer
+        key: principalId
+    # Public identity metadata, not a client secret. ESO supports clientId refs
+    # specifically for ASO-created identities whose IDs are unknown at render time.
+    secretExpressions:
+      - name: litellm-key-writer
+        key: clientId
+        value: self.status.clientId
+        annotations:
+          reflector.v1.k8s.emberstack.com/reflection-allowed: '"true"'
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: '"^litellm$"'
+          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: '"true"'
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: '"^litellm$"'
+
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: litellm-key-writer
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  owner: {name: litellm-key-writer}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:litellm:litellm-key-writer
+
+---
+# A separate writer leaves the shared ESO/platform identity read-only.
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: litellm-key-writer-{{ $hash | trunc 12 }}
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner: {armId: {{ $vault | quote }}}
+  principalIdFromConfig: {name: litellm-key-writer, key: principalId}
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    wellKnownName: Key Vault Secrets Officer
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: litellm-key-writer
+  namespace: litellm
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+automountServiceAccountToken: false
+
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: litellm-key-writer
+  namespace: litellm
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+spec:
+  provider:
+    azurekv:
+      vaultUrl: {{ .Values.runtime.AZURE_KEY_VAULT_URI | quote }}
+      tenantId: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | quote }}
+      authType: WorkloadIdentity
+      serviceAccountRef: {name: litellm-key-writer}
+      authSecretRef:
+        clientId: {name: litellm-key-writer, key: clientId}
+
+{{- range $name := list "master" "salt" }}
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: litellm-{{ $name }}
+  namespace: litellm
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+spec:
+  length: 64
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+
+---
+# Generate only an initial candidate. An existing vault value always wins.
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: litellm-{{ $name }}
+  namespace: litellm
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  updatePolicy: IfNotExists
+  deletionPolicy: None
+  refreshInterval: 1h
+  secretStoreRefs: [{name: litellm-key-writer, kind: SecretStore}]
+  selector:
+    generatorRef:
+      apiVersion: generators.external-secrets.io/v1alpha1
+      kind: Password
+      name: litellm-{{ $name }}
+{{- if eq $name "master" }}
+  template:
+    data:
+      password: {{ `sk-{{ .password }}` | quote }}
+{{- end }}
+  data:
+    - match:
+        secretKey: password
+        remoteRef:
+          remoteKey: platform-{{ $.Values.cluster.name }}-litellm-{{ $name }}
+{{- end }}

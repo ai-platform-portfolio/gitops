@@ -268,3 +268,7 @@ atlas:
 litellm:
   enabled: true
   modelList: []
+  keyVault:
+    # Reuse the existing vault selected by runtime.AZURE_KEY_VAULT_URI.
+    resourceGroup: kubernetes
+    identityLocation: uksouth
