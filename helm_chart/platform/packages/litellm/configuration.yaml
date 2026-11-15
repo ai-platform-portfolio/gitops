@@ -1,3 +1,13 @@
+# The PreSync migration needs this account before the upstream chart's Sync phase.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: litellm
+  namespace: litellm
+automountServiceAccountToken: false
+
+---
+
 # Key Vault is authoritative; the pod consumes an immutable local copy.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

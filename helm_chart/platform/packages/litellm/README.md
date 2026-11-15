@@ -38,8 +38,14 @@ identity propagation. Keep health endpoints and the admin interface internal.
 | 20 | redis-certificates | Dedicated `litellm` Redis client certificate |
 | 30 | postgres | CNPG database, role and PostgreSQL client certificate |
 | 30 | redis | Dedicated certificate-to-ACL user limited to `litellm:*` |
-| 35 | litellm-credentials | Read-only ESO delivery of vault keys, PostgreSQL leaf and public server CA |
+| 35 | litellm-credentials | Runtime ServiceAccount; read-only ESO delivery of vault keys, PostgreSQL leaf and public server CA |
 | 40 | litellm | Upstream proxy and PreSync Prisma migration Job |
+
+The credentials Application creates the token-unmounted `litellm` ServiceAccount
+before the upstream Application starts. Both migration and proxy reuse it. A
+ServiceAccount created in the upstream chart's normal Sync phase cannot satisfy
+its PreSync migration on a fresh install. The upstream chart therefore has
+`serviceAccount.create: false`; its migration hook and deadline remain enabled.
 
 The bundled PostgreSQL and Redis subcharts are disabled. The proxy and migration
 Job connect directly to the existing CNPG primary with the same dedicated

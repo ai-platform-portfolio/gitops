@@ -9,7 +9,8 @@ image:
   pullPolicy: IfNotPresent
 
 serviceAccount:
-  create: true
+  # Created by the earlier credentials Application for the PreSync migration.
+  create: false
   name: litellm
   automount: false
 
