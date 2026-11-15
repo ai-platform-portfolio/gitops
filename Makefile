@@ -11,7 +11,8 @@ AKS_TARGETS := -target=module.aks -target=module.argocd \
   -target=module.identities -target=module.aso_identity \
   -target=azurerm_storage_container.platform \
   -target=azurerm_role_assignment.ci_publisher_foundry \
-  -target=azurerm_role_assignment.ci_publisher_backend
+  -target=azurerm_role_assignment.ci_publisher_backend \
+  -target=azurerm_role_assignment.ci_publisher_registry_reader
 
 .PHONY: help init plan foundry-plan foundry-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight
 
@@ -63,10 +64,10 @@ plan: init
 
 # CI publisher grants are root resources, outside module.foundry dependencies.
 foundry-plan: init
-	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry -target=azurerm_role_assignment.ci_publisher_backend)
+	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry -target=azurerm_role_assignment.ci_publisher_backend -target=azurerm_role_assignment.ci_publisher_registry_reader)
 
 foundry-up: init
-	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry -target=azurerm_role_assignment.ci_publisher_backend)
+	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher_foundry -target=azurerm_role_assignment.ci_publisher_backend -target=azurerm_role_assignment.ci_publisher_registry_reader)
 	$(publish_foundry_config)
 
 postgres-plan: init

@@ -213,6 +213,15 @@ resource "azurerm_role_assignment" "ci_publisher_backend" {
   principal_type       = "ServicePrincipal"
 }
 
+# Image push/pull roles do not include ARM registry metadata reads used by plans.
+resource "azurerm_role_assignment" "ci_publisher_registry_reader" {
+  for_each             = data.azurerm_container_registry.existing
+  scope                = each.value.id
+  role_definition_name = "Reader"
+  principal_id         = data.azuread_service_principal.ci_publisher.object_id
+  principal_type       = "ServicePrincipal"
+}
+
 module "identities" {
   for_each            = { for key, identity in var.identities : key => identity if key != "aso" }
   source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/managed-identity?ref=453269ded9ea65cbc40f5ce9a240f022f8bea5bf"
