@@ -104,7 +104,13 @@ Sources: [Redis release](https://github.com/redis/redis/releases/tag/8.10.3),
 When `litellm.enabled` is true, the shared service also creates a distinct
 `litellm` certificate/ACL identity restricted to `litellm:*` keys/channels. The
 proxy uses this store for coordination, without enabling response caching or
-sharing Langfuse's credentials. Its own namespace-scoped Reloader handles leaf
+sharing Langfuse's credentials. Its ACL permits only `SUBSCRIBE`, `UNSUBSCRIBE`
+and `PUBLISH` from the pub/sub commands for native key-cache invalidation and
+configuration notifications. Channels remain restricted to `litellm:*`; no
+pub/sub command category or wider channel access is granted. The existing Redis
+Reloader applies ACL configuration changes with a brief shared-service restart;
+verify subscriber reconnection and cross-namespace denial after rollout.
+Its own namespace-scoped Reloader handles leaf
 renewal. Disabling LiteLLM omits its configured ACL and certificate; full data
 cleanup and certificate revocation are not implied. See the
 [LiteLLM package](../litellm/README.md) for ordering and validation limits.
