@@ -79,6 +79,8 @@ esac
                 self.assertEqual(commands.count(': foundry-agents-up'), 1)
                 delivery = commands.index(': foundry-agents-up')
                 self.assertLess(commands.index('gh variable set AZURE_LOCATION'), delivery)
+                self.assertLess(commands.index('gh variable set AKS_NAME'), delivery)
+                self.assertLess(commands.index('gh variable set AKS_RESOURCE_GROUP'), delivery)
                 if target != 'foundry-up':
                     self.assertLess(commands.index('cluster.py up'), delivery)
                     self.assertLess(commands.index(': context'), delivery)

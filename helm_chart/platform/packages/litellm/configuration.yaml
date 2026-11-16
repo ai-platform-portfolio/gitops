@@ -48,3 +48,15 @@ data:
   AZURE_SUBSCRIPTION_ID: {{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID | b64enc | quote }}
   USE_WORKLOAD_IDENTITY_AUTH: {{ "true" | b64enc | quote }}
 {{- end }}
+
+{{- if .Values.litellm.access.enabled }}
+---
+# Public metadata for native hosted delivery; secrets remain in Key Vault.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-consumer-defaults
+  namespace: litellm
+data:
+  values.json: {{ toJson (dict "modelGateway" (dict "endpoint" (printf "https://%s/v1" (tpl .Values.litellm.access.hostname .)) "vaultUri" (trimSuffix "/" .Values.runtime.AZURE_KEY_VAULT_URI) "masterSecret" (printf "platform-%s-litellm-master" .Values.cluster.name) "namespace" "litellm" "issuerServiceAccount" "litellm-key-writer" "issuerIdentitySecret" "litellm-key-writer" "image" (printf "%s:%s" .Values.litellm.image.repository .Values.litellm.image.tag) "policies" .Values.litellm.access.policies) "azure" (dict "subscriptionId" .Values.runtime.AZURE_SUBSCRIPTION_ID "tenantId" .Values.runtime.AZURE_TENANT_ID "resourceNamespace" "azure-resources" "keyVault" (dict "name" (first (splitList "." (trimPrefix "https://" .Values.runtime.AZURE_KEY_VAULT_URI))) "resourceGroup" .Values.litellm.keyVault.resourceGroup))) | quote }}
+{{- end }}

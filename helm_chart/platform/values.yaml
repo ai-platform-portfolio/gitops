@@ -276,10 +276,22 @@ litellm:
     # Reuse the existing account deployment/version, never the project proxy.
     apiVersion: "2025-04-01-preview"
     chat: {deployment: chat, baseModel: gpt-6.1-sol-2026-09-29}
+    embedding: {deployment: embedding, baseModel: text-embedding-3-small}
   access:
-    enabled: true # Existing private Gateway; Chat Completions only.
+    enabled: true # Existing private Gateway; inference paths only.
     hostname: 'models.internal.{{ .Values.runtime.DNS_ZONE }}'
     policies:
+      bounded-agent:
+        # Admission remains blocked until the operator supplies explicit ceilings.
+        maxBudget: null
+        budgetDuration: 30d
+        rpm: null
+        tpm: null
+        parallel: null
+        capabilities:
+          default: {model: reasoning, routes: [/v1/responses]}
+          coding: {model: coding, routes: [/v1/responses]}
+          embedding: {model: embedding, version: "1", routes: [/v1/embeddings]}
       documents:
         # Reusable document-processing tier, independently accounted per generated consumer.
         maxBudget: 5 # USD per budgetDuration, not a shared application allowance.

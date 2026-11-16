@@ -68,6 +68,27 @@ proxy_config:
         api_version: {{ .Values.litellm.azure.apiVersion | quote }}
       model_info:
         base_model: {{ .Values.litellm.azure.chat.baseModel | quote }}
+    - model_name: reasoning
+      litellm_params:
+        model: {{ printf "azure/%s" .Values.litellm.azure.chat.deployment | quote }}
+        api_base: {{ printf "https://%s.cognitiveservices.azure.com/" (include "platform.foundryName" .) | quote }}
+        api_version: {{ .Values.litellm.azure.apiVersion | quote }}
+      model_info:
+        base_model: {{ .Values.litellm.azure.chat.baseModel | quote }}
+    - model_name: coding
+      litellm_params:
+        model: {{ printf "azure/%s" .Values.litellm.azure.chat.deployment | quote }}
+        api_base: {{ printf "https://%s.cognitiveservices.azure.com/" (include "platform.foundryName" .) | quote }}
+        api_version: {{ .Values.litellm.azure.apiVersion | quote }}
+      model_info:
+        base_model: {{ .Values.litellm.azure.chat.baseModel | quote }}
+    - model_name: embedding
+      litellm_params:
+        model: {{ printf "azure/%s" .Values.litellm.azure.embedding.deployment | quote }}
+        api_base: {{ printf "https://%s.cognitiveservices.azure.com/" (include "platform.foundryName" .) | quote }}
+        api_version: {{ .Values.litellm.azure.apiVersion | quote }}
+      model_info:
+        base_model: {{ .Values.litellm.azure.embedding.baseModel | quote }}
 {{- end }}
   litellm_settings:
     enable_azure_ad_token_refresh: true

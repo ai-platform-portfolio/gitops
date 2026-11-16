@@ -18,14 +18,16 @@ When `litellm.azure.enabled` is approved and enabled, the existing Azure `chat`
 deployment is exposed through the same gateway alias,
 using a dedicated ASO-managed provider identity and account-scoped OpenAI User
 permission. Consumer identities remain separate. The proxy does not use the
-hosting project's inference proxy. No embedding or additional provider is added.
+hosting project's inference proxy. Azure `reasoning` and `coding` aliases use the same approved GPT deployment through
+Responses; `embedding` uses the existing text-embedding-3-small deployment. No
+Claude/Gemini route or additional cloud provider is configured.
 
 Internal management remains at `http://litellm.litellm.svc.cluster.local:4000`.
 When `litellm.access.enabled` is approved and enabled, an issuer-annotated ListenerSet attaches to the existing private Gateway for
 `models.internal.<DNS zone>`; its HTTPRoute exposes only POST
-`/v1/chat/completions`. Management, health and UI paths are not routed. No public
+`/v1/chat/completions`, `/v1/responses` and `/v1/embeddings`. Management, health and UI paths are not routed. No public
 endpoint, firewall change or separately managed Certificate is introduced.
-The reviewed configuration enables both activation flags. Source configuration
+The configuration enables both activation flags. Source configuration
 is not evidence that this route is deployed or reachable; verify reconciliation
 and actual model transport after merge.
 
@@ -38,6 +40,11 @@ tier permits chat only and gives each generated consumer its own USD5/30day budg
 not an application registration or shared consumer identity. Missing/non-positive
 ceilings fail closed rather than becoming unlimited. Never
 put API keys or provider credentials in Git-managed values.
+
+The reusable `bounded-agent` policy separates default/coding/embedding keys under
+one stable consumer owner. Its budget/rate/concurrency ceilings remain unset: native
+delivery refuses admission until the operator supplies them. `litellm-consumer-defaults`
+is public trusted delivery metadata, not a credential or an application registry.
 
 Native user budgets/accounting use the existing PostgreSQL database and Redis.
 Routing retries/fallbacks and client-provided provider credentials are disabled.
