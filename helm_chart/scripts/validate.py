@@ -1175,7 +1175,7 @@ def main():
         assert provider['spec']['azureName'] == 'id-management-litellm-provider'
         provider_trust = next(d for d in gateway_resources if d['kind'] == 'FederatedIdentityCredential' and d['metadata']['name'] == 'litellm-provider')
         assert provider_trust['spec']['subject'] == 'system:serviceaccount:litellm:litellm'
-        aso_credential = next(d for d in gateway_resources if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential')
+        aso_credential = next(d for d in gateway_resources if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential' and d['metadata']['namespace'] == 'litellm')
         assert aso_credential['metadata']['namespace'] == 'litellm'
         assert {key: base64.b64decode(value).decode() for key, value in aso_credential['data'].items()} == {
             'AZURE_CLIENT_ID': runtime['ASO_CLIENT_ID'], 'AZURE_TENANT_ID': runtime['AZURE_TENANT_ID'],
