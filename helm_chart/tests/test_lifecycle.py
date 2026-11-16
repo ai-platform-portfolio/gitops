@@ -1,7 +1,9 @@
 import base64
 from datetime import datetime, timezone
 import json
+import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -13,6 +15,73 @@ from bootstrap.scripts import wait_for_aks as aks_readiness
 
 def encoded(value):
     return base64.b64encode(value.encode()).decode()
+
+
+class FoundryDeliveryTests(unittest.TestCase):
+    root = Path(__file__).resolve().parents[2]
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tools = Path(directory.name)
+        self.log = self.tools / 'commands.log'
+        self.env = {**os.environ, 'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
+                    'COMMAND_LOG': str(self.log), 'FAIL_ON': '', 'WORKFLOW': '81 active', 'RUN_ID': '912'}
+        gh = self.tools / 'gh'
+        gh.write_text('''#!/bin/sh
+printf '%s\\n' "$*" >> "$COMMAND_LOG"
+if [ -n "$FAIL_ON" ]; then
+  case "$*" in "$FAIL_ON"*) exit 1;; esac
+fi
+case "$*" in
+  'repo view '*) echo example-org;;
+  'api --paginate orgs/'*) printf 'example-org/catalog\\nexample-org/other\\n';;
+  'api --paginate repos/example-org/catalog/'*) printf '%s\\n' "$WORKFLOW";;
+  'api --method POST '*) printf '%s\\n' "$RUN_ID";;
+esac
+''')
+        gh.chmod(0o700)
+
+    def run_delivery(self, **settings):
+        self.log.write_text('')
+        result = subprocess.run(['make', 'foundry-agents-up'], cwd=self.root,
+                                env={**self.env, **settings}, capture_output=True, text=True, timeout=10)
+        return result, self.log.read_text().splitlines()
+
+    def test_native_discovery_dispatch_and_exact_run_wait(self):
+        result, commands = self.run_delivery()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        dispatch = next(c for c in commands if c.startswith('api --method POST'))
+        self.assertIn('repos/example-org/catalog/actions/workflows/81/dispatches', dispatch)
+        self.assertIn('return_run_details=true', dispatch)
+        self.assertIn('inputs[operation]=deploy', dispatch)
+        self.assertEqual(commands.count('run watch 912 --repo example-org/catalog --exit-status'), 1)
+        self.assertIn('https://github.com/example-org/catalog/actions/runs/912', result.stdout)
+
+    def test_discovery_disabled_dispatch_and_run_failures_fail_make(self):
+        for settings in ({'FAIL_ON': 'api --paginate orgs/'}, {'FAIL_ON': 'api --paginate repos/'},
+                         {'WORKFLOW': '81 disabled_manually'}, {'FAIL_ON': 'api --method POST'},
+                         {'RUN_ID': ''}, {'FAIL_ON': 'run watch'}):
+            with self.subTest(settings=settings):
+                result, commands = self.run_delivery(**settings)
+                self.assertNotEqual(result.returncode, 0)
+                if settings.get('FAIL_ON') != 'run watch':
+                    self.assertFalse(any(c.startswith('run watch') for c in commands))
+
+    def test_startup_orders_delivery_after_configuration_and_platform_readiness(self):
+        for target in ('foundry-up', 'aks-up', 'up'):
+            with self.subTest(target=target):
+                # Replace recursive Make with ':' so dry-run cannot execute child targets.
+                result = subprocess.run(['make', '--dry-run', '--no-print-directory', 'MAKE=:', target],
+                                        cwd=self.root, env=self.env, capture_output=True,
+                                        text=True, check=True, timeout=10)
+                commands = result.stdout
+                self.assertEqual(commands.count(': foundry-agents-up'), 1)
+                delivery = commands.index(': foundry-agents-up')
+                self.assertLess(commands.index('gh variable set AZURE_LOCATION'), delivery)
+                if target != 'foundry-up':
+                    self.assertLess(commands.index('cluster.py up'), delivery)
+                    self.assertLess(commands.index(': context'), delivery)
 
 
 class AKSReadinessTests(unittest.TestCase):
