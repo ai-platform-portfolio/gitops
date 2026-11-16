@@ -272,21 +272,21 @@ litellm:
     repository: ghcr.io/berriai/litellm
     tag: v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9
   azure:
-    enabled: false # Activate only after provider permission review.
+    enabled: true # Dedicated gateway provider identity; existing Azure chat deployment.
     # Reuse the existing account deployment/version, never the project proxy.
     apiVersion: "2025-04-01-preview"
     chat: {deployment: chat, baseModel: gpt-6.1-sol-2026-09-29}
   access:
-    enabled: false # Activate only after the private route is approved.
+    enabled: true # Existing private Gateway; Chat Completions only.
     hostname: 'models.internal.{{ .Values.runtime.DNS_ZONE }}'
     policies:
       documents:
-        # Trusted operator inputs: unset means no credential can be issued.
-        maxBudget: null
+        # Reusable document-processing tier, independently accounted per generated consumer.
+        maxBudget: 5 # USD per budgetDuration, not a shared application allowance.
         budgetDuration: 30d
-        rpm: null
-        tpm: null
-        parallel: null
+        rpm: 12
+        tpm: 50000
+        parallel: 2
         capabilities:
           default:
             model: chat

@@ -25,15 +25,18 @@ When `litellm.access.enabled` is approved and enabled, an issuer-annotated Liste
 `models.internal.<DNS zone>`; its HTTPRoute exposes only POST
 `/v1/chat/completions`. Management, health and UI paths are not routed. No public
 endpoint, firewall change or separately managed Certificate is introduced.
-Both activation flags default to false. Network activation requires explicit
-approval; source configuration is not evidence
-that this route is deployed or reachable.
+The reviewed configuration enables both activation flags. Source configuration
+is not evidence that this route is deployed or reachable; verify reconciliation
+and actual model transport after merge.
 
 `litellm.access.policies` supplies trusted model allowlists and spend/rate ceilings.
 Application intent selects a policy through the reusable application chart, which
 owns finite credential creation, renewal and revocation. No per-app registration
-or consumer credentials belong in this package. Default policy ceilings are null:
-credential issuance fails closed until operators supply positive limits. Never
+or consumer credentials belong in this package. The reusable `documents` processing
+tier permits chat only and gives each generated consumer its own USD5/30day budget,
+12RPM,50000TPM and2concurrent requests. Any repository can select this tier; it is
+not an application registration or shared consumer identity. Missing/non-positive
+ceilings fail closed rather than becoming unlimited. Never
 put API keys or provider credentials in Git-managed values.
 
 Native user budgets/accounting use the existing PostgreSQL database and Redis.

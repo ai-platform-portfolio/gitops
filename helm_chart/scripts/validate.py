@@ -1149,8 +1149,12 @@ def main():
         assert {'+subscribe', '+unsubscribe', '+publish', '-@dangerous', '-@admin'} <= set(litellm_acl)
         assert [rule for rule in litellm_acl if rule.startswith(('~', '&'))] == ['~litellm:*', '&litellm:*']
         assert not {'+@pubsub', '+@all', 'allchannels', 'allkeys', 'nopass'} & set(litellm_acl)
-        assert not any(d['kind'] in {'HTTPRoute', 'ListenerSet'} and d['metadata'].get('namespace') == 'litellm' for d in litellm_resources)
-        assert not any(d['kind'] == 'UserAssignedIdentity' and d['metadata']['name'] == 'litellm-provider' for d in litellm_resources)
+        values.write_text(json.dumps({'runtime': runtime, 'litellm': {'azure': {'enabled': False}, 'access': {'enabled': False}}}))
+        inactive_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
+        inactive_resources = [d for a in inactive_apps if a['kind'] == 'Application' for d in yaml.safe_load_all(
+            a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+        assert not any(d['kind'] in {'HTTPRoute', 'ListenerSet'} and d['metadata'].get('namespace') == 'litellm' for d in inactive_resources)
+        assert not any(d['kind'] == 'UserAssignedIdentity' and d['metadata']['name'] == 'litellm-provider' for d in inactive_resources)
         values.write_text(json.dumps({'runtime': runtime, 'litellm': {'azure': {'enabled': True}, 'access': {'enabled': True}}}))
         enabled_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
         gateway_resources = [d for a in enabled_apps if a['kind'] == 'Application' for d in yaml.safe_load_all(
@@ -1182,7 +1186,8 @@ def main():
         assert gateway['image'] == 'ghcr.io/berriai/litellm:v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9'
         assert gateway['cleanupImage'] == 'registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b'
         assert gateway['policies']['documents']['capabilities']['default']['model'] == 'chat'
-        assert all(gateway['policies']['documents'][key] is None for key in ['maxBudget', 'rpm', 'tpm', 'parallel'])
+        assert {key: gateway['policies']['documents'][key] for key in ['maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel']} == {
+            'maxBudget': 5, 'budgetDuration': '30d', 'rpm': 12, 'tpm': 50000, 'parallel': 2}
         values.write_text(json.dumps({'runtime': runtime, 'litellm': {'enabled': False}}))
         disabled = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
         assert not any(d['metadata']['name'].startswith('litellm') for d in disabled)
@@ -1254,7 +1259,7 @@ def main():
                     assert deployment['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'litellm-postgres,litellm-redis'
                     configmap = next(d for d in docs if d['kind'] == 'ConfigMap')
                     proxy = yaml.safe_load(configmap['data']['config.yaml'])
-                    assert proxy['model_list'] == []
+                    assert len(proxy['model_list']) == 1 and proxy['model_list'][0]['model_name'] == 'chat'
                     assert proxy['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
                     assert proxy['general_settings']['allow_client_side_credentials'] is False
                     assert proxy['general_settings']['fail_closed_budget_enforcement'] is True
