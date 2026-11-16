@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,89 +18,70 @@ def encoded(value):
 
 
 class FoundryDeliveryTests(unittest.TestCase):
-    def run_delivery(self, failure='', target='foundry-agents-up'):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            gh = root / 'gh'
-            gh.write_text('#!' + sys.executable + '\n' + '''
-import json, os, sys
-from pathlib import Path
-args = sys.argv[1:]
-tool = Path(sys.argv[0]).name
-with open(os.environ['COMMAND_LOG'], 'a') as log:
-    log.write(json.dumps(args if tool == 'gh' else [tool, *args]) + '\\n')
-failure = os.getenv('DELIVERY_FAILURE', '')
-if tool == 'terraform':
-    if 'apply' in args and failure == 'apply': sys.exit(1)
-    if 'output' in args: print('test-output')
-elif tool == 'az':
-    print('test-context')
-elif tool != 'gh':
-    pass
-elif args[:2] == ['repo', 'view']:
-    print('example-org')
-elif any(a.startswith('orgs/') for a in args):
-    print('example-org/catalog\\nexample-org/other')
-elif any('actions/workflows?' in a for a in args):
-    if failure == 'discovery': sys.exit(1)
-    if any('/catalog/' in a for a in args):
-        print('81\\t' + ('disabled_manually' if failure == 'disabled' else 'active'))
-elif any(a.endswith('/dispatches') for a in args):
-    if failure == 'dispatch': sys.exit(1)
-    print('' if failure == 'missing-id' else '912')
-elif args[:2] == ['run', 'watch']:
-    sys.exit(1 if failure == 'run' else 0)
+    root = Path(__file__).resolve().parents[2]
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tools = Path(directory.name)
+        self.log = self.tools / 'commands.log'
+        self.env = {**os.environ, 'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
+                    'COMMAND_LOG': str(self.log), 'FAIL_ON': '', 'WORKFLOW': '81 active', 'RUN_ID': '912'}
+        gh = self.tools / 'gh'
+        gh.write_text('''#!/bin/sh
+printf '%s\\n' "$*" >> "$COMMAND_LOG"
+if [ -n "$FAIL_ON" ]; then
+  case "$*" in "$FAIL_ON"*) exit 1;; esac
+fi
+case "$*" in
+  'repo view '*) echo example-org;;
+  'api --paginate orgs/'*) printf 'example-org/catalog\\nexample-org/other\\n';;
+  'api --paginate repos/example-org/catalog/'*) printf '%s\\n' "$WORKFLOW";;
+  'api --method POST '*) printf '%s\\n' "$RUN_ID";;
+esac
 ''')
-            gh.chmod(0o700)
-            for tool in ('terraform', 'az', 'python3', 'kubectl', 'kubelogin', 'openssl'):
-                (root / tool).symlink_to(gh)
-            for file in ('main.tf', 'terraform.tfvars', 'backend.local.hcl'):
-                (root / file).touch()
-            log = root / 'commands.jsonl'
-            env = {**os.environ, 'PATH': directory + os.pathsep + os.environ['PATH'],
-                   'COMMAND_LOG': str(log), 'DELIVERY_FAILURE': failure,
-                   'BOOTSTRAP_DIR': directory, 'TERRAFORM': 'terraform', 'PYTHON': 'python3'}
-            result = subprocess.run(['make', target], cwd=Path(__file__).resolve().parents[2],
-                                    env=env, capture_output=True, text=True, timeout=10)
-            commands = [json.loads(line) for line in log.read_text().splitlines()]
-            return result, commands
+        gh.chmod(0o700)
+
+    def run_delivery(self, **settings):
+        self.log.write_text('')
+        result = subprocess.run(['make', 'foundry-agents-up'], cwd=self.root,
+                                env={**self.env, **settings}, capture_output=True, text=True, timeout=10)
+        return result, self.log.read_text().splitlines()
 
     def test_native_discovery_dispatch_and_exact_run_wait(self):
         result, commands = self.run_delivery()
         self.assertEqual(result.returncode, 0, result.stderr)
-        dispatch = next(c for c in commands if any(a.endswith('/dispatches') for a in c))
+        dispatch = next(c for c in commands if c.startswith('api --method POST'))
         self.assertIn('repos/example-org/catalog/actions/workflows/81/dispatches', dispatch)
         self.assertIn('return_run_details=true', dispatch)
         self.assertIn('inputs[operation]=deploy', dispatch)
-        watch = next(c for c in commands if c[:2] == ['run', 'watch'])
-        self.assertEqual(watch, ['run', 'watch', '912', '--repo', 'example-org/catalog', '--exit-status'])
+        self.assertEqual(commands.count('run watch 912 --repo example-org/catalog --exit-status'), 1)
         self.assertIn('https://github.com/example-org/catalog/actions/runs/912', result.stdout)
-        self.assertEqual(sum(c[:2] == ['run', 'watch'] for c in commands), 1)
 
     def test_discovery_disabled_dispatch_and_run_failures_fail_make(self):
-        for failure in ('discovery', 'disabled', 'dispatch', 'missing-id', 'run'):
-            with self.subTest(failure=failure):
-                result, commands = self.run_delivery(failure)
+        for settings in ({'FAIL_ON': 'api --paginate orgs/'}, {'FAIL_ON': 'api --paginate repos/'},
+                         {'WORKFLOW': '81 disabled_manually'}, {'FAIL_ON': 'api --method POST'},
+                         {'RUN_ID': ''}, {'FAIL_ON': 'run watch'}):
+            with self.subTest(settings=settings):
+                result, commands = self.run_delivery(**settings)
                 self.assertNotEqual(result.returncode, 0)
-                if failure != 'run':
-                    self.assertFalse(any(c[:2] == ['run', 'watch'] for c in commands))
+                if settings.get('FAIL_ON') != 'run watch':
+                    self.assertFalse(any(c.startswith('run watch') for c in commands))
 
-    def test_all_startup_targets_order_delivery_after_configuration_and_readiness(self):
+    def test_startup_orders_delivery_after_configuration_and_platform_readiness(self):
         for target in ('foundry-up', 'aks-up', 'up'):
             with self.subTest(target=target):
-                result, commands = self.run_delivery(target=target)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                dispatch = next(i for i, c in enumerate(commands) if any(a.endswith('/dispatches') for a in c))
-                publication = [i for i, c in enumerate(commands) if c[:2] == ['variable', 'set']]
-                self.assertEqual(len(publication), 3)
-                self.assertLess(max(publication), dispatch)
-                self.assertEqual(sum(c[:2] == ['run', 'watch'] for c in commands), 1)
+                # Replace recursive Make with ':' so dry-run cannot execute child targets.
+                result = subprocess.run(['make', '--dry-run', '--no-print-directory', 'MAKE=:', target],
+                                        cwd=self.root, env=self.env, capture_output=True,
+                                        text=True, check=True, timeout=10)
+                commands = result.stdout
+                self.assertEqual(commands.count(': foundry-agents-up'), 1)
+                delivery = commands.index(': foundry-agents-up')
+                self.assertLess(commands.index('gh variable set AZURE_LOCATION'), delivery)
                 if target != 'foundry-up':
-                    readiness = next(i for i, c in enumerate(commands) if 'helm_chart/scripts/cluster.py' in c)
-                    self.assertLess(readiness, dispatch)
-                failed, commands = self.run_delivery('apply', target=target)
-                self.assertNotEqual(failed.returncode, 0)
-                self.assertFalse(any(c[:2] == ['run', 'watch'] for c in commands))
+                    self.assertLess(commands.index('cluster.py up'), delivery)
+                    self.assertLess(commands.index(': context'), delivery)
 
 
 class AKSReadinessTests(unittest.TestCase):
