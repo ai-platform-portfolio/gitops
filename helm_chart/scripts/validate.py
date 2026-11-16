@@ -1175,7 +1175,8 @@ def main():
         hosted = json.loads(metadata['data']['values.json'])['modelGateway']
         assert hosted['endpoint'] == 'https://models.internal.example.test/v1'
         policy = hosted['policies']['bounded-agent']
-        assert all(policy[k] is None for k in ('maxBudget', 'rpm', 'tpm', 'parallel'))
+        assert {k: policy[k] for k in ('maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel')} == {
+            'maxBudget': 10, 'budgetDuration': '30d', 'rpm': 20, 'tpm': 50000, 'parallel': 2}
         assert set(policy['capabilities']) == {'default', 'coding', 'embedding'}
         assert hosted['policies']['documents']['maxBudget'] == 5
         listener = next(d for d in gateway_resources if d['kind'] == 'ListenerSet' and d['metadata']['name'] == 'litellm')

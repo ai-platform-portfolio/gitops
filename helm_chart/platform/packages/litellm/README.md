@@ -42,8 +42,9 @@ ceilings fail closed rather than becoming unlimited. Never
 put API keys or provider credentials in Git-managed values.
 
 The reusable `bounded-agent` policy separates default/coding/embedding keys under
-one stable consumer owner. Its budget/rate/concurrency ceilings remain unset: native
-delivery refuses admission until the operator supplies them. `litellm-consumer-defaults`
+one stable consumer owner. Its initial testing tier permits USD10/30days in
+aggregate,20RPM,50000TPM and2concurrent requests per generated consumer. These are
+operator-owned testing defaults, to be reviewed against observed usage. `litellm-consumer-defaults`
 is public trusted delivery metadata, not a credential or an application registry.
 
 Native user budgets/accounting use the existing PostgreSQL database and Redis.
