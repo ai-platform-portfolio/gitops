@@ -31,10 +31,14 @@ define publish_foundry_config
 	@endpoint="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_project_endpoint)" && \
 	  project_id="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_project_id)" && \
 	  location="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw foundry_location)" && \
+	  cluster="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw cluster_name)" && \
+	  resource_group="$$($(TERRAFORM) -chdir="$(BOOTSTRAP_DIR)" output -raw resource_group_name)" && \
 	  organization="$$(gh repo view --json owner --jq .owner.login)" && \
 	  gh variable set FOUNDRY_PROJECT_ENDPOINT --org "$$organization" --visibility all --body "$$endpoint" && \
 	  gh variable set AZURE_AI_PROJECT_ID --org "$$organization" --visibility all --body "$$project_id" && \
-	  gh variable set AZURE_LOCATION --org "$$organization" --visibility all --body "$$location"
+	  gh variable set AZURE_LOCATION --org "$$organization" --visibility all --body "$$location" && \
+	  gh variable set AKS_NAME --org "$$organization" --visibility all --body "$$cluster" && \
+	  gh variable set AKS_RESOURCE_GROUP --org "$$organization" --visibility all --body "$$resource_group"
 endef
 
 help:

@@ -1160,13 +1160,24 @@ def main():
         gateway_resources = [d for a in enabled_apps if a['kind'] == 'Application' for d in yaml.safe_load_all(
             a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
         proxy = next(a for a in enabled_apps if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']['proxy_config']
-        assert len(proxy['model_list']) == 1
+        assert {m['model_name'] for m in proxy['model_list']} == {'chat', 'reasoning', 'coding', 'embedding'}
+        assert all(m['litellm_params']['model'] == 'azure/chat' for m in proxy['model_list'] if m['model_name'] in {'reasoning', 'coding'})
+        assert next(m for m in proxy['model_list'] if m['model_name'] == 'embedding')['litellm_params']['model'] == 'azure/embedding'
         model = proxy['model_list'][0]
         assert model['model_name'] == 'chat' and model['litellm_params']['model'] == 'azure/chat'
         assert model['litellm_params']['api_base'] == 'https://' + runtime['FOUNDRY_ACCOUNT_NAME'] + '.cognitiveservices.azure.com/'
         assert model['model_info']['base_model'] == 'gpt-6.1-sol-2026-09-29'
         route = next(d for d in gateway_resources if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'litellm-inference')
-        assert route['spec']['rules'][0]['matches'] == [{'path': {'type': 'Exact', 'value': '/v1/chat/completions'}, 'method': 'POST'}]
+        assert route['spec']['rules'][0]['matches'] == [
+            {'path': {'type': 'Exact', 'value': path}, 'method': 'POST'}
+            for path in ('/v1/chat/completions', '/v1/responses', '/v1/embeddings')]
+        metadata = next(d for d in gateway_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-consumer-defaults')
+        hosted = json.loads(metadata['data']['values.json'])['modelGateway']
+        assert hosted['endpoint'] == 'https://models.internal.example.test/v1'
+        policy = hosted['policies']['bounded-agent']
+        assert all(policy[k] is None for k in ('maxBudget', 'rpm', 'tpm', 'parallel'))
+        assert set(policy['capabilities']) == {'default', 'coding', 'embedding'}
+        assert hosted['policies']['documents']['maxBudget'] == 5
         listener = next(d for d in gateway_resources if d['kind'] == 'ListenerSet' and d['metadata']['name'] == 'litellm')
         assert listener['spec']['parentRef'] == {'name': 'private', 'namespace': 'envoy-gateway-system'}
         assert listener['spec']['listeners'][0]['protocol'] == 'HTTPS'
@@ -1264,7 +1275,7 @@ def main():
                     assert deployment['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'litellm-postgres,litellm-redis'
                     configmap = next(d for d in docs if d['kind'] == 'ConfigMap')
                     proxy = yaml.safe_load(configmap['data']['config.yaml'])
-                    assert len(proxy['model_list']) == 1 and proxy['model_list'][0]['model_name'] == 'chat'
+                    assert {m['model_name'] for m in proxy['model_list']} == {'chat', 'reasoning', 'coding', 'embedding'}
                     assert proxy['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
                     assert proxy['general_settings']['allow_client_side_credentials'] is False
                     assert proxy['general_settings']['fail_closed_budget_enforcement'] is True
