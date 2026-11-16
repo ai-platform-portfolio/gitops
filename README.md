@@ -38,6 +38,38 @@ remove the override, temporary image package and its workflow.
 
 ## Before you start
 
+### Hosted agents during startup
+
+After refreshing Foundry organization settings, `make foundry-up` discovers active
+`.github/workflows/deploy-agents.yml` workflows across non-archived, non-fork
+organization repositories and dispatches their existing `deploy` operation on
+`main`. `make aks-up` and `make up` do the same after platform readiness and context
+selection. Consumers own agent discovery, images, native deployment and acceptance;
+there is no application list or agent deployment definition in GitOps.
+
+The authenticated `gh` operator needs organization repository/workflow visibility
+and Actions write/read access to participating consumers. Native dispatch returns
+the exact run ID; Make prints its link and uses `gh run watch --exit-status`.
+Discovery, disabled consumer workflows, dispatch and acceptance failures stop Make.
+A successful dispatch alone does not count as successful startup. No credential or
+permission is created by this handoff. After correcting a delivery failure, use
+`make foundry-agents-up` to retry without applying infrastructure again.
+
+Each startup invokes the existing build/scan/deploy workflow, which can create a
+new candidate even when source is unchanged. It reuses native build caching and
+preserves an existing serving route; promotion remains reviewed. On an empty
+rebuilt project, native first deployment can serve its initial version while
+acceptance runs. Foundry project deletion still removes agent state/memory; source
+runbooks and released images do not restore deleted user data.
+
+AKS packages and declared application registrations retain their existing Argo
+startup path. The independent portfolio host is outside this disposable lifecycle.
+The scoped AKS/Foundry targets have existing identity/OIDC dependencies on each
+other; they do not provide fully independent stacks. This change does not provision
+APIM or managed PostgreSQL in those scoped targets.
+
+### Local prerequisites
+
 Run the commands below from this repository's root directory. Install Terraform
 >=1.9, Azure CLI, kubectl, kubelogin, OpenSSL and Python 3. Authenticate with Azure CLI and
 select the intended subscription.

@@ -12,7 +12,7 @@ AKS_TARGETS := -target=module.aks -target=module.argocd \
   -target=azurerm_storage_container.platform \
   -target=azurerm_role_assignment.ci_publisher
 
-.PHONY: help init plan foundry-plan foundry-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight
+.PHONY: help init plan foundry-plan foundry-up foundry-agents-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -43,7 +43,8 @@ help:
 	  'make down  Remove packages and destroy the disposable platform infrastructure' \
 	  'make plan  Preview bootstrap changes' \
 	  'make foundry-plan  Preview Foundry and its networking/identity dependencies' \
-	  'make foundry-up  Provision Foundry and its dependencies without platform services' \
+	  'make foundry-up  Provision Foundry dependencies and deploy catalog agents' \
+	  'make foundry-agents-up  Retry native consumer deployment without provisioning' \
 	  'make postgres-plan  Preview the private PostgreSQL server and its dependencies' \
 	  'make postgres-up  Provision the private PostgreSQL server and its dependencies' \
 	  'make aks-plan  Preview AKS, Argo and platform bootstrap prerequisites' \
@@ -67,6 +68,25 @@ foundry-plan: init
 foundry-up: init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher)
 	$(publish_foundry_config)
+	$(MAKE) foundry-agents-up
+
+# Consumer workflows own discovery, builds, deployment and acceptance. Discover the
+# existing native workflow convention, never an app list or agent definition here.
+foundry-agents-up:
+	@set -eu; \
+	  organization="$$(gh repo view --json owner --jq .owner.login)"; \
+	  repositories="$$(gh api --paginate "orgs/$$organization/repos?per_page=100" --jq '.[] | select(.archived == false and .fork == false) | .full_name')"; \
+	  for repository in $$repositories; do \
+	    workflow="$$(gh api --paginate "repos/$$repository/actions/workflows?per_page=100" --jq '.workflows[] | select(.path == ".github/workflows/deploy-agents.yml") | [.id, .state] | @tsv')"; \
+	    test -n "$$workflow" || continue; \
+	    set -- $$workflow; \
+	    test "$$#" -eq 2 && test "$$2" = active || { echo "Consumer workflow is disabled: $$repository" >&2; exit 1; }; \
+	    run_id="$$(gh api --method POST "repos/$$repository/actions/workflows/$$1/dispatches" \
+	      -f ref=main -f 'inputs[operation]=deploy' -F return_run_details=true --jq .workflow_run_id)"; \
+	    case "$$run_id" in ''|*[!0-9]*) echo "Missing deployment run ID: $$repository" >&2; exit 1;; esac; \
+	    echo "Waiting for https://github.com/$$repository/actions/runs/$$run_id"; \
+	    gh run watch "$$run_id" --repo "$$repository" --exit-status; \
+	  done
 
 postgres-plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.postgres)
@@ -83,6 +103,7 @@ aks-up: preflight init
 	$(publish_foundry_config)
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
+	$(MAKE) foundry-agents-up
 
 up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
@@ -90,6 +111,7 @@ up: preflight init
 	$(publish_foundry_config)
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
+	$(MAKE) foundry-agents-up
 
 context: preflight init
 	@kubeconfig="$${KUBECONFIG:-$$HOME/.kube/config}" && \
