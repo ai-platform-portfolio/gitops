@@ -29,3 +29,22 @@ spec:
     - secretKey: LITELLM_SALT_KEY
       remoteRef:
         key: platform-{{ .Values.cluster.name }}-litellm-salt
+
+{{- if .Values.litellm.azure.enabled }}
+---
+# Reuse the existing ASO bootstrap identity; these IDs are login metadata,
+# not a new identity or a long-lived credential.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aso-credential
+  namespace: litellm
+  annotations:
+    argocd.argoproj.io/sync-wave: '-5'
+type: Opaque
+data:
+  AZURE_CLIENT_ID: {{ required "runtime.ASO_CLIENT_ID is required" .Values.runtime.ASO_CLIENT_ID | b64enc | quote }}
+  AZURE_TENANT_ID: {{ required "runtime.AZURE_TENANT_ID is required" .Values.runtime.AZURE_TENANT_ID | b64enc | quote }}
+  AZURE_SUBSCRIPTION_ID: {{ required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID | b64enc | quote }}
+  USE_WORKLOAD_IDENTITY_AUTH: {{ "true" | b64enc | quote }}
+{{- end }}
