@@ -1167,6 +1167,45 @@ def main():
         assert model['model_name'] == 'chat' and model['litellm_params']['model'] == 'azure/chat'
         assert model['litellm_params']['api_base'] == 'https://' + runtime['FOUNDRY_ACCOUNT_NAME'] + '.cognitiveservices.azure.com/'
         assert model['model_info']['base_model'] == 'gpt-6.1-sol-2026-09-29'
+        # No Google routes/credentials/policies before activation or without trust metadata.
+        assert not any(d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-google' for d in gateway_resources)
+        for google_runtime, expected in (({**runtime, 'GOOGLE_GATEWAY_PROVIDER': ''}, False), (dict(runtime), True)):
+            google_runtime.update(GOOGLE_GATEWAY_PROJECT='example-project',
+                                  GOOGLE_GATEWAY_ACCOUNT='gateway@example-project.iam.gserviceaccount.com',
+                                  GOOGLE_GATEWAY_AUDIENCE='api://litellm-google')
+            if expected:
+                google_runtime['GOOGLE_GATEWAY_PROVIDER'] = 'projects/123456789/locations/global/workloadIdentityPools/existing/providers/aks-litellm'
+            values.write_text(json.dumps({'runtime': google_runtime, 'litellm': {'google': {'enabled': True}}}))
+            google_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/litellm.yaml')) if d]
+            google_values = next(a for a in google_apps if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']
+            google_resources = [d for a in google_apps for d in yaml.safe_load_all(a['spec']['source']['helm']['valuesObject'].get('manifests', '')) if d]
+            google_models = {m['model_name']: m for m in google_values['proxy_config']['model_list']}
+            assert set(google_models) == ({'chat', 'reasoning', 'coding', 'embedding', 'claude', 'gemini'} if expected else {'chat', 'reasoning', 'coding', 'embedding'})
+            defaults = next(d for d in google_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-consumer-defaults')
+            policies = json.loads(defaults['data']['values.json'])['modelGateway']['policies']
+            assert ('bounded-claude' in policies) == expected and ('bounded-gemini' in policies) == expected
+            configs = [d for d in google_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-google']
+            assert len(configs) == int(expected)
+            if expected:
+                adc = json.loads(configs[0]['data']['credentials.json'])
+                assert adc['type'] == 'external_account' and adc['audience'] == '//iam.googleapis.com/' + google_runtime['GOOGLE_GATEWAY_PROVIDER']
+                assert adc['token_url'] == 'https://sts.googleapis.com/v1/token'
+                assert adc['service_account_impersonation_url'] == 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/' + google_runtime['GOOGLE_GATEWAY_ACCOUNT'] + ':generateAccessToken'
+                assert adc['credential_source'] == {'file': '/identity/google/google-token', 'format': {'type': 'text'}}
+                token = next(v for v in google_values['volumes'] if v['name'] == 'google-identity')['projected']['sources']
+                assert token == [{'serviceAccountToken': {'audience': 'api://litellm-google', 'expirationSeconds': 3600, 'path': 'google-token'}}]
+                mounts = {v['name']: v for v in google_values['volumeMounts']}
+                assert mounts['google-identity']['mountPath'] == '/identity/google' and mounts['google-identity']['readOnly']
+                assert mounts['google-credentials']['mountPath'] == '/etc/litellm-google' and mounts['google-credentials']['readOnly']
+                assert not any(e['name'] == 'GOOGLE_APPLICATION_CREDENTIALS' for e in google_values['extraEnvVars'])
+                for alias, model_id in [('claude', 'claude-sonnet-5-5'), ('gemini', 'gemini-3.8-flash')]:
+                    params = google_models[alias]['litellm_params']
+                    assert params == {'model': 'vertex_ai/' + model_id, 'vertex_project': 'example-project', 'vertex_location': 'eu', 'vertex_credentials': '/etc/litellm-google/credentials.json'}
+                    provider_policy = policies['bounded-' + alias]
+                    assert {k: provider_policy[k] for k in ('maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel')} == {'maxBudget': 10, 'budgetDuration': '30d', 'rpm': 20, 'tpm': 50000, 'parallel': 2}
+                    assert provider_policy['capabilities']['coding']['model'] == alias
+                    assert provider_policy['capabilities']['embedding']['model'] == 'embedding'
+                assert google_values['proxy_config']['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
         route = next(d for d in gateway_resources if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'litellm-inference')
         assert route['spec']['rules'][0]['matches'] == [
             {'path': {'type': 'Exact', 'value': path}, 'method': 'POST'}
@@ -1175,7 +1214,8 @@ def main():
         hosted = json.loads(metadata['data']['values.json'])['modelGateway']
         assert hosted['endpoint'] == 'https://models.internal.example.test/v1'
         policy = hosted['policies']['bounded-agent']
-        assert all(policy[k] is None for k in ('maxBudget', 'rpm', 'tpm', 'parallel'))
+        assert {k: policy[k] for k in ('maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel')} == {
+            'maxBudget': 10, 'budgetDuration': '30d', 'rpm': 20, 'tpm': 50000, 'parallel': 2}
         assert set(policy['capabilities']) == {'default', 'coding', 'embedding'}
         assert hosted['policies']['documents']['maxBudget'] == 5
         listener = next(d for d in gateway_resources if d['kind'] == 'ListenerSet' and d['metadata']['name'] == 'litellm')
@@ -1275,7 +1315,7 @@ def main():
                     assert deployment['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'litellm-postgres,litellm-redis'
                     configmap = next(d for d in docs if d['kind'] == 'ConfigMap')
                     proxy = yaml.safe_load(configmap['data']['config.yaml'])
-                    assert {m['model_name'] for m in proxy['model_list']} == {'chat', 'reasoning', 'coding', 'embedding'}
+                    assert {m['model_name'] for m in proxy['model_list']} == {m['model_name'] for m in source['helm']['valuesObject']['proxy_config']['model_list']}
                     assert proxy['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
                     assert proxy['general_settings']['allow_client_side_credentials'] is False
                     assert proxy['general_settings']['fail_closed_budget_enforcement'] is True
@@ -1626,6 +1666,7 @@ def main():
                 print(f'{name}: {len(docs)} resources rendered; secrets stable', flush=True)
             except subprocess.CalledProcessError as error:
                 raise RuntimeError(f'{name}: {error.stderr}') from error
+        render(next(a for a in google_apps if a['metadata']['name'] == 'litellm'))
         with ThreadPoolExecutor(max_workers=4) as executor:
             list(executor.map(render, applications))
         print(f'{len(applications)} management Applications rendered; workload package parity and upstream charts verified.')

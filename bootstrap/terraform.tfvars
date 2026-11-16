@@ -534,3 +534,12 @@ model_gateway = {
     }
   }
 }
+
+# Main project: existing pool/account stay owned by the separate gateway foundation.
+google_gateway = {
+  project_id            = "neat-vista-308123"
+  pool_id               = "model-gateway-runtime"
+  provider_id           = "aks-litellm"
+  service_account_email = "model-gateway-inference@neat-vista-308123.iam.gserviceaccount.com"
+  audience              = "api://litellm-google"
+}

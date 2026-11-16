@@ -277,20 +277,38 @@ litellm:
     apiVersion: "2025-04-01-preview"
     chat: {deployment: chat, baseModel: gpt-6.1-sol-2026-09-29}
     embedding: {deployment: embedding, baseModel: text-embedding-3-small}
+  google:
+    # Activation follows reviewed live entitlement, EU pricing and protocol checks.
+    enabled: false
+    location: eu
+    claude: claude-sonnet-5-5
+    gemini: gemini-3.8-flash
   access:
     enabled: true # Existing private Gateway; inference paths only.
     hostname: 'models.internal.{{ .Values.runtime.DNS_ZONE }}'
     policies:
-      bounded-agent:
-        # Admission remains blocked until the operator supplies explicit ceilings.
-        maxBudget: null
+      bounded-agent: &boundedAgent
+        # Initial testing tier; aggregate allowance per stable consumer.
+        maxBudget: 10 # USD per budgetDuration across all capability keys.
         budgetDuration: 30d
-        rpm: null
-        tpm: null
-        parallel: null
+        rpm: 20
+        tpm: 50000
+        parallel: 2
         capabilities:
           default: {model: reasoning, routes: [/v1/responses]}
           coding: {model: coding, routes: [/v1/responses]}
+          embedding: {model: embedding, version: "1", routes: [/v1/embeddings]}
+      bounded-claude:
+        <<: *boundedAgent
+        capabilities:
+          default: {model: claude, routes: [/v1/responses]}
+          coding: {model: claude, routes: [/v1/responses]}
+          embedding: {model: embedding, version: "1", routes: [/v1/embeddings]}
+      bounded-gemini:
+        <<: *boundedAgent
+        capabilities:
+          default: {model: gemini, routes: [/v1/responses]}
+          coding: {model: gemini, routes: [/v1/responses]}
           embedding: {model: embedding, version: "1", routes: [/v1/embeddings]}
       documents:
         # Reusable document-processing tier, independently accounted per generated consumer.

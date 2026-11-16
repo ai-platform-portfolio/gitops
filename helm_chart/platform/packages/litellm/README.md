@@ -20,7 +20,7 @@ using a dedicated ASO-managed provider identity and account-scoped OpenAI User
 permission. Consumer identities remain separate. The proxy does not use the
 hosting project's inference proxy. Azure `reasoning` and `coding` aliases use the same approved GPT deployment through
 Responses; `embedding` uses the existing text-embedding-3-small deployment. No
-Claude/Gemini route or additional cloud provider is configured.
+Claude/Gemini activation remains disabled until the Google acceptance gates below pass.
 
 Internal management remains at `http://litellm.litellm.svc.cluster.local:4000`.
 When `litellm.access.enabled` is approved and enabled, an issuer-annotated ListenerSet attaches to the existing private Gateway for
@@ -42,8 +42,9 @@ ceilings fail closed rather than becoming unlimited. Never
 put API keys or provider credentials in Git-managed values.
 
 The reusable `bounded-agent` policy separates default/coding/embedding keys under
-one stable consumer owner. Its budget/rate/concurrency ceilings remain unset: native
-delivery refuses admission until the operator supplies them. `litellm-consumer-defaults`
+one stable consumer owner. Its initial testing tier permits USD10/30days in
+aggregate,20RPM,50000TPM and2concurrent requests per generated consumer. These are
+operator-owned testing defaults, to be reviewed against observed usage. `litellm-consumer-defaults`
 is public trusted delivery metadata, not a credential or an application registry.
 
 Native user budgets/accounting use the existing PostgreSQL database and Redis.
@@ -199,3 +200,38 @@ Sources: [stable release](https://github.com/BerriAI/litellm/releases/tag/v1.109
 [ESO PushSecret policies/generators](https://external-secrets.io/latest/guides/pushsecrets/),
 [ESO Key Vault workload-identity references](https://external-secrets.io/latest/provider/azure-key-vault/),
 [ASO identity output expressions](https://azure.github.io/azure-service-operator/guide/secrets/).
+
+
+## Optional EU Claude and Gemini
+
+The shared package supplies `claude` (`vertex_ai/claude-sonnet-5-5`) and `gemini`
+(`vertex_ai/gemini-3.8-flash`) aliases, pinned to Vertex location `eu`, whose pinned
+proxy uses `https://aiplatform.eu.rep.googleapis.com`. Global/provider fallbacks
+remain empty. Azure GPT aliases and Azure embeddings retain their existing mapping.
+
+`litellm.google.enabled` defaults to false. Routes, credentials, projected token and
+`bounded-claude`/`bounded-gemini` admission policies appear only when enabled AND
+all four `GOOGLE_GATEWAY_*` runtime references exist. This preserves Azure-only
+rendering before foundation trust is applied/published. Operator activation needs
+verified Main entitlement, effective EU pricing, token exchange, Responses/tools/
+schema behavior and bounded usage/override-denial tests on the pinned proxy. Do
+not infer live readiness from renders or accept model terms automatically.
+
+The one public ConfigMap contains native Google `external_account` JSON. It reads
+a projected one-hour JWT with the foundation's dedicated audience and impersonates
+the existing Google inference account. `vertex_credentials` is scoped per model;
+no global ADC environment override or long-lived credential is added. Required
+outbound HTTPS destinations are the EU inference host, `sts.googleapis.com` and
+`iamcredentials.googleapis.com`; no network modification is part of this change.
+
+After acceptance, minimal consumer intent is:
+
+```yaml
+gatewayAccess: {policy: bounded-claude} # or bounded-gemini
+```
+
+These policies reuse the $10/30-day, 20 RPM, 50,000 TPM, two-parallel testing tier
+and existing default/coding/embedding capability contract. Each consumer's existing
+stable owner aggregates spend across its keys; switching policies does not create
+a separate budget owner. The current SRE policy is unchanged. Embeddings remain
+Azure-backed; this does not add an SRE workflow stage or migrate a consumer.

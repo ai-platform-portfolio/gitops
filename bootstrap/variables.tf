@@ -328,3 +328,15 @@ variable "model_gateway" {
     })
   })
 }
+
+variable "google_gateway" {
+  description = "Existing Google pool/account references. This root owns only the AKS provider and its impersonation member."
+  type = object({
+    project_id            = string
+    pool_id               = string
+    provider_id           = string
+    service_account_email = string
+    audience              = string
+  })
+  default = null
+}
