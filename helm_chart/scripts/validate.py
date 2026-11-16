@@ -1177,6 +1177,10 @@ def main():
         registration = next(a for a in enabled_apps if a['kind'] == 'ApplicationSet' and a['metadata']['name'] == 'application-previews')
         gateway = registration['spec']['template']['spec']['sources'][0]['helm']['valuesObject']['platform']['modelGateway']
         assert gateway['endpoint'] == 'https://models.internal.example.test/v1'
+        assert gateway['namespace'] == 'litellm' and gateway['issuerServiceAccount'] == 'litellm-key-writer'
+        assert gateway['issuerIdentitySecret'] == 'litellm-key-writer'
+        assert gateway['image'] == 'ghcr.io/berriai/litellm:v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9'
+        assert gateway['cleanupImage'] == 'registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b'
         assert gateway['policies']['documents']['capabilities']['default']['model'] == 'chat'
         assert all(gateway['policies']['documents'][key] is None for key in ['maxBudget', 'rpm', 'tpm', 'parallel'])
         values.write_text(json.dumps({'runtime': runtime, 'litellm': {'enabled': False}}))

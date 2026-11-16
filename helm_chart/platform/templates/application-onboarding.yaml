@@ -92,6 +92,11 @@ spec:
                   vaultUri: {{ trimSuffix "/" $.Values.runtime.AZURE_KEY_VAULT_URI | quote }}
                   masterSecret: {{ printf "platform-%s-litellm-master" $.Values.cluster.name | quote }}
                   consumerIdentity: {{ "{{.organization}}/{{.repository}}" | quote }}
+                  namespace: litellm
+                  issuerServiceAccount: litellm-key-writer
+                  issuerIdentitySecret: litellm-key-writer
+                  image: {{ printf "%s:%s" $.Values.litellm.image.repository $.Values.litellm.image.tag | quote }}
+                  cleanupImage: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
                   policies: {{ toJson $.Values.litellm.access.policies }}
                 models:
                   chat:
