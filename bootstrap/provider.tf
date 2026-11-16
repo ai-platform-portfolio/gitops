@@ -21,6 +21,11 @@ terraform {
       version = "~> 4.0"
     }
 
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 8.6, < 9.0"
+    }
+
     helm = {
       source  = "hashicorp/helm"
       version = "~> 2.0"
@@ -56,3 +61,6 @@ provider "helm" {
 
 # Uses the caller authentication context; no stored client secret is required.
 provider "azapi" {}
+
+# Native Application Default Credentials; no service-account key.
+provider "google" {}

@@ -589,3 +589,28 @@ The user now supplies subscription Owner externally. The redundant CI Contributo
 and ACR Reader grants have been removed; Owner is not adopted into Terraform.
 Backend Blob Data Contributor remains necessary for OIDC blob data access, which
 Owner alone does not grant. The pre-existing Foundry grant is unchanged.
+
+
+### Google trust for the LiteLLM provider
+
+The existing `Main` project supplies an externally owned runtime pool and inference
+service account. `google_gateway` in `terraform.tfvars` references these resources;
+this root adds only one AKS OIDC provider and one nonauthoritative
+`roles/iam.workloadIdentityUser` member. Other providers, bindings, project roles,
+APIs and billing remain with their existing owner. This supersedes the earlier
+unimplemented Google/APIM discussion above; the runtime consumer is LiteLLM.
+
+Authenticate the native Google provider through Application Default Credentials
+(for example, existing user ADC). No key file, new CI identity or token-exchange
+helper is required. Google authentication is required for trust plan/apply/destroy;
+offline CI validation does not establish those permissions.
+
+`make aks-plan`/`make aks-up` include this module. Its AKS issuer dependency orders
+trust after cluster creation and before cluster destruction. The existing context
+publisher delivers the non-secret provider resource name, account, project and JWT
+audience. It does not enable models. Removing this root deletes its trust only;
+it must not import or delete the external pool/account.
+
+Review a real plan before apply: expect exactly two new Google resources plus
+foundation runtime metadata, with no project/API/role/pool/account/network change.
+No live plan/apply or Google inference is established by source/mock validation.

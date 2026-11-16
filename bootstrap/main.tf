@@ -429,3 +429,19 @@ module "model_gateway" {
   private_dns_zone_id        = azurerm_private_dns_zone.private[var.model_gateway.private_dns_zone_key].id
   tags                       = var.azure.tags
 }
+
+# Existing Main foundations remain externally owned; only AKS trust lives here.
+module "google_gateway" {
+  for_each = var.google_gateway == null ? {} : { gateway = var.google_gateway }
+  source   = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/gcp/workload-identity-provider?ref=59a0521cd6dee12d187d3af9636bf45f86986ef6"
+
+  project_id            = each.value.project_id
+  pool_id               = each.value.pool_id
+  provider_id           = each.value.provider_id
+  service_account_email = each.value.service_account_email
+  trust = {
+    issuer   = module.aks.oidc_issuer_url
+    audience = each.value.audience
+    subject  = "system:serviceaccount:litellm:litellm"
+  }
+}

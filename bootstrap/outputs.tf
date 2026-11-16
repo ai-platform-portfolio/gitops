@@ -87,6 +87,11 @@ output "platform_settings" {
       AZURE_DNS_ZONE           = data.azurerm_dns_zone.existing.name
       ACME_EMAIL               = var.platform.acme_email
       CLUSTER_NAME             = var.platform.cluster_name
+
+      GOOGLE_GATEWAY_PROJECT  = var.google_gateway == null ? "" : var.google_gateway.project_id
+      GOOGLE_GATEWAY_PROVIDER = try(module.google_gateway["gateway"].provider, "")
+      GOOGLE_GATEWAY_ACCOUNT  = var.google_gateway == null ? "" : var.google_gateway.service_account_email
+      GOOGLE_GATEWAY_AUDIENCE = var.google_gateway == null ? "" : var.google_gateway.audience
     }
   }
 }

@@ -1,3 +1,4 @@
+{{- $google := and .Values.litellm.google.enabled (not (empty .Values.runtime.GOOGLE_GATEWAY_PROVIDER)) (not (empty .Values.runtime.GOOGLE_GATEWAY_PROJECT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_ACCOUNT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_AUDIENCE)) -}}
 # The upstream chart appVersion is pinned independently of its mutable defaults.
 fullnameOverride: litellm
 replicaCount: 1
@@ -57,7 +58,7 @@ proxy_config:
   model_list:
 {{- if .Values.litellm.modelList }}
 {{ toYaml .Values.litellm.modelList | indent 4 }}
-{{- else if not .Values.litellm.azure.enabled }}
+{{- else if and (not .Values.litellm.azure.enabled) (not $google) }}
     []
 {{- end }}
 {{- if .Values.litellm.azure.enabled }}
@@ -89,6 +90,18 @@ proxy_config:
         api_version: {{ .Values.litellm.azure.apiVersion | quote }}
       model_info:
         base_model: {{ .Values.litellm.azure.embedding.baseModel | quote }}
+{{- end }}
+{{- if $google }}
+{{- range $alias, $model := dict "claude" .Values.litellm.google.claude "gemini" .Values.litellm.google.gemini }}
+    - model_name: {{ $alias }}
+      litellm_params:
+        model: {{ printf "vertex_ai/%s" $model | quote }}
+        vertex_project: {{ $.Values.runtime.GOOGLE_GATEWAY_PROJECT | quote }}
+        vertex_location: {{ $.Values.litellm.google.location | quote }}
+        vertex_credentials: /etc/litellm-google/credentials.json
+      model_info:
+        base_model: {{ printf "vertex_ai/%s" $model | quote }}
+{{- end }}
 {{- end }}
   litellm_settings:
     enable_azure_ad_token_refresh: true
@@ -143,12 +156,27 @@ volumes:
       sources:
         - serviceAccountToken: {audience: api://AzureADTokenExchange, expirationSeconds: 3600, path: azure-token}
 
+{{- if $google }}
+  - name: google-identity
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: {{ .Values.runtime.GOOGLE_GATEWAY_AUDIENCE | quote }}
+            expirationSeconds: 3600
+            path: google-token
+  - name: google-credentials
+    configMap: {name: litellm-google}
+{{- end }}
 
 volumeMounts:
   - {name: postgres-client, mountPath: /etc/litellm-postgres, readOnly: true}
   - {name: redis-client, mountPath: /etc/litellm-redis, readOnly: true}
   - {name: azure-identity, mountPath: /identity, readOnly: true}
 
+{{- if $google }}
+  - {name: google-identity, mountPath: /identity/google, readOnly: true}
+  - {name: google-credentials, mountPath: /etc/litellm-google, readOnly: true}
+{{- end }}
 
 migrationJob:
   enabled: true
