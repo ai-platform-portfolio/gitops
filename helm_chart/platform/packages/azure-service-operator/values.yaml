@@ -3,6 +3,9 @@
 {{- $targetNamespaces = append $targetNamespaces "cluster-onboarding" }}
 {{- end }}
 {{- $targetNamespaces = append $targetNamespaces "testkube" }}
+{{- if .Values.litellm.enabled }}
+{{- $targetNamespaces = append $targetNamespaces "litellm" }}
+{{- end }}
 {{- if .Values.holmes.enabled }}
 {{- $targetNamespaces = append $targetNamespaces "holmes" }}
 {{- end }}

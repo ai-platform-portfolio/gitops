@@ -1175,6 +1175,11 @@ def main():
         assert provider['spec']['azureName'] == 'id-management-litellm-provider'
         provider_trust = next(d for d in gateway_resources if d['kind'] == 'FederatedIdentityCredential' and d['metadata']['name'] == 'litellm-provider')
         assert provider_trust['spec']['subject'] == 'system:serviceaccount:litellm:litellm'
+        aso_credential = next(d for d in gateway_resources if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-credential')
+        assert aso_credential['metadata']['namespace'] == 'litellm'
+        assert {key: base64.b64decode(value).decode() for key, value in aso_credential['data'].items()} == {
+            'AZURE_CLIENT_ID': runtime['ASO_CLIENT_ID'], 'AZURE_TENANT_ID': runtime['AZURE_TENANT_ID'],
+            'AZURE_SUBSCRIPTION_ID': runtime['AZURE_SUBSCRIPTION_ID'], 'USE_WORKLOAD_IDENTITY_AUTH': 'true'}
         provider_role = next(d for d in gateway_resources if d['kind'] == 'RoleAssignment' and d['metadata']['name'].startswith('litellm-provider-'))
         assert provider_role['spec']['owner']['armId'].endswith('/accounts/' + runtime['FOUNDRY_ACCOUNT_NAME'])
         assert provider_role['spec']['roleDefinitionReference'] == {'wellKnownName': 'Cognitive Services OpenAI User'}
@@ -1413,7 +1418,7 @@ def main():
                     settings = next(d for d in docs if d['kind'] == 'Secret' and d['metadata']['name'] == 'aso-controller-settings')['data']
                     assert all(settings[key] == '' for key in ['AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID'])
                     assert settings['USE_WORKLOAD_IDENTITY_AUTH'] == 'dHJ1ZQ=='
-                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,cluster-onboarding,testkube,holmes,atlantis'
+                    assert base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode() == 'azure-resources,cluster-onboarding,testkube,litellm,holmes,atlantis'
                     namespaces = base64.b64decode(settings['AZURE_TARGET_NAMESPACES']).decode().split(',')
                     checksum = hashlib.sha256(json.dumps(namespaces, separators=(',', ':')).encode()).hexdigest()
                     assert deployment['spec']['template']['metadata']['annotations']['gitops.platform/watch-namespaces'] == checksum
