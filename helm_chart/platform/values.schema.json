@@ -73,6 +73,21 @@
       "properties": {
         "enabled": {"type": "boolean"},
         "modelList": {"type": "array", "items": {"type": "object"}},
+        "image": {
+          "type": "object", "additionalProperties": false, "required": ["repository", "tag"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "tag": {"type": "string", "pattern": "^v[^@]+@sha256:[a-f0-9]{64}$"}
+          }
+        },
+        "azure": {
+          "type": "object", "additionalProperties": false, "required": ["enabled", "apiVersion", "chat"],
+          "properties": {"enabled": {"type": "boolean"}, "apiVersion": {"type": "string"}, "chat": {"type": "object", "required": ["deployment", "baseModel"]}}
+        },
+        "access": {
+          "type": "object", "additionalProperties": false, "required": ["enabled", "hostname", "policies"],
+          "properties": {"enabled": {"type": "boolean"}, "hostname": {"type": "string", "minLength": 1}, "policies": {"type": "object"}}
+        },
         "keyVault": {
           "type": "object", "additionalProperties": false,
           "required": ["resourceGroup", "identityLocation"],

@@ -11,22 +11,48 @@ proxy; Enterprise JWT authentication and custom classifier features are not enab
 ```yaml
 litellm:
   enabled: true
-  modelList: []
+  modelList: [] # Additional approved native routes; Azure chat is configured below.
 ```
 
-The package installs on each cluster using its existing local platform services.
-`modelList` maps to LiteLLM's native `model_list`. Empty means there are no usable
-model routes yet. Provider credentials, Foundry model grants, caller access,
-external exposure and task-based model selection require separate configuration
-and acceptance. Never put API keys or provider secrets in Git-managed model values.
-Applications later consume the gateway endpoint; they do not install this package.
+When `litellm.azure.enabled` is approved and enabled, the existing Azure `chat`
+deployment is exposed through the same gateway alias,
+using a dedicated ASO-managed provider identity and account-scoped OpenAI User
+permission. Consumer identities remain separate. The proxy does not use the
+hosting project's inference proxy. No embedding or additional provider is added.
 
-The initial endpoint is `http://litellm.litellm.svc.cluster.local:4000`. The upstream
-Service is ClusterIP, with no Ingress, HTTPRoute, ListenerSet, DNS or Envoy policy.
-For local inspection, use `kubectl -n litellm port-forward svc/litellm 4000:4000`.
-The API is protected by LiteLLM's master/virtual keys. ClusterIP is not network
-isolation, and this installation supplies neither an Entra login nor trusted
-identity propagation. Keep health endpoints and the admin interface internal.
+Internal management remains at `http://litellm.litellm.svc.cluster.local:4000`.
+When `litellm.access.enabled` is approved and enabled, an issuer-annotated ListenerSet attaches to the existing private Gateway for
+`models.internal.<DNS zone>`; its HTTPRoute exposes only POST
+`/v1/chat/completions`. Management, health and UI paths are not routed. No public
+endpoint, firewall change or separately managed Certificate is introduced.
+The reviewed configuration enables both activation flags. Source configuration
+is not evidence that this route is deployed or reachable; verify reconciliation
+and actual model transport after merge.
+
+`litellm.access.policies` supplies trusted model allowlists and spend/rate ceilings.
+Application intent selects a policy through the reusable application chart, which
+owns finite credential creation, renewal and revocation. No per-app registration
+or consumer credentials belong in this package. The reusable `documents` processing
+tier permits chat only and gives each generated consumer its own USD5/30day budget,
+12RPM,50000TPM and2concurrent requests. Any repository can select this tier; it is
+not an application registration or shared consumer identity. Missing/non-positive
+ceilings fail closed rather than becoming unlimited. Never
+put API keys or provider credentials in Git-managed values.
+
+Native user budgets/accounting use the existing PostgreSQL database and Redis.
+Routing retries/fallbacks and client-provided provider credentials are disabled.
+Payload storage in spend logs is disabled. Exact model pricing, gateway responses,
+forbidden request overrides and accounting require live acceptance. A read-only
+check of the existing pinned image found positive input/output pricing for the
+selected model; this does not establish invoiced-cost reconciliation.
+
+This milestone adds no backup/recovery service. Issuer control records in Key Vault
+retain the stable owner and block reissuance if previously established accounting
+is missing; this prevents silently granting a fresh allowance after DB loss. It
+does not prove that old keys retained by a caller are rejected by a newly empty DB,
+or provide accounting restoration. A full teardown/rebuild must remain blocked for
+consumer admission until budgets/accounting are reconciled. Shared project model
+permissions remain unchanged until SRE also validates its gateway path.
 
 ## Dependencies and ownership
 

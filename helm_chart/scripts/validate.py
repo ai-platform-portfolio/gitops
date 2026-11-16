@@ -1149,7 +1149,45 @@ def main():
         assert {'+subscribe', '+unsubscribe', '+publish', '-@dangerous', '-@admin'} <= set(litellm_acl)
         assert [rule for rule in litellm_acl if rule.startswith(('~', '&'))] == ['~litellm:*', '&litellm:*']
         assert not {'+@pubsub', '+@all', 'allchannels', 'allkeys', 'nopass'} & set(litellm_acl)
-        assert not any(d['kind'] in {'HTTPRoute', 'ListenerSet', 'Ingress'} and d['metadata'].get('namespace') == 'litellm' for d in litellm_resources)
+        values.write_text(json.dumps({'runtime': runtime, 'litellm': {'azure': {'enabled': False}, 'access': {'enabled': False}}}))
+        inactive_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
+        inactive_resources = [d for a in inactive_apps if a['kind'] == 'Application' for d in yaml.safe_load_all(
+            a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+        assert not any(d['kind'] in {'HTTPRoute', 'ListenerSet'} and d['metadata'].get('namespace') == 'litellm' for d in inactive_resources)
+        assert not any(d['kind'] == 'UserAssignedIdentity' and d['metadata']['name'] == 'litellm-provider' for d in inactive_resources)
+        values.write_text(json.dumps({'runtime': runtime, 'litellm': {'azure': {'enabled': True}, 'access': {'enabled': True}}}))
+        enabled_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
+        gateway_resources = [d for a in enabled_apps if a['kind'] == 'Application' for d in yaml.safe_load_all(
+            a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+        proxy = next(a for a in enabled_apps if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']['proxy_config']
+        assert len(proxy['model_list']) == 1
+        model = proxy['model_list'][0]
+        assert model['model_name'] == 'chat' and model['litellm_params']['model'] == 'azure/chat'
+        assert model['litellm_params']['api_base'] == 'https://' + runtime['FOUNDRY_ACCOUNT_NAME'] + '.cognitiveservices.azure.com/'
+        assert model['model_info']['base_model'] == 'gpt-6.1-sol-2026-09-29'
+        route = next(d for d in gateway_resources if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'litellm-inference')
+        assert route['spec']['rules'][0]['matches'] == [{'path': {'type': 'Exact', 'value': '/v1/chat/completions'}, 'method': 'POST'}]
+        listener = next(d for d in gateway_resources if d['kind'] == 'ListenerSet' and d['metadata']['name'] == 'litellm')
+        assert listener['spec']['parentRef'] == {'name': 'private', 'namespace': 'envoy-gateway-system'}
+        assert listener['spec']['listeners'][0]['protocol'] == 'HTTPS'
+        assert not any(d['kind'] in {'Ingress', 'Certificate'} and d['metadata'].get('namespace') == 'litellm' for d in gateway_resources)
+        provider = next(d for d in gateway_resources if d['kind'] == 'UserAssignedIdentity' and d['metadata']['name'] == 'litellm-provider')
+        assert provider['spec']['azureName'] == 'id-management-litellm-provider'
+        provider_trust = next(d for d in gateway_resources if d['kind'] == 'FederatedIdentityCredential' and d['metadata']['name'] == 'litellm-provider')
+        assert provider_trust['spec']['subject'] == 'system:serviceaccount:litellm:litellm'
+        provider_role = next(d for d in gateway_resources if d['kind'] == 'RoleAssignment' and d['metadata']['name'].startswith('litellm-provider-'))
+        assert provider_role['spec']['owner']['armId'].endswith('/accounts/' + runtime['FOUNDRY_ACCOUNT_NAME'])
+        assert provider_role['spec']['roleDefinitionReference'] == {'wellKnownName': 'Cognitive Services OpenAI User'}
+        registration = next(a for a in enabled_apps if a['kind'] == 'ApplicationSet' and a['metadata']['name'] == 'application-previews')
+        gateway = registration['spec']['template']['spec']['sources'][0]['helm']['valuesObject']['platform']['modelGateway']
+        assert gateway['endpoint'] == 'https://models.internal.example.test/v1'
+        assert gateway['namespace'] == 'litellm' and gateway['issuerServiceAccount'] == 'litellm-key-writer'
+        assert gateway['issuerIdentitySecret'] == 'litellm-key-writer'
+        assert gateway['image'] == 'ghcr.io/berriai/litellm:v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9'
+        assert gateway['cleanupImage'] == 'registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b'
+        assert gateway['policies']['documents']['capabilities']['default']['model'] == 'chat'
+        assert {key: gateway['policies']['documents'][key] for key in ['maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel']} == {
+            'maxBudget': 5, 'budgetDuration': '30d', 'rpm': 12, 'tpm': 50000, 'parallel': 2}
         values.write_text(json.dumps({'runtime': runtime, 'litellm': {'enabled': False}}))
         disabled = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
         assert not any(d['metadata']['name'].startswith('litellm') for d in disabled)
@@ -1221,7 +1259,11 @@ def main():
                     assert deployment['metadata']['annotations']['secret.reloader.stakater.com/reload'] == 'litellm-postgres,litellm-redis'
                     configmap = next(d for d in docs if d['kind'] == 'ConfigMap')
                     proxy = yaml.safe_load(configmap['data']['config.yaml'])
-                    assert proxy['model_list'] == []
+                    assert len(proxy['model_list']) == 1 and proxy['model_list'][0]['model_name'] == 'chat'
+                    assert proxy['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
+                    assert proxy['general_settings']['allow_client_side_credentials'] is False
+                    assert proxy['general_settings']['fail_closed_budget_enforcement'] is True
+                    assert proxy['general_settings']['fail_closed_rate_limit_enforcement'] is True
                     redis = proxy['general_settings']['coordination_redis']
                     assert redis['namespace'] == 'litellm' and redis['ssl'] and redis['ssl_check_hostname']
                     assert redis['ssl_cert_reqs'] == 'required' and redis['ssl_keyfile'] == '/etc/litellm-redis/tls.key'

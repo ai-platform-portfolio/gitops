@@ -1,0 +1,48 @@
+{{- if .Values.litellm.azure.enabled -}}
+{{- $group := printf "/subscriptions/%s/resourceGroups/%s" .Values.runtime.AZURE_SUBSCRIPTION_ID .Values.runtime.CLUSTER_RESOURCE_GROUP -}}
+{{- $account := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.CognitiveServices/accounts/%s" .Values.runtime.AZURE_SUBSCRIPTION_ID .Values.argocd.onboarding.dependencies.model.resourceGroup (include "platform.foundryName" .) -}}
+{{- $hash := sha256sum (printf "litellm-provider/%s/%s" .Values.cluster.name $account) | trunc 32 -}}
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: litellm-provider
+  namespace: litellm
+  annotations: {argocd.argoproj.io/sync-wave: '0'}
+spec:
+  azureName: id-{{ .Values.cluster.name }}-litellm-provider
+  location: {{ .Values.litellm.keyVault.identityLocation | quote }}
+  owner: {armId: {{ $group | quote }}}
+  operatorSpec:
+    configMaps:
+      clientId: {name: litellm-provider, key: AZURE_CLIENT_ID}
+      principalId: {name: litellm-provider-principal, key: principalId}
+
+---
+
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: litellm-provider
+  namespace: litellm
+  annotations: {argocd.argoproj.io/sync-wave: '5'}
+spec:
+  owner: {name: litellm-provider}
+  audiences: [api://AzureADTokenExchange]
+  issuer: {{ required "runtime.AKS_OIDC_ISSUER_URL is required" .Values.runtime.AKS_OIDC_ISSUER_URL | quote }}
+  subject: system:serviceaccount:litellm:litellm
+
+---
+
+apiVersion: authorization.azure.com/v1api20220401
+kind: RoleAssignment
+metadata:
+  name: litellm-provider-{{ $hash | trunc 12 }}
+  namespace: litellm
+  annotations: {argocd.argoproj.io/sync-wave: '10'}
+spec:
+  azureName: {{ printf "%s-%s-%s-%s-%s" (substr 0 8 $hash) (substr 8 12 $hash) (substr 12 16 $hash) (substr 16 20 $hash) (substr 20 32 $hash) }}
+  owner: {armId: {{ $account | quote }}}
+  principalIdFromConfig: {name: litellm-provider-principal, key: principalId}
+  principalType: ServicePrincipal
+  roleDefinitionReference: {wellKnownName: Cognitive Services OpenAI User}
+{{- end }}
