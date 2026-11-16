@@ -28,7 +28,7 @@ argocd:
         resourceGroup: rg-management
       telemetryEndpoint: http://opentelemetry-collector.opentelemetry.svc.cluster.local:4318
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
-    chartRevision: fd9add2a67063bbefcfe156f0974ce1b09e31977
+    chartRevision: 61522a102ce028d507be2df020c47fa746b1629a
 
   registry:
     name: localacrk8s
@@ -268,6 +268,30 @@ atlas:
 litellm:
   enabled: true
   modelList: []
+  image:
+    repository: ghcr.io/berriai/litellm
+    tag: v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9
+  azure:
+    enabled: false # Activate only after provider permission review.
+    # Reuse the existing account deployment/version, never the project proxy.
+    apiVersion: "2025-04-01-preview"
+    chat: {deployment: chat, baseModel: gpt-6.1-sol-2026-09-29}
+  access:
+    enabled: false # Activate only after the private route is approved.
+    hostname: 'models.internal.{{ .Values.runtime.DNS_ZONE }}'
+    policies:
+      documents:
+        # Trusted operator inputs: unset means no credential can be issued.
+        maxBudget: null
+        budgetDuration: 30d
+        rpm: null
+        tpm: null
+        parallel: null
+        capabilities:
+          default:
+            model: chat
+            routes: [/v1/chat/completions]
+
   keyVault:
     # Reuse the existing vault selected by runtime.AZURE_KEY_VAULT_URI.
     resourceGroup: kubernetes

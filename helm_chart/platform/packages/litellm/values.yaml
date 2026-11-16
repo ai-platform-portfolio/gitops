@@ -4,8 +4,8 @@ replicaCount: 1
 numWorkers: 1
 
 image:
-  repository: ghcr.io/berriai/litellm
-  tag: v1.109.1@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9
+  repository: {{ .Values.litellm.image.repository }}
+  tag: {{ .Values.litellm.image.tag }}
   pullPolicy: IfNotPresent
 
 serviceAccount:
@@ -32,6 +32,17 @@ redis:
 masterkeySecretName: litellm-keys
 masterkeySecretKey: master-key
 environmentSecrets: [litellm-keys]
+{{- if .Values.litellm.azure.enabled }}
+environmentConfigMaps: [litellm-provider]
+{{- end }}
+
+extraEnvVars:
+  - name: AZURE_TENANT_ID
+    value: {{ .Values.runtime.AZURE_TENANT_ID | quote }}
+  - name: AZURE_FEDERATED_TOKEN_FILE
+    value: /identity/azure-token
+
+terminationGracePeriodSeconds: 120
 
 envVars:
   DATABASE_URL: postgresql://litellm@platform-rw.postgres.svc.cluster.local:5432/litellm?sslmode=require&sslaccept=strict&sslcert=/etc/litellm-postgres/ca.crt&sslidentity=/etc/litellm-postgres/keystore.p12&sslpassword=changeit&connection_limit=5
@@ -40,12 +51,38 @@ envVars:
   PGSSLKEY: /etc/litellm-postgres/tls.key
   # Bind clients to Git-managed configuration; provider onboarding is separate.
   STORE_MODEL_IN_DB: "False"
+  GRACEFUL_SHUTDOWN_TIMEOUT: "90"
 
 proxy_config:
   model_list:
+{{- if .Values.litellm.modelList }}
 {{ toYaml .Values.litellm.modelList | indent 4 }}
+{{- else if not .Values.litellm.azure.enabled }}
+    []
+{{- end }}
+{{- if .Values.litellm.azure.enabled }}
+    - model_name: chat
+      litellm_params:
+        model: {{ printf "azure/%s" .Values.litellm.azure.chat.deployment | quote }}
+        api_base: {{ printf "https://%s.cognitiveservices.azure.com/" (include "platform.foundryName" .) | quote }}
+        api_version: {{ .Values.litellm.azure.apiVersion | quote }}
+      model_info:
+        base_model: {{ .Values.litellm.azure.chat.baseModel | quote }}
+{{- end }}
+  litellm_settings:
+    enable_azure_ad_token_refresh: true
+    set_verbose: false
+  router_settings:
+    num_retries: 0
+    fallbacks: []
+    context_window_fallbacks: []
   general_settings:
     master_key: os.environ/PROXY_MASTER_KEY
+    allow_client_side_credentials: false
+    fail_closed_budget_enforcement: true
+    fail_closed_rate_limit_enforcement: true
+    disable_budget_reservation: false
+    store_prompts_in_spend_logs: false
     coordination_redis:
       host: redis.redis.svc.cluster.local
       port: 6379
@@ -80,10 +117,17 @@ volumes:
     secret: {secretName: litellm-postgres, defaultMode: 0440}
   - name: redis-client
     secret: {secretName: litellm-redis, defaultMode: 0440}
+  - name: azure-identity
+    projected:
+      sources:
+        - serviceAccountToken: {audience: api://AzureADTokenExchange, expirationSeconds: 3600, path: azure-token}
+
 
 volumeMounts:
   - {name: postgres-client, mountPath: /etc/litellm-postgres, readOnly: true}
   - {name: redis-client, mountPath: /etc/litellm-redis, readOnly: true}
+  - {name: azure-identity, mountPath: /identity, readOnly: true}
+
 
 migrationJob:
   enabled: true

@@ -87,6 +87,12 @@ spec:
             valueFiles: [{{ printf "$intent/deploy/%s.yaml" $profile | quote }}]
             valuesObject:
               platform:
+                modelGateway:
+                  endpoint: {{ printf "https://%s/v1" (tpl $.Values.litellm.access.hostname $) | quote }}
+                  vaultUri: {{ trimSuffix "/" $.Values.runtime.AZURE_KEY_VAULT_URI | quote }}
+                  masterSecret: {{ printf "platform-%s-litellm-master" $.Values.cluster.name | quote }}
+                  consumerIdentity: {{ "{{.organization}}/{{.repository}}" | quote }}
+                  policies: {{ toJson $.Values.litellm.access.policies }}
                 models:
                   chat:
                     endpoint: {{ printf "https://%s.services.ai.azure.com/api/projects/%s/openai/v1/" (include "platform.foundryName" $) $deps.model.project | quote }}
@@ -119,6 +125,9 @@ spec:
                   azureAdminUser: {{ $pg.identityName | quote }}
                 {{- end }}
                 azure:
+                  keyVault:
+                    name: {{ first (splitList "." (trimPrefix "https://" $.Values.runtime.AZURE_KEY_VAULT_URI)) | quote }}
+                    resourceGroup: {{ $.Values.litellm.keyVault.resourceGroup | quote }}
                   storageAccount: {name: {{ $.Values.runtime.AZURE_STORAGE_ACCOUNT | quote }}, resourceGroup: {{ $deps.storageResourceGroup | quote }}}
                   blobRoleId: {{ printf "%s/providers/Microsoft.Authorization/roleDefinitions/%s" $storageScope $roleID | quote }}
                   tenantId: {{ $.Values.runtime.AZURE_TENANT_ID | quote }}
