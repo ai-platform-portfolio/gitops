@@ -86,12 +86,20 @@
         },
         "google": {
           "type": "object", "additionalProperties": false,
-          "required": ["enabled", "location", "claude", "gemini"],
+          "required": ["enabled", "location", "gemini"],
           "properties": {
             "enabled": {"type": "boolean"},
             "location": {"const": "eu"},
-            "claude": {"const": "claude-sonnet-5-5"},
             "gemini": {"const": "gemini-3.8-flash"}
+          }
+        },
+        "bedrock": {
+          "type": "object", "additionalProperties": false,
+          "required": ["enabled", "region", "claude"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "region": {"const": "eu-west-3"},
+            "claude": {"const": "eu.anthropic.claude-sonnet-5-5"}
           }
         },
         "access": {

@@ -278,11 +278,13 @@ litellm:
     chat: {deployment: chat, baseModel: gpt-6.1-sol-2026-09-29}
     embedding: {deployment: embedding, baseModel: text-embedding-3-small}
   google:
-    # Activation follows reviewed live entitlement, EU pricing and protocol checks.
-    enabled: false
+    enabled: true # Gemini only; existing federation metadata gates rendering.
     location: eu
-    claude: claude-sonnet-5-5
     gemini: gemini-3.8-flash
+  bedrock:
+    enabled: true # Role metadata gates rendering until the foundation is applied.
+    region: eu-west-3
+    claude: eu.anthropic.claude-sonnet-5-5
   access:
     enabled: true # Existing private Gateway; inference paths only.
     hostname: 'models.internal.{{ .Values.runtime.DNS_ZONE }}'
@@ -297,6 +299,12 @@ litellm:
         capabilities:
           default: {model: reasoning, routes: [/v1/responses]}
           coding: {model: coding, routes: [/v1/responses]}
+          embedding: {model: embedding, version: "1", routes: [/v1/embeddings]}
+      bounded-reasoning-coding:
+        <<: *boundedAgent
+        capabilities:
+          default: {model: reasoning, routes: [/v1/responses]}
+          coding: {model: claude, routes: [/v1/responses]}
           embedding: {model: embedding, version: "1", routes: [/v1/embeddings]}
       bounded-claude:
         <<: *boundedAgent

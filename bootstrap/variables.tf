@@ -340,3 +340,18 @@ variable "google_gateway" {
   })
   default = null
 }
+
+variable "aws_gateway" {
+  description = "Dedicated gateway trust and approved Bedrock profile; existing AWS CI identities remain externally owned."
+  type = object({
+    role_name           = string
+    region              = string
+    inference_profile   = string
+    destination_regions = set(string)
+  })
+
+  validation {
+    condition     = var.aws_gateway.region == "eu-west-3" && var.aws_gateway.inference_profile == "eu.anthropic.claude-sonnet-5-5" && var.aws_gateway.destination_regions == toset(["eu-central-1", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-3"])
+    error_message = "This environment admits the reviewed Paris Sonnet EU profile and its six approved destinations only."
+  }
+}

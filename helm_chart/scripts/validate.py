@@ -32,7 +32,8 @@ def main():
     assert 'data.azurerm_client_config' not in outputs and 'var.account' not in outputs and 'oidc_issuer_url' not in outputs, 'Account identifiers must not be Terraform outputs'
     runtime = {name: 'example' for path in (HELM_CHART / 'platform').rglob('*') if path.is_file()
                for name in re.findall(r'\.Values.runtime\.([A-Z_]+)', path.read_text())}
-    runtime.update(DNS_ZONE='example.test', ARGOCD_HOSTNAME='argocd-management.example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
+    runtime.update(AWS_GATEWAY_ROLE_ARN='', GOOGLE_GATEWAY_PROVIDER='',
+                   DNS_ZONE='example.test', ARGOCD_HOSTNAME='argocd-management.example.test', ACME_EMAIL='ops@example.test', CLUSTER_NAME='test',
                    FOUNDRY_ACCOUNT_NAME='foundry-management-portfolio-20261110-48273106',
                    AZURE_KEY_VAULT_URI='https://example.vault.azure.net/',
                    SONAR_SAML_METADATA_APP_ID='00000000-0000-0000-0000-000000000002',
@@ -40,7 +41,7 @@ def main():
                    AKS_OIDC_ISSUER_URL='https://issuer.example.test/')
     for key in ['AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_CLIENT_ID',
                 'POSTGRES_AZURE_CLIENT_ID', 'CROSSPLANE_CLIENT_ID', 'CROSSPLANE_PRINCIPAL_ID',
-                'ONBOARDING_CLIENT_ID', 'ONBOARDING_PRINCIPAL_ID']:
+                'ONBOARDING_CLIENT_ID', 'ONBOARDING_PRINCIPAL_ID', 'CI_PUBLISHER_PRINCIPAL_ID']:
         runtime[key] = '00000000-0000-0000-0000-000000000001'
     with tempfile.TemporaryDirectory(prefix='platform-render-') as directory:
         tmp = Path(directory)
@@ -1167,45 +1168,72 @@ def main():
         assert model['model_name'] == 'chat' and model['litellm_params']['model'] == 'azure/chat'
         assert model['litellm_params']['api_base'] == 'https://' + runtime['FOUNDRY_ACCOUNT_NAME'] + '.cognitiveservices.azure.com/'
         assert model['model_info']['base_model'] == 'gpt-6.1-sol-2026-09-29'
-        # No Google routes/credentials/policies before activation or without trust metadata.
+        # Foundation metadata independently gates Gemini and Bedrock; no Vertex Claude remains.
         assert not any(d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-google' for d in gateway_resources)
-        for google_runtime, expected in (({**runtime, 'GOOGLE_GATEWAY_PROVIDER': ''}, False), (dict(runtime), True)):
-            google_runtime.update(GOOGLE_GATEWAY_PROJECT='example-project',
-                                  GOOGLE_GATEWAY_ACCOUNT='gateway@example-project.iam.gserviceaccount.com',
-                                  GOOGLE_GATEWAY_AUDIENCE='api://litellm-google')
-            if expected:
-                google_runtime['GOOGLE_GATEWAY_PROVIDER'] = 'projects/123456789/locations/global/workloadIdentityPools/existing/providers/aks-litellm'
-            values.write_text(json.dumps({'runtime': google_runtime, 'litellm': {'google': {'enabled': True}}}))
-            google_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/litellm.yaml')) if d]
-            google_values = next(a for a in google_apps if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']
-            google_resources = [d for a in google_apps for d in yaml.safe_load_all(a['spec']['source']['helm']['valuesObject'].get('manifests', '')) if d]
-            google_models = {m['model_name']: m for m in google_values['proxy_config']['model_list']}
-            assert set(google_models) == ({'chat', 'reasoning', 'coding', 'embedding', 'claude', 'gemini'} if expected else {'chat', 'reasoning', 'coding', 'embedding'})
-            defaults = next(d for d in google_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-consumer-defaults')
+        for google_enabled, bedrock_enabled in ((False, False), (True, False), (False, True), (True, True)):
+            provider_runtime = {**runtime,
+                'GOOGLE_GATEWAY_PROJECT': 'example-project',
+                'GOOGLE_GATEWAY_ACCOUNT': 'gateway@example-project.iam.gserviceaccount.com',
+                'GOOGLE_GATEWAY_AUDIENCE': 'api://litellm-google',
+                'GOOGLE_GATEWAY_PROVIDER': 'projects/123456789/locations/global/workloadIdentityPools/existing/providers/aks-litellm' if google_enabled else '',
+                'AWS_GATEWAY_ROLE_ARN': 'arn:aws:iam::123456789012:role/example-gateway' if bedrock_enabled else ''}
+            values.write_text(json.dumps({'runtime': provider_runtime}))
+            provider_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/litellm.yaml')) if d]
+            provider_values = next(a for a in provider_apps if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']
+            provider_resources = [d for a in provider_apps for d in yaml.safe_load_all(a['spec']['source']['helm']['valuesObject'].get('manifests', '')) if d]
+            models = {m['model_name']: m for m in provider_values['proxy_config']['model_list']}
+            assert set(models) == {'chat', 'reasoning', 'coding', 'embedding'} | ({'gemini'} if google_enabled else set()) | ({'claude'} if bedrock_enabled else set())
+            defaults = next(d for d in provider_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-consumer-defaults')
             policies = json.loads(defaults['data']['values.json'])['modelGateway']['policies']
-            assert ('bounded-claude' in policies) == expected and ('bounded-gemini' in policies) == expected
-            configs = [d for d in google_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-google']
-            assert len(configs) == int(expected)
-            if expected:
+            assert ('bounded-claude' in policies) == bedrock_enabled
+            assert ('bounded-reasoning-coding' in policies) == bedrock_enabled
+            assert ('bounded-gemini' in policies) == google_enabled
+            configs = [d for d in provider_resources if d['kind'] == 'ConfigMap' and d['metadata']['name'] == 'litellm-google']
+            assert len(configs) == int(google_enabled)
+            volumes = {v['name']: v for v in provider_values['volumes']}
+            mounts = {v['name']: v for v in provider_values['volumeMounts']}
+            env = {e['name']: e.get('value') for e in provider_values['extraEnvVars']}
+            assert 'GOOGLE_APPLICATION_CREDENTIALS' not in env
+            assert ('aws-identity' in volumes) == bedrock_enabled
+            assert ('AWS_ROLE_ARN' in env) == bedrock_enabled
+            if google_enabled:
                 adc = json.loads(configs[0]['data']['credentials.json'])
-                assert adc['type'] == 'external_account' and adc['audience'] == '//iam.googleapis.com/' + google_runtime['GOOGLE_GATEWAY_PROVIDER']
+                assert adc['type'] == 'external_account' and adc['audience'] == '//iam.googleapis.com/' + provider_runtime['GOOGLE_GATEWAY_PROVIDER']
                 assert adc['token_url'] == 'https://sts.googleapis.com/v1/token'
-                assert adc['service_account_impersonation_url'] == 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/' + google_runtime['GOOGLE_GATEWAY_ACCOUNT'] + ':generateAccessToken'
+                assert adc['service_account_impersonation_url'] == 'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/' + provider_runtime['GOOGLE_GATEWAY_ACCOUNT'] + ':generateAccessToken'
                 assert adc['credential_source'] == {'file': '/identity/google/google-token', 'format': {'type': 'text'}}
-                token = next(v for v in google_values['volumes'] if v['name'] == 'google-identity')['projected']['sources']
-                assert token == [{'serviceAccountToken': {'audience': 'api://litellm-google', 'expirationSeconds': 3600, 'path': 'google-token'}}]
-                mounts = {v['name']: v for v in google_values['volumeMounts']}
-                assert mounts['google-identity']['mountPath'] == '/identity/google' and mounts['google-identity']['readOnly']
-                assert mounts['google-credentials']['mountPath'] == '/etc/litellm-google' and mounts['google-credentials']['readOnly']
-                assert not any(e['name'] == 'GOOGLE_APPLICATION_CREDENTIALS' for e in google_values['extraEnvVars'])
-                for alias, model_id in [('claude', 'claude-sonnet-5-5'), ('gemini', 'gemini-3.8-flash')]:
-                    params = google_models[alias]['litellm_params']
-                    assert params == {'model': 'vertex_ai/' + model_id, 'vertex_project': 'example-project', 'vertex_location': 'eu', 'vertex_credentials': '/etc/litellm-google/credentials.json'}
-                    provider_policy = policies['bounded-' + alias]
-                    assert {k: provider_policy[k] for k in ('maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel')} == {'maxBudget': 10, 'budgetDuration': '30d', 'rpm': 20, 'tpm': 50000, 'parallel': 2}
-                    assert provider_policy['capabilities']['coding']['model'] == alias
-                    assert provider_policy['capabilities']['embedding']['model'] == 'embedding'
-                assert google_values['proxy_config']['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
+                assert models['gemini']['litellm_params'] == {'model': 'vertex_ai/gemini-3.8-flash', 'vertex_project': 'example-project', 'vertex_location': 'eu', 'vertex_credentials': '/etc/litellm-google/credentials.json'}
+                assert mounts['google-credentials']['readOnly'] and mounts['google-identity']['readOnly']
+            if bedrock_enabled:
+                assert models['claude']['litellm_params'] == {'model': 'bedrock/converse/eu.anthropic.claude-sonnet-5-5', 'aws_region_name': 'eu-west-3'}
+                assert models['claude']['model_info']['base_model'] == 'eu.anthropic.claude-sonnet-5-5'
+                assert volumes['aws-identity']['projected']['sources'] == [{'serviceAccountToken': {'audience': 'sts.amazonaws.com', 'expirationSeconds': 3600, 'path': 'aws-token'}}]
+                assert mounts['aws-identity'] == {'name': 'aws-identity', 'mountPath': '/identity/aws', 'readOnly': True}
+                assert env['AWS_ROLE_ARN'] == provider_runtime['AWS_GATEWAY_ROLE_ARN']
+                assert env['AWS_WEB_IDENTITY_TOKEN_FILE'] == '/identity/aws/aws-token'
+                assert env['AWS_REGION'] == 'eu-west-3' and env['AWS_STS_REGIONAL_ENDPOINTS'] == 'regional'
+                mixed = policies['bounded-reasoning-coding']
+                assert {k: mixed[k] for k in ('maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel')} == {'maxBudget': 10, 'budgetDuration': '30d', 'rpm': 20, 'tpm': 50000, 'parallel': 2}
+                assert {k: v['model'] for k, v in mixed['capabilities'].items()} == {'default': 'reasoning', 'coding': 'claude', 'embedding': 'embedding'}
+            assert provider_values['proxy_config']['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
+        # Explicitly disabled providers must omit routes, tokens and admission policies even with metadata.
+        values.write_text(json.dumps({'runtime': provider_runtime, 'litellm': {'google': {'enabled': False}, 'bedrock': {'enabled': False}}}))
+        disabled_providers = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/litellm.yaml')) if d]
+        disabled_values = next(a for a in disabled_providers if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']
+        assert {m['model_name'] for m in disabled_values['proxy_config']['model_list']} == {'chat', 'reasoning', 'coding', 'embedding'}
+        assert not any(v['name'] in {'aws-identity', 'google-identity'} for v in disabled_values['volumes'])
+
+        # Exact, explicitly privileged CI admission boundary; no secret/cluster-wide API grant.
+        values.write_text(json.dumps({'runtime': runtime}))
+        delivery = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/delivery-rbac.yaml')) if d]
+        assert len(delivery) == 4
+        assert all(d["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "45" for d in delivery)
+        roles = {d['metadata']['namespace']: d for d in delivery if d['kind'] == 'Role'}
+        assert roles['litellm']['rules'] == [{'apiGroups': [''], 'resources': ['configmaps'], 'resourceNames': ['litellm-consumer-defaults'], 'verbs': ['get']}]
+        assert roles['argocd']['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['applications'], 'verbs': ['get', 'list', 'watch', 'create', 'patch']}]
+        assert all(d['subjects'] == [{'kind': 'User', 'apiGroup': 'rbac.authorization.k8s.io', 'name': runtime['CI_PUBLISHER_PRINCIPAL_ID']}] for d in delivery if d['kind'] == 'RoleBinding')
+        values.write_text(json.dumps({'runtime': {**runtime, 'CI_PUBLISHER_PRINCIPAL_ID': ''}}))
+        assert not [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d and d['metadata']['name'].startswith('gateway-delivery-')]
         route = next(d for d in gateway_resources if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'litellm-inference')
         assert route['spec']['rules'][0]['matches'] == [
             {'path': {'type': 'Exact', 'value': path}, 'method': 'POST'}
@@ -1666,7 +1694,7 @@ def main():
                 print(f'{name}: {len(docs)} resources rendered; secrets stable', flush=True)
             except subprocess.CalledProcessError as error:
                 raise RuntimeError(f'{name}: {error.stderr}') from error
-        render(next(a for a in google_apps if a['metadata']['name'] == 'litellm'))
+        render(next(a for a in provider_apps if a['metadata']['name'] == 'litellm'))
         with ThreadPoolExecutor(max_workers=4) as executor:
             list(executor.map(render, applications))
         print(f'{len(applications)} management Applications rendered; workload package parity and upstream charts verified.')

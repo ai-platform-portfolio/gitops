@@ -1,4 +1,5 @@
 {{- $google := and .Values.litellm.google.enabled (not (empty .Values.runtime.GOOGLE_GATEWAY_PROVIDER)) (not (empty .Values.runtime.GOOGLE_GATEWAY_PROJECT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_ACCOUNT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_AUDIENCE)) -}}
+{{- $bedrock := and .Values.litellm.bedrock.enabled (not (empty .Values.runtime.AWS_GATEWAY_ROLE_ARN)) -}}
 # The upstream chart appVersion is pinned independently of its mutable defaults.
 fullnameOverride: litellm
 replicaCount: 1
@@ -38,6 +39,16 @@ environmentConfigMaps: [litellm-provider]
 {{- end }}
 
 extraEnvVars:
+{{- if $bedrock }}
+  - name: AWS_ROLE_ARN
+    value: {{ .Values.runtime.AWS_GATEWAY_ROLE_ARN | quote }}
+  - name: AWS_WEB_IDENTITY_TOKEN_FILE
+    value: /identity/aws/aws-token
+  - name: AWS_REGION
+    value: {{ .Values.litellm.bedrock.region | quote }}
+  - name: AWS_STS_REGIONAL_ENDPOINTS
+    value: regional
+{{- end }}
   - name: AZURE_TENANT_ID
     value: {{ .Values.runtime.AZURE_TENANT_ID | quote }}
   - name: AZURE_FEDERATED_TOKEN_FILE
@@ -58,7 +69,7 @@ proxy_config:
   model_list:
 {{- if .Values.litellm.modelList }}
 {{ toYaml .Values.litellm.modelList | indent 4 }}
-{{- else if and (not .Values.litellm.azure.enabled) (not $google) }}
+{{- else if and (not .Values.litellm.azure.enabled) (not $google) (not $bedrock) }}
     []
 {{- end }}
 {{- if .Values.litellm.azure.enabled }}
@@ -92,16 +103,22 @@ proxy_config:
         base_model: {{ .Values.litellm.azure.embedding.baseModel | quote }}
 {{- end }}
 {{- if $google }}
-{{- range $alias, $model := dict "claude" .Values.litellm.google.claude "gemini" .Values.litellm.google.gemini }}
-    - model_name: {{ $alias }}
+    - model_name: gemini
       litellm_params:
-        model: {{ printf "vertex_ai/%s" $model | quote }}
-        vertex_project: {{ $.Values.runtime.GOOGLE_GATEWAY_PROJECT | quote }}
-        vertex_location: {{ $.Values.litellm.google.location | quote }}
+        model: {{ printf "vertex_ai/%s" .Values.litellm.google.gemini | quote }}
+        vertex_project: {{ .Values.runtime.GOOGLE_GATEWAY_PROJECT | quote }}
+        vertex_location: {{ .Values.litellm.google.location | quote }}
         vertex_credentials: /etc/litellm-google/credentials.json
       model_info:
-        base_model: {{ printf "vertex_ai/%s" $model | quote }}
+        base_model: {{ printf "vertex_ai/%s" .Values.litellm.google.gemini | quote }}
 {{- end }}
+{{- if $bedrock }}
+    - model_name: claude
+      litellm_params:
+        model: {{ printf "bedrock/converse/%s" .Values.litellm.bedrock.claude | quote }}
+        aws_region_name: {{ .Values.litellm.bedrock.region | quote }}
+      model_info:
+        base_model: {{ .Values.litellm.bedrock.claude | quote }}
 {{- end }}
   litellm_settings:
     enable_azure_ad_token_refresh: true
@@ -168,6 +185,13 @@ volumes:
     configMap: {name: litellm-google}
 {{- end }}
 
+{{- if $bedrock }}
+  - name: aws-identity
+    projected:
+      sources:
+        - serviceAccountToken: {audience: sts.amazonaws.com, expirationSeconds: 3600, path: aws-token}
+{{- end }}
+
 volumeMounts:
   - {name: postgres-client, mountPath: /etc/litellm-postgres, readOnly: true}
   - {name: redis-client, mountPath: /etc/litellm-redis, readOnly: true}
@@ -176,6 +200,10 @@ volumeMounts:
 {{- if $google }}
   - {name: google-identity, mountPath: /identity/google, readOnly: true}
   - {name: google-credentials, mountPath: /etc/litellm-google, readOnly: true}
+{{- end }}
+
+{{- if $bedrock }}
+  - {name: aws-identity, mountPath: /identity/aws, readOnly: true}
 {{- end }}
 
 migrationJob:

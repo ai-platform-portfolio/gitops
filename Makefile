@@ -8,7 +8,7 @@ BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
 # Full in-cluster bootstrap, excluding Azure PostgreSQL and APIM provisioning.
 AKS_TARGETS := -target=module.aks -target=module.argocd \
-  -target=module.identities -target=module.aso_identity -target=module.google_gateway \
+  -target=module.identities -target=module.aso_identity -target=module.google_gateway -target=module.aws_gateway \
   -target=azurerm_storage_container.platform \
   -target=azurerm_role_assignment.ci_publisher
 
@@ -104,6 +104,8 @@ aks-plan: init
 aks-up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" $(AKS_TARGETS))
+	# Targeted applies can retain old aggregate outputs; refresh metadata without mutating resources.
+	$(call run_terraform,apply -refresh-only -input=false -auto-approve -var-file="$(TFVARS)")
 	$(publish_foundry_config)
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
