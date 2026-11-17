@@ -40,12 +40,17 @@ remove the override, temporary image package and its workflow.
 
 ### Hosted agents during startup
 
-After refreshing Foundry organization settings, `make foundry-up` discovers active
-`.github/workflows/deploy-agents.yml` workflows across non-archived, non-fork
+`make aks-up` provisions AKS and the complete Foundry stack, refreshes organization
+settings, then waits for platform readiness and selects the cluster context.
+`make foundry-up` is an alias for that same lifecycle; neither command deploys
+agents against a partially initialized platform. After readiness, startup discovers
+active `.github/workflows/deploy-agents.yml` workflows across non-archived, non-fork
 organization repositories and dispatches their existing `deploy` operation on
-`main`. `make aks-up` and `make up` do the same after platform readiness and context
-selection. Consumers own agent discovery, images, native deployment and acceptance;
-there is no application list or agent deployment definition in GitOps.
+`main` once per consumer. `make up` uses the same delivery gate. Consumers own
+agent discovery, images, native deployment and acceptance; there is no application
+list or agent deployment definition in GitOps.
+
+`make aks-plan` and its alias `make foundry-plan` preview the same scoped resources.
 
 The authenticated `gh` operator needs organization repository/workflow visibility
 and Actions write/read access to participating consumers. Native dispatch returns
@@ -67,6 +72,11 @@ startup path. The independent portfolio host is outside this disposable lifecycl
 The scoped AKS/Foundry targets have existing identity/OIDC dependencies on each
 other; they do not provide fully independent stacks. This change does not provision
 APIM or managed PostgreSQL in those scoped targets.
+
+LiteLLM credentials reconcile before the proxy and its migration Job. Its private
+ListenerSet and HTTPRoute belong to the existing `routes` Application, which waits
+for healthy backends. This keeps the credential wave independent of the proxy's
+Service and preserves the existing inference paths, TLS and access policy.
 
 ### Local prerequisites
 
