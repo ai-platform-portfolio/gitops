@@ -905,7 +905,9 @@ def main():
                     }
                 if app['metadata']['name'] == 'routes':
                     listeners = [d for d in documents if d['kind'] == 'ListenerSet']
-                    assert len(listeners) == 7
+                    assert len(listeners) == 8
+                    public_listeners = [d for d in listeners if d['metadata']['namespace'] != 'litellm']
+                    assert len(public_listeners) == 7
                     kargo_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'kargo')
                     assert kargo_route['spec']['rules'][0]['backendRefs'] == [{'name': 'kargo-api', 'port': 80}]
                     portal_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'backstage')
@@ -913,7 +915,7 @@ def main():
                     route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'atlantis')
                     assert route['spec']['rules'][0]['backendRefs'] == [{'name': 'atlantis', 'port': 80}]
                     assert not any(d['kind'] == 'Certificate' for d in documents), 'cert-manager owns ListenerSet certificates'
-                    for listener in listeners:
+                    for listener in public_listeners:
                         assert listener['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
                         for entry in listener['spec']['listeners']:
                             assert '*' not in entry['hostname'] and entry['tls']['certificateRefs'][0]['name']
@@ -1087,8 +1089,10 @@ def main():
         litellm_waves = {name: int(a['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                          for name, a in litellm_apps.items()}
         assert litellm_waves['configuration'] < litellm_waves['postgres'] < litellm_waves['litellm-credentials'] < litellm_waves['litellm']
+        assert litellm_waves['litellm'] < litellm_waves['routes'], 'Inference routing requires a healthy proxy backend'
         assert litellm_waves['redis-certificates'] < litellm_waves['redis'] < litellm_waves['litellm']
         credentials = list(yaml.safe_load_all(litellm_apps['litellm-credentials']['spec']['source']['helm']['valuesObject']['manifests']))
+        assert not any(d and d['kind'] in {'HTTPRoute', 'ListenerSet'} for d in credentials), 'Credentials must not wait for the later proxy Service'
         runtime_account = next(d for d in credentials if d['kind'] == 'ServiceAccount' and d['metadata']['name'] == 'litellm')
         assert runtime_account['metadata']['namespace'] == 'litellm'
         assert runtime_account['automountServiceAccountToken'] is False
@@ -1160,6 +1164,10 @@ def main():
         enabled_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d]
         gateway_resources = [d for a in enabled_apps if a['kind'] == 'Application' for d in yaml.safe_load_all(
             a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', '')) if d]
+        networking = [(a['metadata']['name'], d['kind']) for a in enabled_apps if a['kind'] == 'Application'
+                      for d in yaml.safe_load_all(a['spec'].get('source', {}).get('helm', {}).get('valuesObject', {}).get('manifests', ''))
+                      if d and d['kind'] in {'HTTPRoute', 'ListenerSet'} and d['metadata'].get('namespace') == 'litellm']
+        assert sorted(networking) == [('routes', 'HTTPRoute'), ('routes', 'ListenerSet')], 'Existing routes must own exactly one LiteLLM listener and route'
         proxy = next(a for a in enabled_apps if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']['proxy_config']
         assert {m['model_name'] for m in proxy['model_list']} == {'chat', 'reasoning', 'coding', 'embedding'}
         assert all(m['litellm_params']['model'] == 'azure/chat' for m in proxy['model_list'] if m['model_name'] in {'reasoning', 'coding'})

@@ -81,9 +81,8 @@ esac
                 self.assertLess(commands.index('gh variable set AZURE_LOCATION'), delivery)
                 self.assertLess(commands.index('gh variable set AKS_NAME'), delivery)
                 self.assertLess(commands.index('gh variable set AKS_RESOURCE_GROUP'), delivery)
-                if target != 'foundry-up':
-                    self.assertLess(commands.index('cluster.py up'), delivery)
-                    self.assertLess(commands.index(': context'), delivery)
+                self.assertLess(commands.index('cluster.py up'), delivery)
+                self.assertLess(commands.index(': context'), delivery)
 
     def test_aks_startup_includes_provider_trust_before_context(self):
         result = subprocess.run(['make', '--dry-run', '--no-print-directory', 'MAKE=:', 'aks-up'],
@@ -92,8 +91,49 @@ esac
         apply = next(line for line in result.stdout.splitlines() if 'apply -input=false' in line)
         self.assertIn('-target=module.google_gateway', apply)
         self.assertIn('-target=module.aws_gateway', apply)
+        self.assertIn('-target=module.foundry', apply)
         self.assertLess(result.stdout.index('apply -refresh-only'), result.stdout.index('gh variable set AKS_NAME'))
         self.assertLess(result.stdout.index('-target=module.google_gateway'), result.stdout.index(': context'))
+
+    def test_startup_alias_runs_once_and_stops_delivery_on_failure(self):
+        for name in ('main.tf', 'terraform.tfvars', 'backend.local.hcl'):
+            (self.tools / name).touch()
+        stub = '''#!/bin/sh
+tool=${0##*/}
+printf '%s %s\\n' "$tool" "$*" >> "$COMMAND_LOG"
+case "$tool:$*" in
+  terraform:*'apply -input=false'*)
+    test "$FAIL_STAGE" != apply || exit 1;;
+  bootstrap-python:*)
+    test "$FAIL_STAGE" != platform || exit 1;;
+esac
+case "$tool:$*" in
+  az:*'account show'*|terraform:*'output -raw'*) echo example;;
+esac
+'''
+        for name in ('az', 'terraform', 'kubectl', 'kubelogin', 'openssl', 'bootstrap-python'):
+            tool = self.tools / name
+            tool.write_text(stub)
+            tool.chmod(0o700)
+        cases = [(('aks-up', 'foundry-up'), '')] + [
+            ((target,), stage) for target in ('aks-up', 'foundry-up')
+            for stage in ('apply', 'platform')]
+        for targets, failure in cases:
+            with self.subTest(targets=targets, failure=failure):
+                self.log.write_text('')
+                result = subprocess.run(['make', '--no-print-directory', *targets,
+                                         f'BOOTSTRAP_DIR={self.tools}', 'PYTHON=bootstrap-python'],
+                                        cwd=self.root, env={**self.env, 'FAIL_STAGE': failure},
+                                        capture_output=True, text=True, timeout=10)
+                commands = self.log.read_text().splitlines()
+                dispatches = [c for c in commands if c.startswith('api --method POST')]
+                self.assertEqual(result.returncode == 0, not failure, result.stderr)
+                self.assertEqual(len(dispatches), 0 if failure else 1)
+                if not failure:
+                    applies = [c for c in commands if 'apply -input=false' in c]
+                    self.assertEqual(len(applies), 1)
+                    self.assertIn('-target=module.foundry', applies[0])
+                    self.assertEqual(sum(c.startswith('bootstrap-python ') for c in commands), 1)
 
 
 class AKSReadinessTests(unittest.TestCase):

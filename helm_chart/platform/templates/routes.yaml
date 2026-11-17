@@ -35,6 +35,11 @@ spec:
           ---
 {{ tpl (.Files.Get "packages/sonarqube/networking.yaml") . | indent 10 }}
 
+{{- if and .Values.litellm.enabled .Values.litellm.access.enabled }}
+          ---
+{{ tpl (.Files.Get "packages/litellm/network.yaml") . | indent 10 }}
+{{- end }}
+
 {{- if .Values.atlantis.enabled }}
           ---
 {{ tpl (.Files.Get "packages/atlantis/networking.yaml") . | indent 10 }}

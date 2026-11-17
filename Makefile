@@ -7,7 +7,7 @@ TFVARS ?= $(BOOTSTRAP_DIR)/terraform.tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
 # Full in-cluster bootstrap, excluding Azure PostgreSQL and APIM provisioning.
-AKS_TARGETS := -target=module.aks -target=module.argocd \
+AKS_TARGETS := -target=module.aks -target=module.argocd -target=module.foundry \
   -target=module.identities -target=module.aso_identity -target=module.google_gateway -target=module.aws_gateway \
   -target=azurerm_storage_container.platform \
   -target=azurerm_role_assignment.ci_publisher
@@ -46,13 +46,13 @@ help:
 	  'make up    Provision infrastructure, install packages and wait for health' \
 	  'make down  Remove packages and destroy the disposable platform infrastructure' \
 	  'make plan  Preview bootstrap changes' \
-	  'make foundry-plan  Preview Foundry and its networking/identity dependencies' \
-	  'make foundry-up  Provision Foundry dependencies and deploy catalog agents' \
+	  'make foundry-plan  Alias for aks-plan: preview AKS/Foundry bootstrap' \
+	  'make foundry-up  Alias for aks-up: provision AKS/Foundry and wait for platform health' \
 	  'make foundry-agents-up  Retry native consumer deployment without provisioning' \
 	  'make postgres-plan  Preview the private PostgreSQL server and its dependencies' \
 	  'make postgres-up  Provision the private PostgreSQL server and its dependencies' \
 	  'make aks-plan  Preview AKS, Argo and platform bootstrap prerequisites' \
-	  'make aks-up  Provision AKS/Argo and install packages and preview automation' \
+	  'make aks-up  Provision AKS/Foundry and install packages and preview automation' \
 	  'make context  Select the management cluster with Azure CLI authentication' \
 	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
@@ -65,14 +65,10 @@ init:
 plan: init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")
 
-# CI publisher grants are root resources, outside module.foundry dependencies.
-foundry-plan: init
-	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher)
+foundry-plan: aks-plan
 
-foundry-up: init
-	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.foundry -target=azurerm_role_assignment.ci_publisher)
-	$(publish_foundry_config)
-	$(MAKE) foundry-agents-up
+# Hosted delivery depends on the platform gateway, not just the Foundry account.
+foundry-up: aks-up
 
 # Consumer workflows own discovery, builds, deployment and acceptance. Discover the
 # existing native workflow convention, never an app list or agent definition here.
