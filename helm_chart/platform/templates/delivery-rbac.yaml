@@ -1,0 +1,54 @@
+{{- if and (eq .Values.cluster.role "management") .Values.litellm.enabled .Values.litellm.access.enabled (not (empty .Values.runtime.CI_PUBLISHER_PRINCIPAL_ID)) }}
+# Trusted CI admission: this public metadata contains no credential values.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gateway-delivery-reader
+  namespace: litellm
+  annotations: {argocd.argoproj.io/sync-wave: "45"}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [litellm-consumer-defaults]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-delivery-reader
+  namespace: litellm
+  annotations: {argocd.argoproj.io/sync-wave: "45"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: gateway-delivery-reader}
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ .Values.runtime.CI_PUBLISHER_PRINCIPAL_ID | quote }}
+
+---
+# Application create/patch is privileged platform delivery authority: Argo can
+# reconcile cluster resources. This is intentionally the reviewed CI publisher.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gateway-delivery-registrar
+  namespace: argocd
+  annotations: {argocd.argoproj.io/sync-wave: "45"}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch, create, patch]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-delivery-registrar
+  namespace: argocd
+  annotations: {argocd.argoproj.io/sync-wave: "45"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: gateway-delivery-registrar}
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ .Values.runtime.CI_PUBLISHER_PRINCIPAL_ID | quote }}
+{{- end }}

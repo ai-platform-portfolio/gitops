@@ -543,3 +543,11 @@ google_gateway = {
   service_account_email = "model-gateway-inference@neat-vista-308123.iam.gserviceaccount.com"
   audience              = "api://litellm-google"
 }
+
+# System-defined EU profile already exists; this root creates only AKS runtime IAM.
+aws_gateway = {
+  role_name           = "management-litellm-bedrock"
+  region              = "eu-west-3"
+  inference_profile   = "eu.anthropic.claude-sonnet-5-5"
+  destination_regions = ["eu-central-1", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-3"]
+}

@@ -1,7 +1,11 @@
 {{- $google := and .Values.litellm.google.enabled (not (empty .Values.runtime.GOOGLE_GATEWAY_PROVIDER)) (not (empty .Values.runtime.GOOGLE_GATEWAY_PROJECT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_ACCOUNT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_AUDIENCE)) -}}
+{{- $bedrock := and .Values.litellm.bedrock.enabled (not (empty .Values.runtime.AWS_GATEWAY_ROLE_ARN)) -}}
 {{- $policies := deepCopy .Values.litellm.access.policies -}}
-{{- if not $google -}}
+{{- if not $bedrock -}}
 {{- $_ := unset $policies "bounded-claude" -}}
+{{- $_ := unset $policies "bounded-reasoning-coding" -}}
+{{- end -}}
+{{- if not $google -}}
 {{- $_ := unset $policies "bounded-gemini" -}}
 {{- end -}}
 # The PreSync migration needs this account before the upstream chart's Sync phase.

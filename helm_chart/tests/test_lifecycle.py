@@ -85,12 +85,14 @@ esac
                     self.assertLess(commands.index('cluster.py up'), delivery)
                     self.assertLess(commands.index(': context'), delivery)
 
-    def test_aks_startup_includes_google_trust_before_context(self):
+    def test_aks_startup_includes_provider_trust_before_context(self):
         result = subprocess.run(['make', '--dry-run', '--no-print-directory', 'MAKE=:', 'aks-up'],
                                 cwd=self.root, env=self.env, capture_output=True, text=True,
                                 check=True, timeout=10)
         apply = next(line for line in result.stdout.splitlines() if 'apply -input=false' in line)
         self.assertIn('-target=module.google_gateway', apply)
+        self.assertIn('-target=module.aws_gateway', apply)
+        self.assertLess(result.stdout.index('apply -refresh-only'), result.stdout.index('gh variable set AKS_NAME'))
         self.assertLess(result.stdout.index('-target=module.google_gateway'), result.stdout.index(': context'))
 
 

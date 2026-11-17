@@ -202,36 +202,69 @@ Sources: [stable release](https://github.com/BerriAI/litellm/releases/tag/v1.109
 [ASO identity output expressions](https://azure.github.io/azure-service-operator/guide/secrets/).
 
 
-## Optional EU Claude and Gemini
+## Foundry GPT, Bedrock Claude and Agent Platform Gemini
 
-The shared package supplies `claude` (`vertex_ai/claude-sonnet-5-5`) and `gemini`
-(`vertex_ai/gemini-3.8-flash`) aliases, pinned to Vertex location `eu`, whose pinned
-proxy uses `https://aiplatform.eu.rep.googleapis.com`. Global/provider fallbacks
-remain empty. Azure GPT aliases and Azure embeddings retain their existing mapping.
+The Azure GPT and embedding aliases retain their existing France DataZone
+upstream. `claude` uses `bedrock/converse/eu.anthropic.claude-sonnet-5-5` from
+Paris (`eu-west-3`); `gemini` uses `vertex_ai/gemini-3.8-flash` with location `eu`
+and `https://aiplatform.eu.rep.googleapis.com`. Claude is not routed through GCP.
+The pinned SDK contains the EU Sonnet price/capability metadata. Global/provider
+fallback lists stay empty; model failures do not change the processing boundary.
 
-`litellm.google.enabled` defaults to false. Routes, credentials, projected token and
-`bounded-claude`/`bounded-gemini` admission policies appear only when enabled AND
-all four `GOOGLE_GATEWAY_*` runtime references exist. This preserves Azure-only
-rendering before foundation trust is applied/published. Operator activation needs
-verified Main entitlement, effective EU pricing, token exchange, Responses/tools/
-schema behavior and bounded usage/override-denial tests on the pinned proxy. Do
-not infer live readiness from renders or accept model terms automatically.
+The provider enable flags express desired availability. Bedrock additionally
+requires `runtime.AWS_GATEWAY_ROLE_ARN`; Gemini requires all four
+`GOOGLE_GATEWAY_*` references. Missing metadata omits that provider's model,
+credentials/mounts and admission policies, preserving Azure-only reconciliation
+before foundation apply/publication. This is not a promise of successful inference.
 
-The one public ConfigMap contains native Google `external_account` JSON. It reads
-a projected one-hour JWT with the foundation's dedicated audience and impersonates
-the existing Google inference account. `vertex_credentials` is scoped per model;
-no global ADC environment override or long-lived credential is added. Required
-outbound HTTPS destinations are the EU inference host, `sts.googleapis.com` and
-`iamcredentials.googleapis.com`; no network modification is part of this change.
+Bedrock uses native AWS web identity credentials: a projected one-hour token for
+`sts.amazonaws.com`, the role ARN, Paris AWS Region and regional STS. The role
+trusts the exact AKS issuer and `system:serviceaccount:litellm:litellm` subject.
+The runtime role may invoke only the reviewed EU profile and its six destination
+models through that profile. No access key, exchange helper, subscription
+permission or additional Kubernetes identity is added.
 
-After acceptance, minimal consumer intent is:
+Gemini keeps the existing native external-account ConfigMap and short-lived token.
+`vertex_credentials` is scoped to that model, without a global ADC override.
+Required outbound HTTPS hosts are `bedrock-runtime.eu-west-3.amazonaws.com`,
+`sts.eu-west-3.amazonaws.com`, `aiplatform.eu.rep.googleapis.com`,
+`sts.googleapis.com` and `iamcredentials.googleapis.com`. Connectivity is a live
+acceptance gate; this change includes no network modification.
+
+Consumer intent remains one policy:
 
 ```yaml
-gatewayAccess: {policy: bounded-claude} # or bounded-gemini
+gatewayAccess: {policy: bounded-reasoning-coding}
 ```
 
-These policies reuse the $10/30-day, 20 RPM, 50,000 TPM, two-parallel testing tier
-and existing default/coding/embedding capability contract. Each consumer's existing
-stable owner aggregates spend across its keys; switching policies does not create
-a separate budget owner. The current SRE policy is unchanged. Embeddings remain
-Azure-backed; this does not add an SRE workflow stage or migrate a consumer.
+That policy maps default to Azure reasoning, coding to Bedrock Claude and
+embedding to Azure. `bounded-claude` and `bounded-gemini` remain provider-specific
+options; `bounded-agent` remains the Azure baseline. Required routes gate policy
+publication. These policies share the same testing tier: USD10/30days,20RPM,
+50000TPM,2parallel per stable consumer across capability keys. Policy changes keep
+the existing owner/accounting; they do not grant a fresh budget. The document tier
+and running demo remain unchanged. Gemini availability adds no SRE workflow stage.
+
+Known cost limitation: the pinned Gemini price map uses global prices, while the
+reviewed EU rate is10% higher. This is recorded at the user's direction; do not
+represent the proxy allowance as an exact provider-bill ceiling. Recheck Gemini's
+introductory rates before2027-01-01. Bedrock EU pricing, reasoning/cache usage and
+actual owner attribution also need readback during acceptance.
+
+The existing CI publisher can read only `litellm-consumer-defaults` through its
+metadata Role. Its separate registrar Role grants get/list/watch/create/patch on
+Argo Applications in `argocd`, which is explicitly privileged platform deployment
+authority. Native RBAC does not restrict Application spec fields or name prefixes.
+Neither Role grants Secret reads, deletion or wildcard resources.
+
+After merge/apply, verify token exchange/renewal and denial for other subjects,
+audiences and global/US/direct model paths; then test Responses, tools, schema,
+streaming, key/route/override restrictions and accounting with isolated allowances.
+Before the first Bedrock call, obtain the required model-term approval: invocation
+can start a subscription and accept the EULA. Source/CI success establishes no
+entitlement, live inference or consumer promotion.
+
+Sources: [AWS inference-profile permissions](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-prereq.html),
+[AWS web identity](https://docs.aws.amazon.com/sdkref/latest/guide/access-assume-role-web.html),
+[Sonnet EU destinations](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html),
+[Bedrock model access and terms](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).

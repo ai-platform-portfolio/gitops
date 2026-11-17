@@ -6,6 +6,11 @@ terraform {
   }
 
   required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 6.0, < 7.0"
+    }
+
     azapi = {
       source  = "Azure/azapi"
       version = "~> 2.13"
@@ -64,3 +69,8 @@ provider "azapi" {}
 
 # Native Application Default Credentials; no service-account key.
 provider "google" {}
+
+# Native AWS operator authentication; runtime federation is a separate identity.
+provider "aws" {
+  region = var.aws_gateway.region
+}

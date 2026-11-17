@@ -1,3 +1,24 @@
+data "aws_caller_identity" "current" {}
+
+# Native policy construction pins invocation to the reviewed profile and destinations.
+data "aws_iam_policy_document" "gateway" {
+  statement {
+    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = ["arn:aws:bedrock:${var.aws_gateway.region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.aws_gateway.inference_profile}"]
+  }
+
+  statement {
+    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = [for region in var.aws_gateway.destination_regions : "arn:aws:bedrock:${region}::foundation-model/${trimprefix(var.aws_gateway.inference_profile, "eu.")}"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "bedrock:InferenceProfileArn"
+      values   = ["arn:aws:bedrock:${var.aws_gateway.region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.aws_gateway.inference_profile}"]
+    }
+  }
+}
+
 data "azurerm_client_config" "current" {}
 
 data "azurerm_container_registry" "existing" {
@@ -444,4 +465,16 @@ module "google_gateway" {
     audience = each.value.audience
     subject  = "system:serviceaccount:litellm:litellm"
   }
+}
+
+# Cluster-dependent runtime trust; does not adopt existing GitHub OIDC/CI roles.
+module "aws_gateway" {
+  source = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/aws/workload-identity?ref=f0a69cc8bd7a8e9f119777c5dc10998f0cf25ea6"
+  name   = var.aws_gateway.role_name
+  trust = {
+    issuer   = module.aks.oidc_issuer_url
+    audience = "sts.amazonaws.com"
+    subject  = "system:serviceaccount:litellm:litellm"
+  }
+  policy = data.aws_iam_policy_document.gateway.json
 }

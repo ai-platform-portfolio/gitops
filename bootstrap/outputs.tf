@@ -88,6 +88,9 @@ output "platform_settings" {
       ACME_EMAIL               = var.platform.acme_email
       CLUSTER_NAME             = var.platform.cluster_name
 
+      CI_PUBLISHER_PRINCIPAL_ID = data.azuread_service_principal.ci_publisher.object_id
+      AWS_GATEWAY_ROLE_ARN      = module.aws_gateway.role_arn
+
       GOOGLE_GATEWAY_PROJECT  = var.google_gateway == null ? "" : var.google_gateway.project_id
       GOOGLE_GATEWAY_PROVIDER = try(module.google_gateway["gateway"].provider, "")
       GOOGLE_GATEWAY_ACCOUNT  = var.google_gateway == null ? "" : var.google_gateway.service_account_email

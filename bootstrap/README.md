@@ -608,9 +608,50 @@ offline CI validation does not establish those permissions.
 `make aks-plan`/`make aks-up` include this module. Its AKS issuer dependency orders
 trust after cluster creation and before cluster destruction. The existing context
 publisher delivers the non-secret provider resource name, account, project and JWT
-audience. It does not enable models. Removing this root deletes its trust only;
+audience. Routes remain gated on their complete metadata and platform enable flags. Removing this root deletes its trust only;
 it must not import or delete the external pool/account.
 
 Review a real plan before apply: expect exactly two new Google resources plus
 foundation runtime metadata, with no project/API/role/pool/account/network change.
 No live plan/apply or Google inference is established by source/mock validation.
+
+
+### Bedrock runtime trust and hosted delivery admission
+
+`aws_gateway` supplies the reviewed Paris Sonnet EU profile and six destination
+Regions. Bootstrap owns exactly three new IAM objects: the AKS issuer provider,
+a dedicated gateway role and its inline inference policy. Existing GitHub OIDC,
+`model-gateway-plan` and `model-gateway-apply` roles retain their current owner.
+The inline policy admits the selected inference profile and conditions access to
+its destination foundation models on `bedrock:InferenceProfileArn`; it does not
+grant global/US profiles, direct model invocation or Marketplace subscriptions.
+
+Use native AWS provider authentication, for example an operator shell with
+`AWS_PROFILE=model-gateway`. Do not check a profile or access key into the provider.
+The current login was a root session during read-only inspection; review the
+operator execution identity with the real plan before apply. It is separate from
+the restricted runtime role. Google ADC and Azure operator authentication remain
+required for their existing resources. Offline validation does not prove live
+operator permission or runtime federation.
+
+Normal AKS targets include both provider trust modules. A native refresh-only
+apply then updates aggregate outputs without live resource mutations, so targeted
+startup cannot publish stale provider references. The existing startup
+publisher carries role/reference metadata into the platform root; short-lived
+projected runtime credentials stay in the proxy pod. The issuer dependencies
+order cleanup before AKS deletion. No AWS compute, new model deployment, account,
+provider key or controller is provisioned.
+
+The existing CI publisher object ID is supplied as public runtime metadata. The
+platform renders a reader for one public LiteLLM ConfigMap and an Argo registrar
+Role in `argocd`. Application create/patch grants platform deployment authority,
+including other Applications in that namespace; no Application-spec restriction
+is implied by this Role. The reviewed boundary grants no Secret reads or deletion.
+
+Source changes do not accept model terms or promote a consumer. First Bedrock
+invocation can accept an EULA/start a Marketplace subscription; review that action
+before testing. Keep serving/default selectors and demo20 unchanged until their
+separate acceptance/promotion checkpoints. Review the plan for only the three AWS
+creates and required metadata changes; unrelated resource/network changes stop
+this milestone. Required AWS egress is HTTPS to regional Paris STS and Bedrock
+runtime. No firewall, DNS, VNet, peering or public-inbound modification is included.
