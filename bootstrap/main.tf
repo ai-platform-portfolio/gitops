@@ -70,7 +70,8 @@ data "azurerm_key_vault_secret" "aks_api_ranges" {
 
 locals {
   argocd_hostname = "${var.argocd.dns_label}.${var.dns.zone.name}"
-  foundry_name    = "${var.foundry.name_prefix}-${terraform_data.foundry_spinup_date.output}-${random_integer.foundry_index.result}"
+  foundry_suffix  = "${terraform_data.foundry_spinup_date.output}-${random_integer.foundry_index.result}"
+  foundry_name    = "${var.foundry.name_prefix}-${local.foundry_suffix}"
 
   # The ConfigMap remains readable YAML; Terraform fills only deployment context.
   argocd_configmap = yamldecode(templatefile("${path.module}/${var.argocd.configmap_file}", {
@@ -456,9 +457,10 @@ module "google_gateway" {
   for_each = var.google_gateway == null ? {} : { gateway = var.google_gateway }
   source   = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/gcp/workload-identity-provider?ref=59a0521cd6dee12d187d3af9636bf45f86986ef6"
 
+  # Google reserves deleted provider IDs; reuse this platform's existing suffix.
   project_id            = each.value.project_id
   pool_id               = each.value.pool_id
-  provider_id           = each.value.provider_id
+  provider_id           = "${each.value.provider_id}-${local.foundry_suffix}"
   service_account_email = each.value.service_account_email
   trust = {
     issuer   = module.aks.oidc_issuer_url

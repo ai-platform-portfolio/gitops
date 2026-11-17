@@ -605,6 +605,14 @@ Authenticate the native Google provider through Application Default Credentials
 helper is required. Google authentication is required for trust plan/apply/destroy;
 offline CI validation does not establish those permissions.
 
+`google_gateway.provider_id` is the provider-name prefix (at most 14 characters).
+Bootstrap appends the existing Foundry spin-up date and random index, producing
+`<provider_id>-<YYYYMMDD>-<index>` within Google's 32-character limit. Retries and
+partial applies keep the same suffix; a full teardown/rebuild produces a new one.
+This avoids reusing a name that Google reserves during its 30-day provider
+soft-delete period, without another random resource. The shared Terraform module
+still receives the complete provider ID; the external pool/account are unchanged.
+
 `make aks-plan`/`make aks-up` include this module. Its AKS issuer dependency orders
 trust after cluster creation and before cluster destruction. The existing context
 publisher delivers the non-secret provider resource name, account, project and JWT
