@@ -560,36 +560,16 @@ seeds the platform once; normal Argo package health replaces the former
 SonarQube-specific two-stage preparation. Existing SonarQube Entra objects remain
 under their existing ownership.
 
-## CI backend permission
+## Persistent CI permissions
 
-`ci_publisher.backend_storage_account` selects the existing persistent backend
-account for a Storage Blob Data Contributor grant to the same existing CI SPN as
-the Foundry publisher grant. The scope is the storage account; no account key,
-container, state backend or identity is created. Actual backend initialization
-settings stay in ignored `backend.local.hcl`.
-
-The grant is included in the existing full, AKS and Foundry startup paths.
-A full `make down` removes this Terraform-owned assignment while preserving the
-external backend account. The portfolio remains running, but CI state access is
-unavailable until bootstrap restores the grant. This is normal bootstrap ownership,
-not a retained-permission mechanism. Merge and apply the grant before rerunning
-the failed portfolio PR plan; source/CI validation alone does not grant access.
-
-The same SPN also receives Reader on each existing configured registry, since
-AcrPush authorizes images but not the ARM registry metadata lookup used by plans.
-These registry-scoped grants follow the same bootstrap startup/teardown lifecycle.
-
-CI grants now use one `azurerm_role_assignment.ci_publisher` for_each over
-`ci_publisher.role_assignments`. Each map entry selects an existing role scope
-and built-in role name. The user explicitly selected subscription Contributor
-for CI deployment. Moved blocks preserve all four existing assignment IDs.
-Contributor excludes IAM role-assignment writes; it is not an IAM-admin grant.
-
-The user now supplies subscription Owner externally. The redundant CI Contributor
-and ACR Reader grants have been removed; Owner is not adopted into Terraform.
-Backend Blob Data Contributor remains necessary for OIDC blob data access, which
-Owner alone does not grant. The pre-existing Foundry grant is unchanged.
-
+The existing CI publisher's Foundry Project Manager and backend Storage Blob Data
+Contributor grants are owned by the `.github` repository's
+[`portfolio/terraform/ci-access`](https://github.com/ai-platform-portfolio/.github/tree/main/portfolio/terraform/ci-access)
+root, with independent persistent state. Bootstrap owns no CI publisher Azure
+role assignments, registration or federation. It retains only the existing
+read-only principal reference for cluster-local delivery RBAC. Disposable `make down` must not remove
+these grants or the external backend account/container. The externally supplied
+Owner and registry roles retain their existing ownership.
 
 ### Google trust for the LiteLLM provider
 

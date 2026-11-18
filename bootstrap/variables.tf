@@ -7,17 +7,9 @@ variable "container_registries" {
 }
 
 variable "ci_publisher" {
-  description = "Existing GitHub CI SPN, backend account reference and explicit scoped roles."
+  description = "Existing CI principal reference for cluster-local delivery RBAC; Azure grants live in the persistent portfolio root."
   type = object({
     service_principal_display_name = string
-    backend_storage_account = object({
-      name                = string
-      resource_group_name = string
-    })
-    role_assignments = map(object({
-      scope                = string
-      role_definition_name = string
-    }))
   })
 }
 
