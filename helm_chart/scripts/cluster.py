@@ -613,6 +613,24 @@ class Cluster:
                     wait_for(applications_gone, 'Waiting for registered applications and PostDelete cleanup')
                 apps = self.objects('applications.argoproj.io', 'argocd')
 
+        # Hosted consumers register directly rather than through an ApplicationSet.
+        # Their shared-chart label is the ownership contract; retain Argo's native
+        # finalizer/PostDelete cleanup before checking shared dependencies.
+        standalone = [a for a in apps
+                      if a['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/registration') == 'true'
+                      and not a['metadata'].get('ownerReferences')]
+        for app in standalone:
+            metadata = app['metadata']
+            if ('resources-finalizer.argocd.argoproj.io' not in metadata.get('finalizers', [])
+                    or app.get('spec', {}).get('destination', {}).get('server') != 'https://kubernetes.default.svc'):
+                raise RuntimeError(f"Cannot safely drain standalone registration {metadata['name']}: "
+                                   'verify local destination and cascading cleanup')
+        if standalone:
+            suspend(standalone)
+            self.delete('applications.argoproj.io', [a['metadata']['name'] for a in standalone],
+                        'argocd', foreground=True)
+            apps = self.objects('applications.argoproj.io', 'argocd')
+
         if any(a['metadata']['name'] in {'postgres', 'atlas-operator'} for a in apps):
             apis = set(run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines())
             # Atlas CR deletion does not remove SQL roles or databases. Finish
