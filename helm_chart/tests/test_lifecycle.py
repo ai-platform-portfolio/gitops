@@ -26,7 +26,8 @@ class FoundryDeliveryTests(unittest.TestCase):
         self.tools = Path(directory.name)
         self.log = self.tools / 'commands.log'
         self.env = {**os.environ, 'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
-                    'COMMAND_LOG': str(self.log), 'FAIL_ON': '', 'WORKFLOW': '81 active', 'RUN_ID': '912'}
+                    'COMMAND_LOG': str(self.log), 'FAIL_ON': '', 'WORKFLOW': '81 active', 'RUN_ID': '912',
+                    'WATCH_MODE': '', 'WATCH_COUNT': str(self.tools / 'watch-count')}
         gh = self.tools / 'gh'
         gh.write_text('''#!/bin/sh
 printf '%s\\n' "$*" >> "$COMMAND_LOG"
@@ -38,12 +39,23 @@ case "$*" in
   'api --paginate orgs/'*) printf 'example-org/catalog\\nexample-org/other\\n';;
   'api --paginate repos/example-org/catalog/'*) printf '%s\\n' "$WORKFLOW";;
   'api --method POST '*) printf '%s\\n' "$RUN_ID";;
+  'run watch '*)
+    count=$(cat "$WATCH_COUNT" 2>/dev/null || echo 0)
+    count=$((count + 1)); echo "$count" > "$WATCH_COUNT"
+    case "$WATCH_MODE:$count" in
+      missing:*|once:1) echo 'failed to get run: HTTP 404: Not Found' >&2; exit 1;;
+      forbidden:*) echo 'failed to get run: HTTP 403: Forbidden' >&2; exit 1;;
+    esac;;
 esac
 ''')
         gh.chmod(0o700)
+        sleep = self.tools / 'sleep'
+        sleep.write_text('#!/bin/sh\nprintf "sleep %s\\n" "$*" >> "$COMMAND_LOG"\n')
+        sleep.chmod(0o700)
 
     def run_delivery(self, **settings):
         self.log.write_text('')
+        Path(self.env['WATCH_COUNT']).unlink(missing_ok=True)
         result = subprocess.run(['make', 'foundry-agents-up'], cwd=self.root,
                                 env={**self.env, **settings}, capture_output=True, text=True, timeout=10)
         return result, self.log.read_text().splitlines()
@@ -67,6 +79,17 @@ esac
                 self.assertNotEqual(result.returncode, 0)
                 if settings.get('FAIL_ON') != 'run watch':
                     self.assertFalse(any(c.startswith('run watch') for c in commands))
+                else:
+                    self.assertEqual(sum(c.startswith('run watch') for c in commands), 1)
+
+    def test_only_initial_run_not_found_retries_without_redispatch(self):
+        for mode, watches, success in [('once', 2, True), ('missing', 3, False), ('forbidden', 1, False)]:
+            with self.subTest(mode=mode):
+                result, commands = self.run_delivery(WATCH_MODE=mode)
+                self.assertEqual(result.returncode == 0, success, result.stderr)
+                self.assertEqual(sum(c.startswith('api --method POST') for c in commands), 1)
+                self.assertEqual(commands.count('run watch 912 --repo example-org/catalog --exit-status'), watches)
+                self.assertEqual(commands.count('sleep 5'), watches - 1)
 
     def test_startup_orders_delivery_after_configuration_and_platform_readiness(self):
         for target in ('foundry-up', 'aks-up', 'up'):
