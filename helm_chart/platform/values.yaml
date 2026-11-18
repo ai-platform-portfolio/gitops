@@ -282,7 +282,7 @@ litellm:
     location: eu
     gemini: gemini-3.8-flash
   bedrock:
-    enabled: true # Role metadata gates rendering until the foundation is applied.
+    enabled: false # Await AWS account access and live provider acceptance; retain EU wiring.
     region: eu-west-3
     claude: eu.anthropic.claude-sonnet-5-5
   access:
