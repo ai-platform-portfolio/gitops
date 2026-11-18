@@ -32,7 +32,7 @@ data "azuread_group" "aks_admin" {
   display_name = var.aks.admin_group.display_name
 }
 
-# Reuse the existing GitHub CI publisher; its registration and federation remain external.
+# Read the existing publisher only for cluster-local delivery RBAC metadata.
 data "azuread_service_principal" "ci_publisher" {
   display_name = var.ci_publisher.service_principal_display_name
 }
@@ -49,11 +49,6 @@ data "azurerm_dns_zone" "existing" {
 data "azurerm_storage_account" "platform" {
   name                = var.platform.storage.account_name
   resource_group_name = var.platform.storage.resource_group_name
-}
-
-data "azurerm_storage_account" "terraform_backend" {
-  name                = var.ci_publisher.backend_storage_account.name
-  resource_group_name = var.ci_publisher.backend_storage_account.resource_group_name
 }
 
 data "azurerm_key_vault" "platform" {
@@ -81,12 +76,11 @@ locals {
   }))
 
   role_scopes = merge({
-    subscription      = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
-    resource_group    = azurerm_resource_group.this.id
-    dns_zone          = data.azurerm_dns_zone.existing.id
-    key_vault         = data.azurerm_key_vault.platform.id
-    storage_account   = data.azurerm_storage_account.platform.id
-    terraform_backend = data.azurerm_storage_account.terraform_backend.id
+    subscription    = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
+    resource_group  = azurerm_resource_group.this.id
+    dns_zone        = data.azurerm_dns_zone.existing.id
+    key_vault       = data.azurerm_key_vault.platform.id
+    storage_account = data.azurerm_storage_account.platform.id
   }, { for name, registry in data.azurerm_container_registry.existing : "registry_${name}" => registry.id })
 }
 
@@ -216,29 +210,6 @@ module "aks" {
 
   tags = var.azure.tags
 }
-
-# Existing CI SPN: caller-selected roles at declared scopes, one assignment each.
-resource "azurerm_role_assignment" "ci_publisher" {
-  for_each             = var.ci_publisher.role_assignments
-  scope                = local.role_scopes[each.value.scope]
-  role_definition_name = each.value.role_definition_name
-  principal_id         = data.azuread_service_principal.ci_publisher.object_id
-  principal_type       = "ServicePrincipal"
-}
-
-moved {
-  from = azurerm_role_assignment.ci_publisher_foundry
-  to   = azurerm_role_assignment.ci_publisher["foundry"]
-}
-
-moved {
-  from = azurerm_role_assignment.ci_publisher_backend
-  to   = azurerm_role_assignment.ci_publisher["backend"]
-}
-
-
-
-
 
 module "identities" {
   for_each            = { for key, identity in var.identities : key => identity if key != "aso" }
