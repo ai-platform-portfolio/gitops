@@ -73,6 +73,8 @@ foundry-up: aks-up
 # existing native workflow convention, never an app list or agent definition here.
 foundry-agents-up:
 	@set -eu; \
+	  watch_error="$$(mktemp)"; \
+	  trap 'rm -f "$$watch_error"' EXIT; \
 	  organization="$$(gh repo view --json owner --jq .owner.login)"; \
 	  repositories="$$(gh api --paginate "orgs/$$organization/repos?per_page=100" --jq '.[] | select(.archived == false and .fork == false) | .full_name')"; \
 	  for repository in $$repositories; do \
@@ -84,7 +86,15 @@ foundry-agents-up:
 	      -f ref=main -f 'inputs[operation]=deploy' -F return_run_details=true --jq .workflow_run_id)"; \
 	    case "$$run_id" in ''|*[!0-9]*) echo "Missing deployment run ID: $$repository" >&2; exit 1;; esac; \
 	    echo "Waiting for https://github.com/$$repository/actions/runs/$$run_id"; \
-	    gh run watch "$$run_id" --repo "$$repository" --exit-status; \
+	    for watch_attempt in 1 2 3; do \
+	      if gh run watch "$$run_id" --repo "$$repository" --exit-status 2>"$$watch_error"; then cat "$$watch_error" >&2; break; fi; \
+	      cat "$$watch_error" >&2; \
+	      test "$$watch_attempt" -lt 3 || exit 1; \
+	      case "$$(cat "$$watch_error")" in \
+	        *'failed to get run: HTTP 404:'*) sleep 5;; \
+	        *) exit 1;; \
+	      esac; \
+	    done; \
 	  done
 
 postgres-plan: init
