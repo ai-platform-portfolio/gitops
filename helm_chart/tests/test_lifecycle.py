@@ -653,6 +653,96 @@ class TeardownTests(unittest.TestCase):
         self.assertEqual(deleted, ['repository-discovery', 'postgres', 'platform'])
         self.assertIn(unrelated, apps)
 
+    def test_standalone_registration_finishes_cleanup_before_dependency_guards(self):
+        for retry in [False, True]:
+            with self.subTest(retry=retry):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                consumer = {'metadata': {'name': 'example-hosted', 'labels': {
+                    'platform.ai-platform-portfolio/registration': 'true'},
+                    'finalizers': ['resources-finalizer.argocd.argoproj.io']},
+                    'spec': {'destination': {'server': 'https://kubernetes.default.svc'}}}
+                if retry:
+                    consumer['metadata']['deletionTimestamp'] = 'now'
+                postgres = {'metadata': {'name': 'postgres', 'labels': {
+                    'platform.ai-platform-portfolio/managed': 'true'}}}
+                aso = {'metadata': {'name': 'azure-service-operator', 'labels': {
+                    'platform.ai-platform-portfolio/managed': 'true'}}}
+                unrelated = {'metadata': {'name': 'unrelated'}}
+                apps = self.tracked_platform([postgres, aso]) + [consumer, unrelated]
+                events = []
+
+                def objects(kind, namespace=None):
+                    if kind == 'applications.argoproj.io':
+                        return list(apps)
+                    if kind == 'atlasschemas.db.atlasgo.io':
+                        self.assertNotIn(consumer, apps, 'Dependency guard ran before PostDelete completed')
+                        events.append('guard')
+                    return []
+
+                def command(*args, **kwargs):
+                    if 'api-resources' in args:
+                        return 'applications.argoproj.io\natlasschemas.db.atlasgo.io'
+                    if 'delete' in args:
+                        name = args[args.index('delete') + 2]
+                        events.append(name)
+                        if name == 'example-hosted':
+                            self.assertIn('--cascade=foreground', args)
+                            consumer['metadata']['deletionTimestamp'] = 'now'
+                        else:
+                            apps[:] = [a for a in apps if a['metadata']['name'] != name]
+                    return ''
+
+                def finish_cleanup():
+                    self.assertIn(consumer, apps)
+                    self.assertNotIn('guard', events)
+                    apps.remove(consumer)  # Native finalizer/PostDelete completes after deletion starts.
+
+                cluster.objects = Mock(side_effect=objects)
+                with patch('helm_chart.scripts.cluster.run', side_effect=command), \
+                     patch('helm_chart.scripts.cluster.time.sleep', side_effect=lambda _: finish_cleanup()):
+                    cluster.cleanup()
+                self.assertLess(events.index('example-hosted'), events.index('guard'))
+                self.assertLess(events.index('guard'), events.index('azure-service-operator'))
+                self.assertIn(unrelated, apps)
+
+    def test_unsafe_standalone_registration_preserves_dependencies(self):
+        for unsafe in ['missing-finalizer', 'remote-destination']:
+            with self.subTest(unsafe=unsafe):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube = ['kubectl']
+                cluster.hub = None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                consumer = {'metadata': {'name': 'example-hosted', 'labels': {
+                    'platform.ai-platform-portfolio/registration': 'true'},
+                    'finalizers': [] if unsafe == 'missing-finalizer' else ['resources-finalizer.argocd.argoproj.io']},
+                    'spec': {'destination': {'server': 'https://other-cluster' if unsafe == 'remote-destination'
+                                            else 'https://kubernetes.default.svc'}}}
+                cluster.objects = Mock(return_value=[consumer])
+                cluster.delete = Mock()
+                with self.assertRaisesRegex(RuntimeError, 'Cannot safely drain standalone registration'):
+                    cluster.cleanup()
+                cluster.delete.assert_not_called()
+
+    def test_standalone_cleanup_timeout_preserves_dependencies(self):
+        cluster = Cluster.__new__(Cluster)
+        cluster.kube = ['kubectl']
+        cluster.hub = None
+        cluster.settings = {'cluster': {'role': 'management'}}
+        consumer = {'metadata': {'name': 'example-hosted', 'labels': {
+            'platform.ai-platform-portfolio/registration': 'true'},
+            'finalizers': ['resources-finalizer.argocd.argoproj.io']},
+            'spec': {'destination': {'server': 'https://kubernetes.default.svc'}}}
+        cluster.objects = Mock(return_value=[consumer])
+        cluster.delete = Mock(side_effect=TimeoutError('Waiting for PostDelete'))
+        with patch('helm_chart.scripts.cluster.run', return_value=''), \
+             self.assertRaisesRegex(TimeoutError, 'PostDelete'):
+            cluster.cleanup()
+        cluster.delete.assert_called_once_with('applications.argoproj.io', ['example-hosted'],
+                                               'argocd', foreground=True)
+
     def test_deleting_atlas_hooks_finish_before_platform_deletion(self):
         cluster = Cluster.__new__(Cluster)
         cluster.kube = ['kubectl']
