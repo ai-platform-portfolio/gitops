@@ -104,7 +104,9 @@ Sources: [Redis release](https://github.com/redis/redis/releases/tag/8.10.3),
 When `litellm.enabled` is true, the shared service also creates a distinct
 `litellm` certificate/ACL identity restricted to `litellm:*` keys/channels. The
 proxy uses this store for coordination, without enabling response caching or
-sharing Langfuse's credentials. Its ACL permits only `SUBSCRIBE`, `UNSUBSCRIBE`
+sharing Langfuse's credentials. `TIME` is explicitly allowed because LiteLLM's
+rate-limit Lua scripts use the Redis server clock; missing permission causes
+requests to fail closed. Its ACL permits only `SUBSCRIBE`, `UNSUBSCRIBE`
 and `PUBLISH` from the pub/sub commands for native key-cache invalidation and
 configuration notifications. Channels remain restricted to `litellm:*`; no
 pub/sub command category or wider channel access is granted. The existing Redis

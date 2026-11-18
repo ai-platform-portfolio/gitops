@@ -629,6 +629,10 @@ def main():
             'maxmemory-policy noeviction', 'appendonly yes', 'appendfsync everysec', 'user default reset off',
             'user redis-probe reset on resetpass +ping'])
         assert '~langfuse:* &langfuse:*' in config and '-@dangerous -@admin' in config and 'nopass' not in config
+        gateway_acl = next(line.split() for line in config.splitlines() if line.startswith('user litellm '))
+        assert '+time' in gateway_acl, 'LiteLLM rate-limit Lua scripts require Redis TIME'
+        assert {'~litellm:*', '&litellm:*', '-@dangerous', '-@admin'} <= set(gateway_acl)
+        assert not {'+@all', '~*', '&*'} & set(gateway_acl), 'Keep the gateway ACL isolated'
         certificate_app = next(a for a in applications if a['metadata']['name'] == 'redis-certificates')
         certs = list(yaml.safe_load_all(certificate_app['spec']['source']['helm']['valuesObject']['manifests']))
         leaves = [d for d in certs if d['kind'] == 'Certificate' and not d['spec'].get('isCA')]
@@ -1185,7 +1189,8 @@ def main():
                 'GOOGLE_GATEWAY_AUDIENCE': 'api://litellm-google',
                 'GOOGLE_GATEWAY_PROVIDER': 'projects/123456789/locations/global/workloadIdentityPools/existing/providers/aks-litellm' if google_enabled else '',
                 'AWS_GATEWAY_ROLE_ARN': 'arn:aws:iam::123456789012:role/example-gateway' if bedrock_enabled else ''}
-            values.write_text(json.dumps({'runtime': provider_runtime}))
+            values.write_text(json.dumps({'runtime': provider_runtime, 'litellm': {
+                'google': {'enabled': google_enabled}, 'bedrock': {'enabled': bedrock_enabled}}}))
             provider_apps = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/litellm.yaml')) if d]
             provider_values = next(a for a in provider_apps if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']
             provider_resources = [d for a in provider_apps for d in yaml.safe_load_all(a['spec']['source']['helm']['valuesObject'].get('manifests', '')) if d]
@@ -1224,8 +1229,8 @@ def main():
                 assert {k: mixed[k] for k in ('maxBudget', 'budgetDuration', 'rpm', 'tpm', 'parallel')} == {'maxBudget': 10, 'budgetDuration': '30d', 'rpm': 20, 'tpm': 50000, 'parallel': 2}
                 assert {k: v['model'] for k, v in mixed['capabilities'].items()} == {'default': 'reasoning', 'coding': 'claude', 'embedding': 'embedding'}
             assert provider_values['proxy_config']['router_settings'] == {'num_retries': 0, 'fallbacks': [], 'context_window_fallbacks': []}
-        # Explicitly disabled providers must omit routes, tokens and admission policies even with metadata.
-        values.write_text(json.dumps({'runtime': provider_runtime, 'litellm': {'google': {'enabled': False}, 'bedrock': {'enabled': False}}}))
+        # Bedrock stays disabled by default even when its foundation metadata is present.
+        values.write_text(json.dumps({'runtime': provider_runtime, 'litellm': {'google': {'enabled': False}}}))
         disabled_providers = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/litellm.yaml')) if d]
         disabled_values = next(a for a in disabled_providers if a['metadata']['name'] == 'litellm')['spec']['source']['helm']['valuesObject']
         assert {m['model_name'] for m in disabled_values['proxy_config']['model_list']} == {'chat', 'reasoning', 'coding', 'embedding'}
