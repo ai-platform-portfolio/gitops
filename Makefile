@@ -6,12 +6,17 @@ TERRAFORM ?= terraform
 TFVARS ?= $(BOOTSTRAP_DIR)/terraform.tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
+# Installed by the persistent workforce foundation; callers may select another
+# native profile, or set AWS_PROFILE= to use environment/workload credentials.
+AWS_PROFILE ?= model-gateway
+export AWS_PROFILE
+
 # Full in-cluster bootstrap, excluding Azure PostgreSQL and APIM provisioning.
 AKS_TARGETS := -target=module.aks -target=module.argocd -target=module.foundry \
   -target=module.identities -target=module.aso_identity -target=module.google_gateway -target=module.aws_gateway \
   -target=azurerm_storage_container.platform
 
-.PHONY: help init plan foundry-plan foundry-up foundry-agents-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight
+.PHONY: help init plan foundry-plan foundry-up foundry-agents-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight aws-preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -61,7 +66,7 @@ init:
 	@test -f "$(BACKEND_CONFIG)" || { printf 'Backend config not found: %s; see README\n' "$(BACKEND_CONFIG)" >&2; exit 1; }
 	$(call run_terraform,init -input=false -backend-config="$(BACKEND_CONFIG)")
 
-plan: init
+plan: aws-preflight init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)")
 
 foundry-plan: aks-plan
@@ -97,16 +102,16 @@ foundry-agents-up:
 	    done; \
 	  done
 
-postgres-plan: init
+postgres-plan: aws-preflight init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" -target=module.postgres)
 
-postgres-up: init
+postgres-up: aws-preflight init
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" -target=module.postgres)
 
-aks-plan: init
+aks-plan: aws-preflight init
 	$(call run_terraform,plan -input=false -var-file="$(TFVARS)" $(AKS_TARGETS))
 
-aks-up: preflight init
+aks-up: preflight aws-preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)" $(AKS_TARGETS))
 	# Targeted applies can retain old aggregate outputs; refresh metadata without mutating resources.
@@ -116,7 +121,7 @@ aks-up: preflight init
 	$(MAKE) context
 	$(MAKE) foundry-agents-up
 
-up: preflight init
+up: preflight aws-preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
 	$(call run_terraform,apply -input=false -auto-approve -var-file="$(TFVARS)")
 	$(publish_foundry_config)
@@ -135,7 +140,7 @@ context: preflight init
 	  kubelogin convert-kubeconfig --kubeconfig "$$kubeconfig" --context "$$cluster_name" -l azurecli && \
 	  kubectl --kubeconfig "$$kubeconfig" config use-context "$$cluster_name"
 
-down: preflight init
+down: preflight aws-preflight init
 	$(PYTHON) helm_chart/scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)" --tfvars "$(TFVARS)"
 	$(call run_terraform,destroy -input=false -auto-approve -var-file="$(TFVARS)")
 
@@ -145,3 +150,10 @@ validate:
 
 preflight:
 	@for tool in "$(TERRAFORM)" az kubectl kubelogin "$(PYTHON)"; do command -v "$$tool" >/dev/null || { printf 'Missing tool: %s\n' "$$tool" >&2; exit 1; }; done
+
+# STS uses native cached credentials/refresh. Authentication is operator setup,
+# never an interactive fallback inside provisioning or destructive cleanup.
+aws-preflight:
+	@command -v aws >/dev/null || { printf 'Missing tool: aws\n' >&2; exit 1; }
+	@aws sts get-caller-identity --query Arn --output text >/dev/null || { \
+	  printf 'AWS authentication unavailable. Complete persistent workforce setup and authorize SSO separately. No login or provisioning was started.\n' >&2; exit 1; }

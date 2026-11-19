@@ -614,12 +614,22 @@ The inline policy admits the selected inference profile and conditions access to
 its destination foundation models on `bedrock:InferenceProfileArn`; it does not
 grant global/US profiles, direct model invocation or Marketplace subscriptions.
 
-Use native AWS provider authentication, for example an operator shell with
-`AWS_PROFILE=model-gateway`. Do not check a profile or access key into the provider.
-The current login was a root session during read-only inspection; review the
-operator execution identity with the real plan before apply. It is separate from
-the restricted runtime role. Google ADC and Azure operator authentication remain
-required for their existing resources. Offline validation does not prove live
+Lifecycle commands default `AWS_PROFILE` to `model-gateway`, installed from the
+persistent [workforce foundation](https://github.com/ai-platform-portfolio/.github/tree/main/portfolio/terraform/workforce-identity).
+That foundation owns repeatable profile installation and the one-time Entra/SSO
+handoff; disposable bootstrap does not create its own operator identity or grants.
+After that setup and initial authorization, use plain `make aks-up` or `make down`.
+Native AWS authentication refreshes cached SSO tokens/role credentials within the
+effective session lifetime. The preflight performs a quiet STS identity check
+before Terraform init/apply and before any Kubernetes teardown. Unavailable
+authentication stops the command without starting login or opening a browser.
+
+An explicit `AWS_PROFILE=other-profile` overrides the default; `AWS_PROFILE=` uses
+native environment/workload credentials instead. No profile metadata or access
+key is embedded in the provider. Initial SSO authorization/session renewal is an
+explicit operator step outside deployment, never a fallback to root login.
+Google ADC and Azure operator authentication remain required for their existing
+resources. Offline validation does not prove live
 operator permission or runtime federation.
 
 Normal AKS targets include both provider trust modules. A native refresh-only
