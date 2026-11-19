@@ -614,11 +614,11 @@ The inline policy admits the selected inference profile and conditions access to
 its destination foundation models on `bedrock:InferenceProfileArn`; it does not
 grant global/US profiles, direct model invocation or Marketplace subscriptions.
 
-Use native AWS provider authentication, for example an operator shell with
-`AWS_PROFILE=model-gateway`. Do not check a profile or access key into the provider.
-The current login was a root session during read-only inspection; review the
-operator execution identity with the real plan before apply. It is separate from
-the restricted runtime role. Google ADC and Azure operator authentication remain
+Make defaults to the existing native `model-gateway` AWS profile. Authenticate
+separately with native AWS SSO; lifecycle commands do not start login or open a
+browser. Use `AWS_PROFILE=other-profile` to override it, or `AWS_PROFILE=` for
+environment/workload credentials. Do not check profiles or access keys into the
+provider. Google ADC and Azure operator authentication remain
 required for their existing resources. Offline validation does not prove live
 operator permission or runtime federation.
 

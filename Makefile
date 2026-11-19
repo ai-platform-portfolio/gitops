@@ -6,6 +6,10 @@ TERRAFORM ?= terraform
 TFVARS ?= $(BOOTSTRAP_DIR)/terraform.tfvars
 BACKEND_CONFIG ?= $(BOOTSTRAP_DIR)/backend.local.hcl
 
+# Use the existing native operator profile; AWS_PROFILE= allows environment auth.
+AWS_PROFILE ?= model-gateway
+export AWS_PROFILE
+
 # Full in-cluster bootstrap, excluding Azure PostgreSQL and APIM provisioning.
 AKS_TARGETS := -target=module.aks -target=module.argocd -target=module.foundry \
   -target=module.identities -target=module.aso_identity -target=module.google_gateway -target=module.aws_gateway \
