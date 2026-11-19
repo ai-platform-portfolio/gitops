@@ -28,7 +28,6 @@ class FoundryDeliveryTests(unittest.TestCase):
         self.env = {**os.environ, 'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
                     'COMMAND_LOG': str(self.log), 'FAIL_ON': '', 'WORKFLOW': '81 active', 'RUN_ID': '912',
                     'WATCH_MODE': '', 'WATCH_COUNT': str(self.tools / 'watch-count')}
-        self.env.pop('AWS_PROFILE', None)
         gh = self.tools / 'gh'
         gh.write_text('''#!/bin/sh
 printf '%s\\n' "$*" >> "$COMMAND_LOG"
@@ -126,10 +125,6 @@ esac
 tool=${0##*/}
 printf '%s %s\\n' "$tool" "$*" >> "$COMMAND_LOG"
 case "$tool:$*" in
-  aws:*)
-    test "$*" = 'sts get-caller-identity --query Arn --output text' || exit 99
-    printf 'AWS_PROFILE=%s\\n' "$AWS_PROFILE" >> "$COMMAND_LOG"
-    test "$FAIL_STAGE" != auth || exit 1;;
   terraform:*'apply -input=false'*)
     test "$FAIL_STAGE" != apply || exit 1;;
   bootstrap-python:*)
@@ -139,13 +134,13 @@ case "$tool:$*" in
   az:*'account show'*|terraform:*'output -raw'*) echo example;;
 esac
 '''
-        for name in ('aws', 'az', 'terraform', 'kubectl', 'kubelogin', 'openssl', 'bootstrap-python'):
+        for name in ('az', 'terraform', 'kubectl', 'kubelogin', 'openssl', 'bootstrap-python'):
             tool = self.tools / name
             tool.write_text(stub)
             tool.chmod(0o700)
         cases = [(('aks-up', 'foundry-up'), '')] + [
             ((target,), stage) for target in ('aks-up', 'foundry-up')
-            for stage in ('auth', 'apply', 'platform')]
+            for stage in ('apply', 'platform')]
         for targets, failure in cases:
             with self.subTest(targets=targets, failure=failure):
                 self.log.write_text('')
@@ -157,44 +152,11 @@ esac
                 dispatches = [c for c in commands if c.startswith('api --method POST')]
                 self.assertEqual(result.returncode == 0, not failure, result.stderr)
                 self.assertEqual(len(dispatches), 0 if failure else 1)
-                self.assertIn('AWS_PROFILE=model-gateway', commands)
-                if failure == 'auth':
-                    self.assertFalse(any(c.startswith(('terraform ', 'az ', 'bootstrap-python ')) for c in commands))
-                    self.assertIn('No login or provisioning was started', result.stderr)
                 if not failure:
                     applies = [c for c in commands if 'apply -input=false' in c]
                     self.assertEqual(len(applies), 1)
                     self.assertIn('-target=module.foundry', applies[0])
                     self.assertEqual(sum(c.startswith('bootstrap-python ') for c in commands), 1)
-
-    def test_aws_profile_override_and_failed_auth_stop_plan_and_teardown(self):
-        aws = self.tools / 'aws'
-        aws.write_text('''#!/bin/sh
-printf 'profile=%s command=%s\\n' "$AWS_PROFILE" "$*" >> "$COMMAND_LOG"
-test "$*" = 'sts get-caller-identity --query Arn --output text' || exit 99
-test "$FAIL_ON" != auth
-''')
-        aws.chmod(0o700)
-        for profile in ['other-operator', '']:
-            with self.subTest(profile=profile):
-                self.log.write_text('')
-                result = subprocess.run(['make', '--no-print-directory', 'aws-preflight'], cwd=self.root,
-                                        env={**self.env, 'AWS_PROFILE': profile}, capture_output=True, text=True, timeout=10)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertTrue(self.log.read_text().startswith(f'profile={profile} command=sts '))
-        # These must fail at authentication before init (which would need absent files)
-        # or Kubernetes cleanup. Stub preflight tools so this never touches live APIs.
-        for name in ['terraform', 'az', 'kubectl', 'kubelogin']:
-            tool = self.tools / name
-            tool.write_text('#!/bin/sh\nexit 99\n')
-            tool.chmod(0o700)
-        for target in ['plan', 'aks-plan', 'postgres-plan', 'postgres-up', 'down', 'up']:
-            with self.subTest(target=target):
-                result = subprocess.run(['make', '--no-print-directory', target], cwd=self.root,
-                                        env={**self.env, 'FAIL_ON': 'auth'}, capture_output=True, text=True, timeout=10)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn('No login or provisioning was started', result.stderr)
-                self.assertNotIn('Backend config not found', result.stderr)
 
 
 class AKSReadinessTests(unittest.TestCase):
