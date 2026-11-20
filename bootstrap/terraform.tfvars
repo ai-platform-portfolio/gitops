@@ -9,6 +9,7 @@ container_registries = {
 
 ci_publisher = {
   service_principal_display_name = "kubernetes-spn"
+  aks_writer_namespaces          = ["agent-catalog-sre"]
 }
 
 entra_applications = {
@@ -193,6 +194,7 @@ aks = {
   kubernetes_version  = "1.36.5"
   sku_tier            = "Standard"
   blob_driver_enabled = true
+  azure_rbac_enabled  = true
 
   admin_group = {
     display_name = "aks-platform-admins"

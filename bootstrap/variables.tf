@@ -7,9 +7,10 @@ variable "container_registries" {
 }
 
 variable "ci_publisher" {
-  description = "Existing CI principal reference for cluster-local delivery RBAC; Azure grants live in the persistent portfolio root."
+  description = "Existing CI principal and its namespace-scoped AKS delivery access."
   type = object({
     service_principal_display_name = string
+    aks_writer_namespaces          = optional(set(string), [])
   })
 }
 
@@ -164,6 +165,7 @@ variable "aks" {
     kubernetes_version  = string
     sku_tier            = optional(string, "Free")
     blob_driver_enabled = optional(bool, false)
+    azure_rbac_enabled  = optional(bool, false)
 
     # Existing, operator-owned Entra group; not part of disposable teardown.
     admin_group = object({
