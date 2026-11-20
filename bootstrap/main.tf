@@ -213,15 +213,6 @@ module "aks" {
   tags = var.azure.tags
 }
 
-resource "azurerm_role_assignment" "ci_aks_namespace_writer" {
-  for_each = var.aks.azure_rbac_enabled ? var.ci_publisher.aks_writer_namespaces : toset([])
-
-  scope                = "${module.aks.cluster_id}/namespaces/${each.key}"
-  role_definition_name = "Azure Kubernetes Service RBAC Writer"
-  principal_id         = data.azuread_service_principal.ci_publisher.object_id
-  principal_type       = "ServicePrincipal"
-}
-
 module "identities" {
   for_each            = { for key, identity in var.identities : key => identity if key != "aso" }
   source              = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/managed-identity?ref=453269ded9ea65cbc40f5ce9a240f022f8bea5bf"

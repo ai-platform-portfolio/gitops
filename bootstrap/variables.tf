@@ -7,10 +7,9 @@ variable "container_registries" {
 }
 
 variable "ci_publisher" {
-  description = "Existing CI principal and its namespace-scoped AKS delivery access."
+  description = "Existing CI principal reference for cluster-local delivery RBAC; Azure grants live in the persistent portfolio root."
   type = object({
     service_principal_display_name = string
-    aks_writer_namespaces          = optional(set(string), [])
   })
 }
 

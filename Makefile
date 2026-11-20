@@ -13,7 +13,7 @@ export AWS_PROFILE
 # Full in-cluster bootstrap, excluding Azure PostgreSQL and APIM provisioning.
 AKS_TARGETS := -target=module.aks -target=module.argocd -target=module.foundry \
   -target=module.identities -target=module.aso_identity -target=module.google_gateway -target=module.aws_gateway \
-  -target=azurerm_storage_container.platform -target=azurerm_role_assignment.ci_aks_namespace_writer
+  -target=azurerm_storage_container.platform
 
 .PHONY: help init plan foundry-plan foundry-up foundry-agents-up postgres-plan postgres-up aks-plan aks-up up down context validate preflight
 

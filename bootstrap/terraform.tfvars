@@ -9,7 +9,6 @@ container_registries = {
 
 ci_publisher = {
   service_principal_display_name = "kubernetes-spn"
-  aks_writer_namespaces          = ["agent-catalog-sre"]
 }
 
 entra_applications = {
