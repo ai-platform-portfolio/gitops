@@ -160,9 +160,10 @@ variable "aks" {
   description = "Management cluster settings and node pools keyed by pool name."
 
   type = object({
-    name               = string
-    kubernetes_version = string
-    sku_tier           = optional(string, "Free")
+    name                = string
+    kubernetes_version  = string
+    sku_tier            = optional(string, "Free")
+    blob_driver_enabled = optional(bool, false)
 
     # Existing, operator-owned Entra group; not part of disposable teardown.
     admin_group = object({

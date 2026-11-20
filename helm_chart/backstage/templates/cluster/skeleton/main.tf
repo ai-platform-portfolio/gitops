@@ -78,7 +78,7 @@ resource "azurerm_virtual_network_peering" "from_management" {
 }
 
 module "aks" {
-  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=5bbbcbf8cd2110e1e023046ade0b2e62c635b006"
+  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=0a707e09849bbf9c426cfb0014083dd14c34fded"
   name                   = var.cluster.name
   location               = azurerm_resource_group.cluster.location
   resource_group_name    = azurerm_resource_group.cluster.name
@@ -86,6 +86,7 @@ module "aks" {
   kubernetes_version     = var.cluster.kubernetes_version
   admin_group_object_ids = [var.cluster.admin_group_object_id]
   azure_rbac_enabled     = true
+  blob_driver_enabled    = true
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.api_ranges.value)
   container_registries   = { platform = data.azurerm_container_registry.platform.id }
   vnet_subnet_id         = module.network.subnet_ids["system"]

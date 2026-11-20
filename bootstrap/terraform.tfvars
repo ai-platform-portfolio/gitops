@@ -189,9 +189,10 @@ postgres = {
 }
 
 aks = {
-  name               = "aks-management"
-  kubernetes_version = "1.36.5"
-  sku_tier           = "Standard"
+  name                = "aks-management"
+  kubernetes_version  = "1.36.5"
+  sku_tier            = "Standard"
+  blob_driver_enabled = true
 
   admin_group = {
     display_name = "aks-platform-admins"
