@@ -144,4 +144,33 @@ spec:
 {{ tpl (.Files.Get "packages/litellm/key-vault.yaml") . | indent 10 }}
 
 {{ include "platform.syncPolicy" . | indent 2 }}
+---
+# Restore before the upstream proxy Application can run its PreSync migrations.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-accounting
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/managed: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "37"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: postgres
+
+  source:
+    repoURL: {{ .Values.git.repository }}
+    targetRevision: {{ .Values.git.revision | quote }}
+    path: helm_chart/charts/resources
+    helm:
+      valuesObject:
+        manifests: |
+{{ tpl (.Files.Get "packages/litellm/accounting.yaml") . | indent 10 }}
+
+{{ include "platform.syncPolicy" . | indent 2 }}
 {{- end }}

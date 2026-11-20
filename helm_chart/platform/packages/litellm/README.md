@@ -54,13 +54,55 @@ forbidden request overrides and accounting require live acceptance. A read-only
 check of the existing pinned image found positive input/output pricing for the
 selected model; this does not establish invoiced-cost reconciliation.
 
-This milestone adds no backup/recovery service. Issuer control records in Key Vault
-retain the stable owner and block reissuance if previously established accounting
-is missing; this prevents silently granting a fresh allowance after DB loss. It
-does not prove that old keys retained by a caller are rejected by a newly empty DB,
-or provide accounting restoration. A full teardown/rebuild must remain blocked for
-consumer admission until budgets/accounting are reconciled. Shared project model
-permissions remain unchanged until SRE also validates its gateway path.
+Issuer control records in Key Vault retain the stable owner and refuse missing
+established accounting with `ACCOUNTING_RESTORE_REQUIRED`. Never clear that control
+to grant a new allowance. Already-lost accounting requires trustworthy recovery
+or a separately approved conservative budget reconciliation. Shared project model
+permissions remain unchanged pending their separate consumer acceptance.
+
+### Accounting across full teardown/rebuild
+
+The package owns `accounting.yaml` and `accounting.sh`; applications keep their
+existing gateway policy intent. One ASO container, `<cluster.name>-litellm-accounting`,
+in the existing platform account uses `detach-on-delete`. It retains only LiteLLM's
+logical database and a conditional-write manifest, outside the disposable Barman
+backup destination and Terraform backend. Application databases remain disposable.
+Reuse CNPG's `platform` ServiceAccount, PostgreSQL backup identity/account-scoped
+Blob grant, and the existing LiteLLM SQL client certificate. No new identity,
+account, password or SAS is provisioned; the CA private key is never mounted.
+
+`cluster.py down` suspends credential issuers and records their stable owner IDs
+before removing registrations and running their ordinary revocation hooks. It then
+observes the single proxy worker's native shutdown, rejects restart/lost-process,
+flush-error, incomplete-drain or missing-completion evidence, and records a clean
+checkpoint. Process exit alone is insufficient: the pinned proxy catches some
+accounting flush failures and continues shutdown. Raw observed logs stay in a
+private temporary file and are never printed or retained.
+
+The lifecycle invokes the suspended `litellm-accounting-backup` CronJob template as
+an on-demand Job. It checks that no other SQL sessions remain and every recorded
+owner still exists, runs `pg_dump`, verifies upload length/SHA256 by downloading it,
+and conditionally publishes the clean manifest. Only then may teardown remove the
+proxy package, database and operators. Any failed gate preserves the database.
+Retries retain the owner/shutdown checkpoint and reuse a published snapshot.
+
+Wave37 restores before the proxy's wave40 PreSync migrations. A populated database
+is never overwritten. A pristine store can initialize once; an activated store
+with an empty database requires a clean, integrity-checked snapshot. Restore uses
+`pg_restore --single-transaction --no-owner --no-acl` and marks the manifest active
+before permitting the proxy to start. This consumes the clean handoff: unexpected
+subsequent database loss cannot silently reuse an older snapshot. Preserve the
+existing Key Vault master/salt, user IDs, spend and budget-reset dates.
+
+Keep two verified snapshots; rotate only after the replacement is verified and
+published. Interrupted pruning retains a retryable list in the manifest. Each
+dump is bounded to1GiB; a bound/timeout failure stops teardown. Job stages use the
+official pinned PostgreSQL18.6 and Azure CLI2.87.0 images, non-root/read-only
+containers and a disposable working volume. Detailed tool errors stay in that
+volume; Pod logs expose only a safe stage code. This is clean-cycle continuity,
+not point-in-time recovery from arbitrary database loss. Local native PostgreSQL
+recovery is validated separately from real Azure storage/flush and full live
+cold-cycle acceptance; source/CI success does not establish those live results.
 
 ## Dependencies and ownership
 
@@ -73,6 +115,7 @@ permissions remain unchanged until SRE also validates its gateway path.
 | 30 | postgres | CNPG database, role and PostgreSQL client certificate |
 | 30 | redis | Dedicated certificate-to-ACL user limited to `litellm:*` |
 | 35 | litellm-credentials | Runtime ServiceAccount; read-only ESO delivery of vault keys, PostgreSQL leaf and public server CA |
+| 37 | litellm-accounting | Retained accounting container, conditional restore and on-demand final backup |
 | 40 | litellm | Upstream proxy and PreSync Prisma migration Job |
 
 The credentials Application creates the token-unmounted `litellm` ServiceAccount
@@ -158,7 +201,9 @@ writable filesystem/default user; capabilities are dropped, privilege escalation
 is disabled, the seccomp profile is RuntimeDefault and the ServiceAccount does
 not mount an API token. The chart's standard migration container is used unchanged.
 
-Teardown removes the proxy before credentials, backing services and controllers.
+Teardown verifies the final accounting backup before removing the proxy,
+credentials, backing services and controllers. The accounting container remains;
+the existing general PostgreSQL backup container remains disposable.
 The writer identity, federation and role grant are removed after the consumers
 and credentials; the vault itself is never owned or deleted. The database uses
 the existing `retain` reclaim convention; disabling the package

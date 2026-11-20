@@ -273,7 +273,7 @@ def main():
             'backstage', 'backstage-credentials', 'backstage-reloader',
             'devlake', 'devlake-credentials', 'devlake-configure', 'devlake-collection', 'devlake-reloader',
             'redis', 'redis-certificates', 'redis-reloader',
-            'litellm', 'litellm-credentials', 'litellm-reloader', 'litellm-key-vault',
+            'litellm', 'litellm-credentials', 'litellm-reloader', 'litellm-key-vault', 'litellm-accounting',
         }
         assert names == expected, 'A platform Application was omitted or renamed'
         kargo_acr = next(app for app in applications if app['metadata']['name'] == 'kargo-acr')
@@ -1095,6 +1095,33 @@ def main():
         assert litellm_waves['configuration'] < litellm_waves['postgres'] < litellm_waves['litellm-credentials'] < litellm_waves['litellm']
         assert litellm_waves['litellm'] < litellm_waves['routes'], 'Inference routing requires a healthy proxy backend'
         assert litellm_waves['redis-certificates'] < litellm_waves['redis'] < litellm_waves['litellm']
+        assert litellm_waves['litellm-credentials'] < litellm_waves['litellm-accounting'] < litellm_waves['litellm']
+        accounting = [d for d in yaml.safe_load_all(litellm_apps['litellm-accounting']['spec']['source']['helm']['valuesObject']['manifests']) if d]
+        assert {d['kind'] for d in accounting} == {'StorageAccountsBlobServicesContainer', 'ConfigMap', 'Job', 'CronJob'}
+        container = next(d for d in accounting if d['kind'] == 'StorageAccountsBlobServicesContainer')
+        assert container['metadata']['annotations']['serviceoperator.azure.com/reconcile-policy'] == 'detach-on-delete'
+        assert container['spec']['publicAccess'] == 'None' and container['spec']['azureName'] == 'management-litellm-accounting'
+        assert container['spec']['owner']['armId'].endswith('/storageAccounts/example/blobServices/default')
+        restore = next(d for d in accounting if d['kind'] == 'Job')
+        backup = next(d for d in accounting if d['kind'] == 'CronJob')
+        assert backup['spec']['suspend'] is True and backup['spec']['concurrencyPolicy'] == 'Forbid'
+        for spec in (restore['spec'], backup['spec']['jobTemplate']['spec']):
+            pod = spec['template']['spec']
+            assert pod['serviceAccountName'] == 'platform' and pod['automountServiceAccountToken'] is False
+            assert pod['securityContext']['runAsNonRoot'] is True
+            assert spec['activeDeadlineSeconds'] == 900
+            assert [c['name'] for c in pod['initContainers']] == ['prepare', 'database']
+            assert [c['name'] for c in pod['containers']] == ['publish']
+            for c in pod['initContainers'] + pod['containers']:
+                assert '@sha256:' in c['image'] and c['securityContext']['readOnlyRootFilesystem'] is True
+                env = {e['name']: e.get('value') for e in c['env']}
+                assert env['AZURE_CLIENT_ID'] == runtime['POSTGRES_AZURE_CLIENT_ID']
+                assert env['PGSSLMODE'] == 'verify-full' and env['PGUSER'] == 'litellm'
+                assert 'PGPASSWORD' not in env and 'AZURE_CLIENT_SECRET' not in env
+            ca = next(v for v in pod['volumes'] if v['name'] == 'postgres-ca')['secret']
+            assert ca['items'] == [{'key': 'ca.crt', 'path': 'ca.crt'}], 'Never deliver the database CA private key'
+        checkpoint = next(d for d in accounting if d['kind'] == 'ConfigMap')
+        assert checkpoint['data']['expected-owners.json'] == '[]' and checkpoint['data']['shutdown.json'] == '{}'
         credentials = list(yaml.safe_load_all(litellm_apps['litellm-credentials']['spec']['source']['helm']['valuesObject']['manifests']))
         assert not any(d and d['kind'] in {'HTTPRoute', 'ListenerSet'} for d in credentials), 'Credentials must not wait for the later proxy Service'
         runtime_account = next(d for d in credentials if d['kind'] == 'ServiceAccount' and d['metadata']['name'] == 'litellm')

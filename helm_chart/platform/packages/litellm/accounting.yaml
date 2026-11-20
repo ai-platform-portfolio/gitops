@@ -1,0 +1,148 @@
+{{- $accounting := .Values.litellm.accounting -}}
+{{- $account := required "runtime.AZURE_STORAGE_ACCOUNT is required" .Values.runtime.AZURE_STORAGE_ACCOUNT -}}
+{{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s" (required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID) $accounting.storageResourceGroup $account -}}
+apiVersion: storage.azure.com/v20230101
+kind: StorageAccountsBlobServicesContainer
+metadata:
+  name: litellm-accounting
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+    serviceoperator.azure.com/reconcile-policy: detach-on-delete
+spec:
+  azureName: {{ printf "%s-litellm-accounting" .Values.cluster.name }}
+  owner: {armId: {{ printf "%s/blobServices/default" $scope | quote }}}
+  publicAccess: None
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-accounting
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+data:
+  accounting.sh: |
+{{ .Files.Get "packages/litellm/accounting.sh" | indent 4 }}
+  # Existing lifecycle records teardown evidence here after suspending this App.
+  expected-owners.json: '[]'
+  shutdown.json: '{}'
+
+{{- range $operation := list "restore" "backup" }}
+---
+{{- if eq $operation "backup" }}
+apiVersion: batch/v1
+kind: CronJob
+{{- else }}
+apiVersion: batch/v1
+kind: Job
+{{- end }}
+metadata:
+  name: {{ if eq $operation "backup" }}litellm-accounting-backup{{ else }}litellm-accounting-restore-{{ printf "%s/%s" (toJson (list $accounting $.Values.runtime $.Values.litellm.image)) ($.Files.Get "packages/litellm/accounting.sh") | sha256sum | trunc 8 }}{{ end }}
+  namespace: postgres
+  labels:
+    platform.ai-platform-portfolio/accounting: {{ $operation }}
+spec:
+{{- if eq $operation "backup" }}
+  schedule: '0 0 1 1 *'
+  suspend: true # Native on-demand Job template; no scheduled snapshots.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+{{- end }}
+{{- $indent := 2 -}}{{- if eq $operation "backup" -}}{{- $indent = 6 -}}{{- end }}
+{{ include "platform.litellmAccountingJob" (dict "root" $ "operation" $operation) | indent $indent }}
+{{- end }}
+
+{{- define "platform.litellmAccountingJob" -}}
+{{- $root := .root -}}
+{{- $accounting := $root.Values.litellm.accounting -}}
+backoffLimit: 1
+activeDeadlineSeconds: 900
+template:
+  spec:
+    serviceAccountName: platform # Reuse CNPG's existing Azure backup federation.
+    automountServiceAccountToken: false
+    restartPolicy: Never
+    nodeSelector: {agentpool: platform}
+    securityContext:
+      runAsUser: 26
+      runAsGroup: 26
+      runAsNonRoot: true
+      fsGroup: 26
+      seccompProfile: {type: RuntimeDefault}
+    initContainers:
+      - name: prepare
+{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation "phase" "prepare" "image" $accounting.azureImage) | indent 8 }}
+
+      - name: database
+{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation "phase" "database" "image" $accounting.postgresImage) | indent 8 }}
+
+    containers:
+      - name: publish
+{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation "phase" "publish" "image" $accounting.azureImage) | indent 8 }}
+
+    volumes:
+      - name: work
+        emptyDir: {sizeLimit: 4Gi}
+      - name: scripts
+        configMap: {name: litellm-accounting}
+      - name: postgres-client
+        secret:
+          secretName: litellm-postgres-client
+          defaultMode: 0440
+          items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}]
+      - name: postgres-ca
+        secret:
+          secretName: platform-ca
+          defaultMode: 0440
+          items: [{key: ca.crt, path: ca.crt}]
+      - name: identity
+        projected:
+          defaultMode: 0440
+          sources:
+            - serviceAccountToken: {audience: api://AzureADTokenExchange, expirationSeconds: 3600, path: token}
+{{- end -}}
+
+{{- define "platform.litellmAccountingContainer" -}}
+{{- $root := .root -}}
+image: {{ .image | quote }}
+command: [bash, /scripts/accounting.sh, {{ .phase }}]
+env:
+  - {name: TMPDIR, value: /work}
+  - {name: OPERATION, value: {{ .operation | quote }}}
+  - {name: ACCOUNTING_PLATFORM, value: {{ $root.Values.cluster.name | quote }}}
+  - {name: STORAGE_ACCOUNT, value: {{ $root.Values.runtime.AZURE_STORAGE_ACCOUNT | quote }}}
+  - {name: STORAGE_CONTAINER, value: {{ printf "%s-litellm-accounting" $root.Values.cluster.name | quote }}}
+  - {name: PROXY_IMAGE, value: {{ printf "%s:%s" $root.Values.litellm.image.repository $root.Values.litellm.image.tag | quote }}}
+  - {name: AZURE_CLIENT_ID, value: {{ required "runtime.POSTGRES_AZURE_CLIENT_ID is required" $root.Values.runtime.POSTGRES_AZURE_CLIENT_ID | quote }}}
+  - {name: AZURE_TENANT_ID, value: {{ required "runtime.AZURE_TENANT_ID is required" $root.Values.runtime.AZURE_TENANT_ID | quote }}}
+  - {name: AZURE_FEDERATED_TOKEN_FILE, value: /identity/token}
+  - name: POD_UID
+    valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+  - {name: PGHOST, value: platform-rw.postgres.svc.cluster.local}
+  - {name: PGDATABASE, value: litellm}
+  - {name: PGUSER, value: litellm}
+  - {name: PGSSLMODE, value: verify-full}
+  - {name: PGSSLCERT, value: /postgres/tls.crt}
+  - {name: PGSSLKEY, value: /postgres/tls.key}
+  - {name: PGSSLROOTCERT, value: /postgres-ca/ca.crt}
+  - {name: PGCONNECT_TIMEOUT, value: '10'}
+  - {name: PGOPTIONS, value: '-c statement_timeout=600000 -c lock_timeout=10000'}
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 512Mi}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: [ALL]}
+volumeMounts:
+  - {name: work, mountPath: /work}
+  - {name: scripts, mountPath: /scripts, readOnly: true}
+  - {name: postgres-client, mountPath: /postgres, readOnly: true}
+  - {name: postgres-ca, mountPath: /postgres-ca, readOnly: true}
+  - {name: identity, mountPath: /identity, readOnly: true}
+{{- end -}}

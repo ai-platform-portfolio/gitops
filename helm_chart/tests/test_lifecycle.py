@@ -1736,3 +1736,247 @@ class CertificateLifecycleOrderingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AccountingLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.cluster = Cluster.__new__(Cluster)
+        self.cluster.kube = ['kubectl']
+        self.cluster.delete = Mock()
+        self.cluster.manifest = Mock()
+
+    def test_prepare_preserves_owner_inventory_and_stops_issuance_before_cleanup(self):
+        checkpoint = {'data': {'expected-owners.json': json.dumps(['consumer-' + 'a'*64])}}
+        consumer = {'metadata': {'name': 'credentials', 'labels': {
+            'platform.ai-platform-portfolio/gateway-release': 'consumer'}, 'annotations': {
+            'argocd.argoproj.io/tracking-id': 'consumer:/ConfigMap:litellm/credentials'}},
+            'data': {'policy.json': json.dumps({'identity': 'other/repository/release/hosted'})}}
+        renewal = {'metadata': {'name': 'renew', 'labels': {
+            'platform.ai-platform-portfolio/gateway-consumer': 'true'}}}
+        self.cluster.object = Mock(return_value=checkpoint)
+        self.cluster.objects = Mock(side_effect=lambda kind, namespace=None:
+                                    [consumer] if kind == 'configmaps' else [renewal] if kind == 'cronjobs.batch' else [])
+        apps = [{'metadata': {'name': name}} for name in ['litellm-accounting', 'litellm', 'consumer']]
+        suspend = Mock()
+        with patch('helm_chart.scripts.cluster.run') as command:
+            self.assertTrue(self.cluster.prepare_accounting(apps, suspend))
+        self.assertEqual(suspend.call_args.args[0], apps)
+        saved = json.loads(command.call_args_list[0].args[-1])['data']['expected-owners.json']
+        self.assertEqual(len(json.loads(saved)), 2)
+        self.assertIn('consumer-' + 'a'*64, saved)
+        self.assertIn('"suspend":true', command.call_args_list[1].args[-1])
+        self.cluster.delete.assert_not_called()
+
+    def test_missing_package_or_shutdown_proof_blocks_destruction(self):
+        with self.assertRaisesRegex(RuntimeError, 'Reconcile'):
+            self.cluster.prepare_accounting([{'metadata': {'name': 'litellm'}}], Mock())
+        self.cluster.object = Mock(side_effect=lambda kind, *args:
+                                   {'data': {'shutdown.json': '{}'}} if kind == 'configmaps' else None)
+        self.cluster.objects = Mock(return_value=[])
+        with self.assertRaisesRegex(RuntimeError, 'No verified accounting shutdown'):
+            self.cluster.backup_accounting()
+        self.cluster.delete.assert_not_called()
+        self.cluster.manifest.assert_not_called()
+
+    def test_native_flush_errors_block_even_when_server_reports_shutdown_complete(self):
+        uid = '00000000-0000-0000-0000-000000000001'
+        pod = {'metadata': {'name': 'proxy', 'uid': uid, 'labels': {'app': 'proxy'}},
+               'spec': {'containers': [{'image': 'proxy@sha256:' + 'a'*64}]},
+               'status': {'containerStatuses': [{'ready': True, 'restartCount': 0, 'state': {'running': {'startedAt': '2026-11-20T00:00:00Z'}}}]}}
+        for failed in (False, True):
+            with self.subTest(failed=failed):
+                deployment = {'spec': {'selector': {'matchLabels': {'app': 'proxy'}}}}
+                complete = {'metadata': {'annotations': {'platform.ai-platform-portfolio/source-pod': uid}},
+                            'status': {'conditions': [{'type': 'Complete', 'status': 'True'}]}}
+                self.cluster.object = Mock(side_effect=lambda kind, *args:
+                    {'data': {'shutdown.json': '{}'}} if kind == 'configmaps' else
+                    deployment if kind == 'deployments.apps' else complete)
+                self.cluster.objects = Mock(side_effect=[[pod], []])
+                def spawn(*args, stdout, **kwargs):
+                    stdout.write(b'last existing log\n')
+                    stdout.flush()
+                    process = Mock(returncode=None)
+                    process.poll.side_effect = lambda: process.returncode
+                    def finish(**kwargs):
+                        stdout.write((b'Error flushing spend counters on shutdown\n' if failed else b'') +
+                                     b'Application shutdown complete.\n')
+                        stdout.flush()
+                        process.returncode = 0
+                    process.wait.side_effect = finish
+                    return process
+                with patch('helm_chart.scripts.cluster.run') as command, \
+                     patch('helm_chart.scripts.cluster.subprocess.Popen', side_effect=spawn):
+                    if failed:
+                        with self.assertRaisesRegex(RuntimeError, 'not clean'):
+                            self.cluster.backup_accounting()
+                    else:
+                        self.cluster.backup_accounting()
+                proofs = [json.loads(json.loads(c.args[-1])['data']['shutdown.json'])
+                          for c in command.call_args_list if c.args[1] == 'patch']
+                self.assertEqual(any(proof.get('clean') is True for proof in proofs), not failed)
+                self.cluster.delete.assert_not_called()
+
+
+class AccountingShellTests(unittest.TestCase):
+    """Exercise the real script's recovery decisions with native CLI-shaped fakes.
+
+    SQL dump/restore is additionally exercised against isolated PostgreSQL18 in
+    the implementation acceptance run; these tests cover failure decisions in CI.
+    """
+    script = Path(__file__).resolve().parents[1] / 'platform/packages/litellm/accounting.sh'
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.store = self.root / 'store'
+        self.tools = self.root / 'tools'
+        self.scripts = self.root / 'scripts'
+        for p in (self.store, self.tools, self.scripts):
+            p.mkdir()
+        self.head = {'schema': 1, 'platform': 'example', 'state': 'active', 'snapshots': []}
+        self.write_head()
+        (self.scripts / 'expected-owners.json').write_text(json.dumps(['consumer-' + 'a'*64]))
+        self.proof = {'clean': True, 'pod_uid': '11111111-1111-1111-1111-111111111111',
+                      'image': 'example/proxy@sha256:' + 'a'*64, 'completed_at': '2026-11-20T00:00:00Z'}
+        self.write_proof()
+        (self.root / 'token').write_text('synthetic-test-token')
+        az = self.tools / 'az'
+        az.write_text('''#!/usr/bin/env python3
+import hashlib,json,os,pathlib,shutil,sys
+args=sys.argv[1:]
+if args[0]=='login':sys.exit(0)
+action=args[2]
+def value(k):return args[args.index(k)+1]
+f=pathlib.Path(os.environ['FAKE_STORE'])/value('--name')
+def etag():return hashlib.sha256(f.read_bytes()).hexdigest()
+if os.getenv('FAIL_AZ')==action+':'+value('--name'):
+ print('private-api-response synthetic-secret',file=sys.stderr);sys.exit(23)
+if action=='exists':print(str(f.exists()).lower())
+elif action=='show':print(etag())
+elif action in ('upload','download'):
+ if '--if-match' in args and (not f.exists() or value('--if-match')!=etag()):sys.exit(24)
+ if '--if-none-match' in args and f.exists():sys.exit(25)
+ if action=='upload':
+  f.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(value('--file'),f)
+ else:shutil.copyfile(f,value('--file'))
+elif action=='delete':f.unlink(missing_ok=True)
+else:sys.exit(26)
+''')
+        az.chmod(0o755)
+        for name, content in {
+            'psql': '''case "$*" in
+*pg_class*) echo "${SQL_TABLES:-1}";;
+*pg_stat_activity*) echo "${SQL_CONNECTIONS:-0}";;
+*LiteLLM_UserTable*) echo "${SQL_OWNERS:-1}";;
+*) exit 1;;
+esac''',
+            'pg_dump': 'printf "%s" "${DUMP_CONTENT:-synthetic-accounting}" > database.dump',
+            'pg_restore': 'if [ "$1" = --list ]; then echo archive; else touch restored; fi',
+        }.items():
+            path = self.tools / name
+            path.write_text('#!/bin/sh\n' + content + '\n')
+            path.chmod(0o755)
+        self.env = {**os.environ, 'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
+                    'FAKE_STORE': str(self.store), 'ACCOUNTING_SCRIPTS': str(self.scripts),
+                    'ACCOUNTING_PLATFORM': 'example', 'STORAGE_ACCOUNT': 'example', 'STORAGE_CONTAINER': 'accounting',
+                    'AZURE_CLIENT_ID': 'example', 'AZURE_TENANT_ID': 'example',
+                    'AZURE_FEDERATED_TOKEN_FILE': str(self.root / 'token'), 'PROXY_IMAGE': self.proof['image'],
+                    'PGDATABASE': 'litellm', 'POD_UID': '22222222-2222-2222-2222-222222222222'}
+        self.number = 0
+
+    def write_head(self):
+        (self.store / 'head.json').write_text(json.dumps(self.head))
+
+    def write_proof(self):
+        (self.scripts / 'shutdown.json').write_text(json.dumps(self.proof))
+
+    def stage(self, phase, operation='backup', **extra):
+        result = subprocess.run(['bash', str(self.script), phase],
+            env={**self.env, 'ACCOUNTING_WORK': str(self.work), 'OPERATION': operation, **extra},
+            capture_output=True, text=True, timeout=20)
+        self.assertNotIn('synthetic-secret', result.stdout + result.stderr)
+        return result
+
+    def start(self):
+        self.number += 1
+        self.work = self.root / str(self.number)
+        self.work.mkdir()
+        self.env['POD_UID'] = f'{self.number:08x}-2222-2222-2222-222222222222'
+
+    def cycle(self, operation='backup', **extra):
+        self.start()
+        for phase in ('prepare', 'database', 'publish'):
+            result = self.stage(phase, operation, **extra)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rotation_preserves_two_verified_snapshots_and_reapply_never_restores_populated_db(self):
+        for _ in range(3):
+            self.proof['pod_uid'] = self.env['POD_UID']
+            self.write_proof()
+            self.cycle()
+            head = json.loads((self.store / 'head.json').read_text())
+            self.assertEqual(head['state'], 'clean')
+            self.assertLessEqual(len(head['snapshots']), 2)
+            self.assertEqual(len(list(self.store.glob('snapshots/*.dump'))), len(head['snapshots']))
+            self.cycle('restore')
+            self.assertFalse((self.work / 'restored').exists())
+        self.assertEqual(len(head['snapshots']), 2)
+
+    def test_missing_activated_accounting_and_corrupt_snapshot_fail_closed(self):
+        self.start()
+        self.assertEqual(self.stage('prepare', 'restore').returncode, 0)
+        self.assertNotEqual(self.stage('database', 'restore', SQL_TABLES='0').returncode, 0)
+        self.cycle()
+        head = json.loads((self.store / 'head.json').read_text())
+        (self.store / 'snapshots' / (head['snapshots'][0]['id'] + '.dump')).write_text('corrupt')
+        self.start()
+        self.assertNotEqual(self.stage('prepare', 'restore').returncode, 0)
+        self.assertFalse((self.work / 'restored').exists())
+
+    def test_missing_owner_or_incomplete_flush_cannot_publish_a_snapshot(self):
+        for extra in ({'SQL_OWNERS': '0'}, {'SQL_CONNECTIONS': '1'}):
+            self.start()
+            self.assertEqual(self.stage('prepare').returncode, 0)
+            self.assertNotEqual(self.stage('database', **extra).returncode, 0)
+            self.assertFalse((self.work / 'database.dump').exists())
+        self.proof['clean'] = False
+        self.write_proof()
+        self.start()
+        self.assertEqual(self.stage('prepare').returncode, 0)
+        self.assertNotEqual(self.stage('database').returncode, 0)
+        self.assertEqual(json.loads((self.store / 'head.json').read_text())['state'], 'active')
+
+    def test_failed_upload_or_stale_etag_never_marks_accounting_clean(self):
+        for stale in (False, True):
+            self.start()
+            self.assertEqual(self.stage('prepare').returncode, 0)
+            self.assertEqual(self.stage('database').returncode, 0)
+            if stale:
+                self.head['nonce'] = 1
+                self.write_head()
+            result = self.stage('publish', **({} if stale else {'FAIL_AZ': 'upload:head.json'}))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(json.loads((self.store / 'head.json').read_text())['state'], 'active')
+
+    def test_fresh_store_initializes_once_and_clean_empty_database_restores(self):
+        (self.store / 'head.json').unlink()
+        self.cycle('restore', SQL_TABLES='0')
+        self.assertEqual(json.loads((self.store / 'head.json').read_text())['state'], 'active')
+        self.assertFalse((self.work / 'restored').exists())
+        self.cycle()
+        self.cycle('restore', SQL_TABLES='0')
+        self.assertTrue((self.work / 'restored').exists())
+
+    def test_interrupted_retention_retries_the_same_published_checkpoint(self):
+        for _ in range(2):
+            self.cycle()
+            self.cycle('restore')
+        self.start()
+        self.assertEqual(self.stage('prepare').returncode, 0)
+        self.assertEqual(self.stage('database').returncode, 0)
+        old = json.loads((self.store / 'head.json').read_text())['snapshots'][-1]['id']
+        self.assertNotEqual(self.stage('publish', FAIL_AZ='delete:snapshots/' + old + '.dump').returncode, 0)
+        self.cycle() # Retry the same drained source; no duplicate dump/generation.
+        self.assertEqual(len(list(self.store.glob('snapshots/*.dump'))), 2)
+        self.assertEqual(json.loads((self.store / 'head.json').read_text())['retired'], [])

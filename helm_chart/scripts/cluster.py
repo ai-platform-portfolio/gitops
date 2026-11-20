@@ -2,6 +2,8 @@
 """Seed and operate locally reconciled Argo platforms using the Azure CLI login."""
 import argparse
 import base64
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import re
@@ -486,6 +488,125 @@ class Cluster:
                 raise RuntimeError(f'Operator/application consumers remain ({kind}); teardown stopped')
         print('Partial teardown: live workloads and application/operator consumers are drained.', flush=True)
 
+    def prepare_accounting(self, apps, suspend):
+        recovery = next((a for a in apps if a['metadata']['name'] == 'litellm-accounting'), None)
+        proxy = next((a for a in apps if a['metadata']['name'] == 'litellm'), None)
+        if recovery is None:
+            if proxy is not None:
+                raise RuntimeError('Reconcile the LiteLLM accounting package before teardown')
+            return False
+        checkpoint = self.object('configmaps', 'litellm-accounting', 'postgres')
+        if checkpoint is None:
+            raise RuntimeError('Accounting lifecycle checkpoint is missing; teardown stopped')
+        owners = set(json.loads(checkpoint['data']['expected-owners.json']))
+        issuers = {recovery['metadata']['name']}
+        if proxy:
+            issuers.add(proxy['metadata']['name'])
+        for config in self.objects('configmaps', 'litellm'):
+            metadata = config['metadata']
+            if not metadata.get('labels', {}).get('platform.ai-platform-portfolio/gateway-release'):
+                continue
+            identity = json.loads(config['data']['policy.json'])['identity']
+            owners.add('consumer-' + hashlib.sha256(identity.encode()).hexdigest())
+            tracking = metadata.get('annotations', {}).get('argocd.argoproj.io/tracking-id', '')
+            name = tracking.partition(':')[0]
+            if tracking != f'{name}:/ConfigMap:litellm/{metadata["name"]}':
+                raise RuntimeError('Cannot verify gateway consumer ownership; teardown stopped')
+            issuers.add(name)
+        known = {a['metadata']['name'] for a in apps}
+        if not issuers <= known:
+            raise RuntimeError('Gateway consumer registration is missing; teardown stopped')
+        suspend([a for a in apps if a['metadata']['name'] in issuers])
+        # Persist the union before deleting registrations; interrupted down retries
+        # must still detect an owner missing from the disposable database.
+        run(*self.kube, 'patch', 'configmap', 'litellm-accounting', '-n', 'postgres',
+            '--type=merge', '-p', json.dumps({'data': {'expected-owners.json': json.dumps(sorted(owners))}}))
+        renewals = set()
+        for cron in self.objects('cronjobs.batch', 'litellm'):
+            if cron['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/gateway-consumer') == 'true':
+                renewals.add(cron['metadata']['name'])
+                run(*self.kube, 'patch', 'cronjob', cron['metadata']['name'], '-n', 'litellm',
+                    '--type=merge', '-p', '{"spec":{"suspend":true}}')
+        def issuance_stopped():
+            return not any(job.get('status', {}).get('active', 0) and (
+                job['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/gateway-consumer') == 'true'
+                or any(r.get('kind') == 'CronJob' and r.get('name') in renewals
+                       for r in job['metadata'].get('ownerReferences', [])))
+                for job in self.objects('jobs.batch', 'litellm'))
+        wait_for(issuance_stopped, 'Waiting for gateway credential issuance to stop', timeout=360)
+        return True
+
+    def backup_accounting(self):
+        checkpoint = self.object('configmaps', 'litellm-accounting', 'postgres')
+        proof = json.loads(checkpoint['data']['shutdown.json'])
+        deployment = self.object('deployments.apps', 'litellm', 'litellm')
+        selector = deployment['spec']['selector']['matchLabels'] if deployment else {}
+        pods = [p for p in self.objects('pods', 'litellm')
+                if selector and all(p['metadata'].get('labels', {}).get(k) == v for k, v in selector.items())]
+        if pods:
+            if len(pods) != 1:
+                raise RuntimeError('Accounting shutdown requires the configured single proxy worker')
+            pod = pods[0]
+            statuses = pod.get('status', {}).get('containerStatuses', [])
+            if (len(statuses) != 1 or not statuses[0].get('ready') or statuses[0].get('restartCount') != 0
+                    or not statuses[0].get('state', {}).get('running')):
+                raise RuntimeError('Proxy has unverified runtime loss; reconcile accounting before teardown')
+            proof = {'clean': False}
+            run(*self.kube, 'patch', 'configmap', 'litellm-accounting', '-n', 'postgres',
+                '--type=merge', '-p', json.dumps({'data': {'shutdown.json': json.dumps(proof)}}))
+            # Attach before scale-down. Raw logs stay in an owner-only temporary
+            # file and are never echoed, persisted as evidence or uploaded.
+            with tempfile.TemporaryFile() as logs:
+                process = subprocess.Popen([*self.kube, 'logs', pod['metadata']['name'], '-n', 'litellm',
+                                            '--follow', '--tail=1'], stdout=logs, stderr=subprocess.STDOUT)
+                try:
+                    def attached():
+                        if process.poll() is not None:
+                            raise RuntimeError('Cannot observe native proxy shutdown; teardown stopped')
+                        return os.fstat(logs.fileno()).st_size > 0
+                    wait_for(attached, 'Attaching accounting shutdown observer', timeout=30)
+                    start = os.fstat(logs.fileno()).st_size
+                    run(*self.kube, 'scale', 'deployment/litellm', '-n', 'litellm', '--replicas=0')
+                    process.wait(timeout=180)
+                    logs.seek(start)
+                    observed = logs.read(1048577)
+                    if (process.returncode != 0 or len(observed) > 1048576
+                            or b'Application shutdown complete.' not in observed
+                            or re.search(rb'error|exception|incomplete|timed out|timeout|cancelled|discard', observed, re.I)):
+                        raise RuntimeError('Native accounting shutdown was not clean; database preserved')
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=15)
+            uid = pod['metadata']['uid']
+            wait_for(lambda: not any(p['metadata']['uid'] == uid for p in self.objects('pods', 'litellm')),
+                     'Waiting for the drained proxy to stop', timeout=180)
+            proof = {'clean': True, 'pod_uid': uid, 'image': pod['spec']['containers'][0]['image'],
+                     'completed_at': datetime.now(timezone.utc).isoformat()}
+            run(*self.kube, 'patch', 'configmap', 'litellm-accounting', '-n', 'postgres',
+                '--type=merge', '-p', json.dumps({'data': {'shutdown.json': json.dumps(proof)}}))
+        if proof.get('clean') is not True:
+            raise RuntimeError('No verified accounting shutdown checkpoint; database preserved')
+        job = self.object('jobs.batch', 'litellm-accounting-final', 'postgres')
+        if job and (job['metadata'].get('annotations', {}).get('platform.ai-platform-portfolio/source-pod') != proof['pod_uid']
+                    or any(c['type'] == 'Failed' and c['status'] == 'True'
+                           for c in job.get('status', {}).get('conditions', []))):
+            self.delete('jobs.batch', ['litellm-accounting-final'], 'postgres', foreground=True)
+            job = None
+        if job is None:
+            manifest = json.loads(run(*self.kube, 'create', 'job', 'litellm-accounting-final',
+                                      '--from=cronjob/litellm-accounting-backup', '-n', 'postgres',
+                                      '--dry-run=client', '-o', 'json', capture=True))
+            manifest['metadata'].setdefault('annotations', {})['platform.ai-platform-portfolio/source-pod'] = proof['pod_uid']
+            self.manifest(manifest)
+        def completed():
+            result = self.object('jobs.batch', 'litellm-accounting-final', 'postgres')
+            conditions = result.get('status', {}).get('conditions', []) if result else []
+            if any(c['type'] == 'Failed' and c['status'] == 'True' for c in conditions):
+                raise RuntimeError('Accounting backup failed; database preserved. Inspect the safe Job stage code')
+            return any(c['type'] == 'Complete' and c['status'] == 'True' for c in conditions)
+        wait_for(completed, 'Waiting for verified LiteLLM accounting backup', timeout=960)
+
     def cleanup(self):
         if self.settings is None:
             self.verify_drained()
@@ -557,6 +678,8 @@ class Cluster:
                         sensors.setdefault(namespace, []).append(name)
                     for namespace, names in sensors.items():
                         self.delete('sensors.argoproj.io', names, namespace)
+
+            accounting = self.prepare_accounting(apps, suspend)
 
             registrations = {r['name'] for r in root.get('status', {}).get('resources', [])
                              if r.get('group') == 'argoproj.io' and r.get('kind') == 'ApplicationSet'
@@ -630,6 +753,11 @@ class Cluster:
             self.delete('applications.argoproj.io', [a['metadata']['name'] for a in standalone],
                         'argocd', foreground=True)
             apps = self.objects('applications.argoproj.io', 'argocd')
+
+        if not roots:
+            accounting = self.prepare_accounting(apps, suspend)
+        if accounting:
+            self.backup_accounting()
 
         if any(a['metadata']['name'] in {'postgres', 'atlas-operator'} for a in apps):
             apis = set(run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines())
