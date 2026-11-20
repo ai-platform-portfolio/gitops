@@ -108,11 +108,10 @@
         },
         "accounting": {
           "type": "object", "additionalProperties": false,
-          "required": ["storageResourceGroup", "postgresImage", "azureImage"],
+          "required": ["storageResourceGroup", "postgresImage"],
           "properties": {
             "storageResourceGroup": {"type": "string", "minLength": 1},
-            "postgresImage": {"type": "string", "pattern": "^ghcr\\.io/cloudnative-pg/postgresql:18\\.[^@]+@sha256:[a-f0-9]{64}$"},
-            "azureImage": {"type": "string", "pattern": "^mcr\\.microsoft\\.com/azure-cli:[^@]+@sha256:[a-f0-9]{64}$"}
+            "postgresImage": {"type": "string", "pattern": "^ghcr\\.io/cloudnative-pg/postgresql:18\\.[^@]+@sha256:[a-f0-9]{64}$"}
           }
         },
         "keyVault": {

@@ -534,6 +534,10 @@ class Cluster:
                        for r in job['metadata'].get('ownerReferences', [])))
                 for job in self.objects('jobs.batch', 'litellm'))
         wait_for(issuance_stopped, 'Waiting for gateway credential issuance to stop', timeout=360)
+        wait_for(lambda: not any(job.get('status', {}).get('active', 0)
+                                and job['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/accounting') == 'restore'
+                                for job in self.objects('jobs.batch', 'postgres')),
+                 'Waiting for accounting restore to stop before backup', timeout=960)
         return True
 
     def backup_accounting(self):
@@ -696,7 +700,7 @@ class Cluster:
                     spec = appset['spec']
                     finalizers = spec.get('template', {}).get('metadata', {}).get('finalizers', [])
                     if (tracking != f'platform:argoproj.io/ApplicationSet:argocd/{name}'
-                            or spec.get('syncPolicy', {}).get('preserveResourcesOnDeletion') is not False
+                            or spec.get('syncPolicy', {}).get('preserveResourcesOnDeletion', False) is not False
                             or 'resources-finalizer.argocd.argoproj.io' not in finalizers):
                         raise RuntimeError(f'Cannot safely drain onboarding ApplicationSet {name}: verify ownership and cascading cleanup')
                     onboarding.append(name)

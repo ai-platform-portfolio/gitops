@@ -1097,7 +1097,7 @@ def main():
         assert litellm_waves['redis-certificates'] < litellm_waves['redis'] < litellm_waves['litellm']
         assert litellm_waves['litellm-credentials'] < litellm_waves['litellm-accounting'] < litellm_waves['litellm']
         accounting = [d for d in yaml.safe_load_all(litellm_apps['litellm-accounting']['spec']['source']['helm']['valuesObject']['manifests']) if d]
-        assert {d['kind'] for d in accounting} == {'StorageAccountsBlobServicesContainer', 'ConfigMap', 'Job', 'CronJob'}
+        assert {d['kind'] for d in accounting} == {'StorageAccountsBlobServicesContainer', 'ConfigMap', 'PersistentVolume', 'PersistentVolumeClaim', 'Job', 'CronJob'}
         container = next(d for d in accounting if d['kind'] == 'StorageAccountsBlobServicesContainer')
         assert container['metadata']['annotations']['serviceoperator.azure.com/reconcile-policy'] == 'detach-on-delete'
         assert container['spec']['publicAccess'] == 'None' and container['spec']['azureName'] == 'management-litellm-accounting'
@@ -1110,16 +1110,24 @@ def main():
             assert pod['serviceAccountName'] == 'platform' and pod['automountServiceAccountToken'] is False
             assert pod['securityContext']['runAsNonRoot'] is True
             assert spec['activeDeadlineSeconds'] == 900
-            assert [c['name'] for c in pod['initContainers']] == ['prepare', 'database']
-            assert [c['name'] for c in pod['containers']] == ['publish']
-            for c in pod['initContainers'] + pod['containers']:
+            assert not pod.get('initContainers')
+            assert [c['name'] for c in pod['containers']] == ['accounting']
+            for c in pod['containers']:
                 assert '@sha256:' in c['image'] and c['securityContext']['readOnlyRootFilesystem'] is True
                 env = {e['name']: e.get('value') for e in c['env']}
-                assert env['AZURE_CLIENT_ID'] == runtime['POSTGRES_AZURE_CLIENT_ID']
                 assert env['PGSSLMODE'] == 'verify-full' and env['PGUSER'] == 'litellm'
-                assert 'PGPASSWORD' not in env and 'AZURE_CLIENT_SECRET' not in env
+                assert 'PGPASSWORD' not in env and not any(k.startswith('AZURE_') for k in env)
+            assert any(v.get('persistentVolumeClaim', {}).get('claimName') == 'litellm-accounting' for v in pod['volumes'])
             ca = next(v for v in pod['volumes'] if v['name'] == 'postgres-ca')['secret']
             assert ca['items'] == [{'key': 'ca.crt', 'path': 'ca.crt'}], 'Never deliver the database CA private key'
+        volume = next(d for d in accounting if d['kind'] == 'PersistentVolume')['spec']
+        assert volume['persistentVolumeReclaimPolicy'] == 'Retain' and volume['storageClassName'] == ''
+        assert volume['csi']['driver'] == 'blob.csi.azure.com'
+        attrs = volume['csi']['volumeAttributes']
+        assert attrs['ClientID'] == runtime['POSTGRES_AZURE_CLIENT_ID'] and attrs['mountWithWorkloadIdentityToken'] == 'true'
+        assert attrs['protocol'] == 'fuse2' and 'nodeStageSecretRef' not in volume['csi']
+        assert '--lazy-write=false' in volume['mountOptions'] and '--file-cache-timeout-in-seconds=0' in volume['mountOptions']
+        assert restore['metadata']['annotations']['argocd.argoproj.io/hook-delete-policy'] == 'BeforeHookCreation,HookSucceeded'
         checkpoint = next(d for d in accounting if d['kind'] == 'ConfigMap')
         assert checkpoint['data']['expected-owners.json'] == '[]' and checkpoint['data']['shutdown.json'] == '{}'
         credentials = list(yaml.safe_load_all(litellm_apps['litellm-credentials']['spec']['source']['helm']['valuesObject']['manifests']))

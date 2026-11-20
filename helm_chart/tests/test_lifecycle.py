@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -547,13 +548,14 @@ class TeardownTests(unittest.TestCase):
         sleep.assert_called_once()
 
     def test_registration_drain_precedes_guards_and_leaves_other_sets_untouched(self):
-        for already_drained in [False, True]:
-            with self.subTest(retry=already_drained):
+        for already_drained, policy in [(False, {'preserveResourcesOnDeletion': False}), (False, {}), (True, {})]:
+            with self.subTest(retry=already_drained, policy=policy):
                 cluster = Cluster.__new__(Cluster)
                 cluster.kube = ['kubectl']
                 cluster.hub = None
                 cluster.settings = {'cluster': {'role': 'management'}}
                 root, appset = self.onboarding()
+                appset['spec']['syncPolicy'] = policy
                 postgres = {'metadata': {'name': 'postgres', 'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
                 foreign = {'metadata': {'name': 'unrelated-discovery', 'labels': appset['metadata']['labels']}}
                 drained = already_drained
@@ -1817,166 +1819,103 @@ class AccountingLifecycleTests(unittest.TestCase):
                 self.cluster.delete.assert_not_called()
 
 
-class AccountingShellTests(unittest.TestCase):
-    """Exercise the real script's recovery decisions with native CLI-shaped fakes.
+class AccountingRecoveryTests(unittest.TestCase):
+    """Exercise recovery decisions on a local substitute for the CSI mount.
 
-    SQL dump/restore is additionally exercised against isolated PostgreSQL18 in
-    the implementation acceptance run; these tests cover failure decisions in CI.
+    Native PostgreSQL acceptance is separate; no simulated cloud transfer layer.
     """
-    script = Path(__file__).resolve().parents[1] / 'platform/packages/litellm/accounting.sh'
+    script = Path(__file__).resolve().parents[1] / 'platform/packages/litellm/accounting.py'
 
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        for name in ('store', 'tools', 'scripts', 'work'):
+            (self.root / name).mkdir()
         self.store = self.root / 'store'
-        self.tools = self.root / 'tools'
-        self.scripts = self.root / 'scripts'
-        for p in (self.store, self.tools, self.scripts):
-            p.mkdir()
-        self.head = {'schema': 1, 'platform': 'example', 'state': 'active', 'snapshots': []}
-        self.write_head()
-        (self.scripts / 'expected-owners.json').write_text(json.dumps(['consumer-' + 'a'*64]))
+        self.head = {'platform': 'example', 'state': 'active', 'snapshots': []}
+        self.save_head()
         self.proof = {'clean': True, 'pod_uid': '11111111-1111-1111-1111-111111111111',
                       'image': 'example/proxy@sha256:' + 'a'*64, 'completed_at': '2026-11-20T00:00:00Z'}
-        self.write_proof()
-        (self.root / 'token').write_text('synthetic-test-token')
-        az = self.tools / 'az'
-        az.write_text('''#!/usr/bin/env python3
-import hashlib,json,os,pathlib,shutil,sys
-args=sys.argv[1:]
-if args[0]=='login':sys.exit(0)
-action=args[2]
-def value(k):return args[args.index(k)+1]
-f=pathlib.Path(os.environ['FAKE_STORE'])/value('--name')
-def etag():return hashlib.sha256(f.read_bytes()).hexdigest()
-if os.getenv('FAIL_AZ')==action+':'+value('--name'):
- print('private-api-response synthetic-secret',file=sys.stderr);sys.exit(23)
-if action=='exists':print(str(f.exists()).lower())
-elif action=='show':print(etag())
-elif action in ('upload','download'):
- if '--if-match' in args and (not f.exists() or value('--if-match')!=etag()):sys.exit(24)
- if '--if-none-match' in args and f.exists():sys.exit(25)
- if action=='upload':
-  f.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(value('--file'),f)
- else:shutil.copyfile(f,value('--file'))
-elif action=='delete':f.unlink(missing_ok=True)
-else:sys.exit(26)
-''')
-        az.chmod(0o755)
-        for name, content in {
-            'psql': '''case "$*" in
-*pg_class*) echo "${SQL_TABLES:-1}";;
-*pg_stat_activity*) echo "${SQL_CONNECTIONS:-0}";;
-*LiteLLM_UserTable*) echo "${SQL_OWNERS:-1}";;
-*) exit 1;;
-esac''',
-            'pg_dump': 'printf "%s" "${DUMP_CONTENT:-synthetic-accounting}" > database.dump',
-            'pg_restore': 'if [ "$1" = --list ]; then echo archive; else touch restored; fi',
-        }.items():
-            path = self.tools / name
+        self.save_proof()
+        (self.root / 'scripts/expected-owners.json').write_text(json.dumps(['consumer-' + 'a'*64]))
+        tools = {
+            'psql': 'case "$*" in\n*pg_class*) echo "${SQL_TABLES:-1}";;\n*pg_stat_activity*) echo "${SQL_CONNECTIONS:-0}";;\n*LiteLLM_UserTable*) echo "${SQL_OWNERS:-1}";;\n*) exit 1;;\nesac',
+            'pg_dump': '[ "${FAIL_DUMP:-false}" = false ] || { echo synthetic-secret >&2; exit 1; }\nwhile [ "$1" != --file ]; do shift; done\nprintf "%s" "${DUMP_CONTENT:-synthetic-accounting}" > "$2"',
+            'pg_restore': 'if [ "$1" = --list ]; then echo archive; else touch "$ACCOUNTING_WORK/restored"; fi',
+        }
+        for name, content in tools.items():
+            path = self.root / 'tools' / name
             path.write_text('#!/bin/sh\n' + content + '\n')
             path.chmod(0o755)
-        self.env = {**os.environ, 'PATH': str(self.tools) + os.pathsep + os.environ['PATH'],
-                    'FAKE_STORE': str(self.store), 'ACCOUNTING_SCRIPTS': str(self.scripts),
-                    'ACCOUNTING_PLATFORM': 'example', 'STORAGE_ACCOUNT': 'example', 'STORAGE_CONTAINER': 'accounting',
-                    'AZURE_CLIENT_ID': 'example', 'AZURE_TENANT_ID': 'example',
-                    'AZURE_FEDERATED_TOKEN_FILE': str(self.root / 'token'), 'PROXY_IMAGE': self.proof['image'],
-                    'PGDATABASE': 'litellm', 'POD_UID': '22222222-2222-2222-2222-222222222222'}
-        self.number = 0
+        self.env = {**os.environ, 'PATH': str(self.root / 'tools') + os.pathsep + os.environ['PATH'],
+                    'ACCOUNTING_STORE': str(self.store), 'ACCOUNTING_SCRIPTS': str(self.root / 'scripts'),
+                    'ACCOUNTING_WORK': str(self.root / 'work'), 'ACCOUNTING_PLATFORM': 'example',
+                    'PROXY_IMAGE': self.proof['image'], 'PGDATABASE': 'litellm',
+                    'POD_UID': '22222222-2222-2222-2222-222222222222'}
 
-    def write_head(self):
+    def save_head(self):
         (self.store / 'head.json').write_text(json.dumps(self.head))
 
-    def write_proof(self):
-        (self.scripts / 'shutdown.json').write_text(json.dumps(self.proof))
+    def save_proof(self):
+        (self.root / 'scripts/shutdown.json').write_text(json.dumps(self.proof))
 
-    def stage(self, phase, operation='backup', **extra):
-        result = subprocess.run(['bash', str(self.script), phase],
-            env={**self.env, 'ACCOUNTING_WORK': str(self.work), 'OPERATION': operation, **extra},
-            capture_output=True, text=True, timeout=20)
+    def run_recovery(self, operation='backup', ok=True, **extra):
+        result = subprocess.run([sys.executable, str(self.script), operation],
+                                env={**self.env, **extra}, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode == 0, ok, result.stderr)
         self.assertNotIn('synthetic-secret', result.stdout + result.stderr)
-        return result
+        return json.loads((self.store / 'head.json').read_text())
 
-    def start(self):
-        self.number += 1
-        self.work = self.root / str(self.number)
-        self.work.mkdir()
-        self.env['POD_UID'] = f'{self.number:08x}-2222-2222-2222-222222222222'
-
-    def cycle(self, operation='backup', **extra):
-        self.start()
-        for phase in ('prepare', 'database', 'publish'):
-            result = self.stage(phase, operation, **extra)
-            self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_rotation_preserves_two_verified_snapshots_and_reapply_never_restores_populated_db(self):
-        for _ in range(3):
+    def test_two_snapshot_retention_and_repeated_backup_prunes_orphans(self):
+        for i in range(3):
+            self.env['POD_UID'] = f'{i:08x}-2222-2222-2222-222222222222'
             self.proof['pod_uid'] = self.env['POD_UID']
-            self.write_proof()
-            self.cycle()
-            head = json.loads((self.store / 'head.json').read_text())
+            self.save_proof()
+            head = self.run_recovery()
             self.assertEqual(head['state'], 'clean')
-            self.assertLessEqual(len(head['snapshots']), 2)
-            self.assertEqual(len(list(self.store.glob('snapshots/*.dump'))), len(head['snapshots']))
-            self.cycle('restore')
-            self.assertFalse((self.work / 'restored').exists())
-        self.assertEqual(len(head['snapshots']), 2)
+            self.assertEqual(len(head['snapshots']), min(i + 1, 2))
+            self.assertEqual(len(list(self.store.glob('*.dump'))), min(i + 1, 2))
+            if i == 2:
+                (self.store / '33333333-3333-3333-3333-333333333333.dump').write_text('orphan')
+                self.run_recovery()  # Same drained source reuses the published generation.
+                self.assertEqual(len(list(self.store.glob('*.dump'))), 2)
+            self.run_recovery('restore')
+            self.assertFalse((self.root / 'work/restored').exists())
 
     def test_missing_activated_accounting_and_corrupt_snapshot_fail_closed(self):
-        self.start()
-        self.assertEqual(self.stage('prepare', 'restore').returncode, 0)
-        self.assertNotEqual(self.stage('database', 'restore', SQL_TABLES='0').returncode, 0)
-        self.cycle()
-        head = json.loads((self.store / 'head.json').read_text())
-        (self.store / 'snapshots' / (head['snapshots'][0]['id'] + '.dump')).write_text('corrupt')
-        self.start()
-        self.assertNotEqual(self.stage('prepare', 'restore').returncode, 0)
-        self.assertFalse((self.work / 'restored').exists())
+        self.run_recovery('restore', ok=False, SQL_TABLES='0')
+        head = self.run_recovery()
+        (self.store / (head['snapshots'][0]['id'] + '.dump')).write_text('corrupt')
+        self.run_recovery('restore', ok=False, SQL_TABLES='0')
+        self.assertFalse((self.root / 'work/restored').exists())
 
-    def test_missing_owner_or_incomplete_flush_cannot_publish_a_snapshot(self):
-        for extra in ({'SQL_OWNERS': '0'}, {'SQL_CONNECTIONS': '1'}):
-            self.start()
-            self.assertEqual(self.stage('prepare').returncode, 0)
-            self.assertNotEqual(self.stage('database', **extra).returncode, 0)
-            self.assertFalse((self.work / 'database.dump').exists())
+    def test_missing_owner_incomplete_flush_and_failed_dump_cannot_publish(self):
+        for extra in ({'SQL_OWNERS': '0'}, {'SQL_CONNECTIONS': '1'}, {'FAIL_DUMP': 'true'}):
+            self.run_recovery(ok=False, **extra)
+            self.assertFalse(list(self.store.glob('*.dump')))
         self.proof['clean'] = False
-        self.write_proof()
-        self.start()
-        self.assertEqual(self.stage('prepare').returncode, 0)
-        self.assertNotEqual(self.stage('database').returncode, 0)
-        self.assertEqual(json.loads((self.store / 'head.json').read_text())['state'], 'active')
+        self.save_proof()
+        self.assertEqual(self.run_recovery(ok=False)['state'], 'active')
 
-    def test_failed_upload_or_stale_etag_never_marks_accounting_clean(self):
-        for stale in (False, True):
-            self.start()
-            self.assertEqual(self.stage('prepare').returncode, 0)
-            self.assertEqual(self.stage('database').returncode, 0)
-            if stale:
-                self.head['nonce'] = 1
-                self.write_head()
-            result = self.stage('publish', **({} if stale else {'FAIL_AZ': 'upload:head.json'}))
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(json.loads((self.store / 'head.json').read_text())['state'], 'active')
-
-    def test_fresh_store_initializes_once_and_clean_empty_database_restores(self):
+    def test_fresh_initialization_clean_restore_and_populated_reapply(self):
         (self.store / 'head.json').unlink()
-        self.cycle('restore', SQL_TABLES='0')
-        self.assertEqual(json.loads((self.store / 'head.json').read_text())['state'], 'active')
-        self.assertFalse((self.work / 'restored').exists())
-        self.cycle()
-        self.cycle('restore', SQL_TABLES='0')
-        self.assertTrue((self.work / 'restored').exists())
+        self.assertEqual(self.run_recovery('restore', SQL_TABLES='0')['state'], 'active')
+        self.assertFalse((self.root / 'work/restored').exists())
+        self.run_recovery()
+        self.assertEqual(self.run_recovery('restore', SQL_TABLES='0')['state'], 'active')
+        self.assertTrue((self.root / 'work/restored').exists())
+        (self.root / 'work/restored').unlink()
+        self.run_recovery('restore')
+        self.assertFalse((self.root / 'work/restored').exists())
 
-    def test_interrupted_retention_retries_the_same_published_checkpoint(self):
-        for _ in range(2):
-            self.cycle()
-            self.cycle('restore')
-        self.start()
-        self.assertEqual(self.stage('prepare').returncode, 0)
-        self.assertEqual(self.stage('database').returncode, 0)
-        old = json.loads((self.store / 'head.json').read_text())['snapshots'][-1]['id']
-        self.assertNotEqual(self.stage('publish', FAIL_AZ='delete:snapshots/' + old + '.dump').returncode, 0)
-        self.cycle() # Retry the same drained source; no duplicate dump/generation.
-        self.assertEqual(len(list(self.store.glob('snapshots/*.dump'))), 2)
-        self.assertEqual(json.loads((self.store / 'head.json').read_text())['retired'], [])
+    def test_foreign_checkpoint_and_unreferenced_dump_cannot_initialize(self):
+        self.head['platform'] = 'another-platform'
+        self.save_head()
+        self.run_recovery('restore', ok=False)
+        (self.store / 'head.json').unlink()
+        (self.store / 'uncommitted.dump').write_text('orphan')
+        result = subprocess.run([sys.executable, str(self.script), 'restore'],
+                                env={**self.env, 'SQL_TABLES': '0'}, capture_output=True, timeout=20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.store / 'head.json').exists())

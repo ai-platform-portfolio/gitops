@@ -23,11 +23,61 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: '-1'
 data:
-  accounting.sh: |
-{{ .Files.Get "packages/litellm/accounting.sh" | indent 4 }}
+  accounting.py: |
+{{ .Files.Get "packages/litellm/accounting.py" | indent 4 }}
   # Existing lifecycle records teardown evidence here after suspending this App.
   expected-owners.json: '[]'
   shutdown.json: '{}'
+
+# Bind the ASO-owned container; the CSI driver never creates or deletes it.
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.cluster.name }}-litellm-accounting
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  capacity: {storage: 1Gi} # Claim matching only; Blob storage has no filesystem quota.
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ''
+  claimRef: {name: litellm-accounting, namespace: postgres}
+  mountOptions:
+    - -o allow_other
+    - -o attr_timeout=0
+    - -o entry_timeout=0
+    - -o negative_timeout=0
+    - --uid=26
+    - --gid=26
+    - --file-cache-timeout-in-seconds=0
+    - --use-attr-cache=false
+    - --disable-writeback-cache=true
+    - --lazy-write=false
+  csi:
+    driver: blob.csi.azure.com
+    volumeHandle: {{ printf "%s_%s-litellm-accounting" $account .Values.cluster.name | quote }}
+    volumeAttributes:
+      storageAccount: {{ $account | quote }}
+      containerName: {{ printf "%s-litellm-accounting" .Values.cluster.name | quote }}
+      resourceGroup: {{ $accounting.storageResourceGroup | quote }}
+      protocol: fuse2
+      ClientID: {{ required "runtime.POSTGRES_AZURE_CLIENT_ID is required" .Values.runtime.POSTGRES_AZURE_CLIENT_ID | quote }}
+      mountWithWorkloadIdentityToken: 'true'
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: litellm-accounting
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  storageClassName: ''
+  volumeName: {{ .Values.cluster.name }}-litellm-accounting
+  accessModes: [ReadWriteMany]
+  resources: {requests: {storage: 1Gi}}
 
 {{- range $operation := list "restore" "backup" }}
 ---
@@ -39,8 +89,13 @@ apiVersion: batch/v1
 kind: Job
 {{- end }}
 metadata:
-  name: {{ if eq $operation "backup" }}litellm-accounting-backup{{ else }}litellm-accounting-restore-{{ printf "%s/%s" (toJson (list $accounting $.Values.runtime $.Values.litellm.image)) ($.Files.Get "packages/litellm/accounting.sh") | sha256sum | trunc 8 }}{{ end }}
+  name: litellm-accounting-{{ $operation }}
   namespace: postgres
+{{- if eq $operation "restore" }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+{{- end }}
   labels:
     platform.ai-platform-portfolio/accounting: {{ $operation }}
 spec:
@@ -74,16 +129,9 @@ template:
       runAsNonRoot: true
       fsGroup: 26
       seccompProfile: {type: RuntimeDefault}
-    initContainers:
-      - name: prepare
-{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation "phase" "prepare" "image" $accounting.azureImage) | indent 8 }}
-
-      - name: database
-{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation "phase" "database" "image" $accounting.postgresImage) | indent 8 }}
-
     containers:
-      - name: publish
-{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation "phase" "publish" "image" $accounting.azureImage) | indent 8 }}
+      - name: accounting
+{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation) | indent 8 }}
 
     volumes:
       - name: work
@@ -100,27 +148,19 @@ template:
           secretName: platform-ca
           defaultMode: 0440
           items: [{key: ca.crt, path: ca.crt}]
-      - name: identity
-        projected:
-          defaultMode: 0440
-          sources:
-            - serviceAccountToken: {audience: api://AzureADTokenExchange, expirationSeconds: 3600, path: token}
+      - name: accounting
+        persistentVolumeClaim: {claimName: litellm-accounting}
 {{- end -}}
 
 {{- define "platform.litellmAccountingContainer" -}}
 {{- $root := .root -}}
-image: {{ .image | quote }}
-command: [bash, /scripts/accounting.sh, {{ .phase }}]
+image: {{ $root.Values.litellm.accounting.postgresImage | quote }}
+command: [python3, /scripts/accounting.py, {{ .operation }}]
 env:
   - {name: TMPDIR, value: /work}
   - {name: OPERATION, value: {{ .operation | quote }}}
   - {name: ACCOUNTING_PLATFORM, value: {{ $root.Values.cluster.name | quote }}}
-  - {name: STORAGE_ACCOUNT, value: {{ $root.Values.runtime.AZURE_STORAGE_ACCOUNT | quote }}}
-  - {name: STORAGE_CONTAINER, value: {{ printf "%s-litellm-accounting" $root.Values.cluster.name | quote }}}
   - {name: PROXY_IMAGE, value: {{ printf "%s:%s" $root.Values.litellm.image.repository $root.Values.litellm.image.tag | quote }}}
-  - {name: AZURE_CLIENT_ID, value: {{ required "runtime.POSTGRES_AZURE_CLIENT_ID is required" $root.Values.runtime.POSTGRES_AZURE_CLIENT_ID | quote }}}
-  - {name: AZURE_TENANT_ID, value: {{ required "runtime.AZURE_TENANT_ID is required" $root.Values.runtime.AZURE_TENANT_ID | quote }}}
-  - {name: AZURE_FEDERATED_TOKEN_FILE, value: /identity/token}
   - name: POD_UID
     valueFrom: {fieldRef: {fieldPath: metadata.uid}}
   - {name: PGHOST, value: platform-rw.postgres.svc.cluster.local}
@@ -144,5 +184,5 @@ volumeMounts:
   - {name: scripts, mountPath: /scripts, readOnly: true}
   - {name: postgres-client, mountPath: /postgres, readOnly: true}
   - {name: postgres-ca, mountPath: /postgres-ca, readOnly: true}
-  - {name: identity, mountPath: /identity, readOnly: true}
+  - {name: accounting, mountPath: /accounting}
 {{- end -}}
