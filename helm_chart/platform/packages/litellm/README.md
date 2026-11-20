@@ -54,13 +54,66 @@ forbidden request overrides and accounting require live acceptance. A read-only
 check of the existing pinned image found positive input/output pricing for the
 selected model; this does not establish invoiced-cost reconciliation.
 
-This milestone adds no backup/recovery service. Issuer control records in Key Vault
-retain the stable owner and block reissuance if previously established accounting
-is missing; this prevents silently granting a fresh allowance after DB loss. It
-does not prove that old keys retained by a caller are rejected by a newly empty DB,
-or provide accounting restoration. A full teardown/rebuild must remain blocked for
-consumer admission until budgets/accounting are reconciled. Shared project model
-permissions remain unchanged until SRE also validates its gateway path.
+Issuer control records in Key Vault retain the stable owner and refuse missing
+established accounting with `ACCOUNTING_RESTORE_REQUIRED`. Never clear that control
+to grant a new allowance. Already-lost accounting requires trustworthy recovery
+or a separately approved conservative budget reconciliation. Shared project model
+permissions remain unchanged pending their separate consumer acceptance.
+
+### Accounting across full teardown/rebuild
+
+The package owns `accounting.yaml` and `accounting.py`; applications keep their
+existing gateway policy intent. One ASO container, `<cluster.name>-litellm-accounting`,
+in the existing platform account uses `detach-on-delete`. A static Blob CSI PV/PVC
+binds that existing container with `Retain`; CSI does not provision storage or own
+container deletion. Other application databases remain disposable.
+
+Use the native AKS Blob CSI add-on with token-only workload identity support
+(driver v1.27 or later). It is not enabled on the reviewed cluster; the Terraform
+AKS module/caller enablement is a required dependency before this package can run.
+Reuse CNPG's `platform` ServiceAccount, PostgreSQL backup identity/account-scoped
+Blob grant, and existing LiteLLM SQL client certificate. No account key, SAS,
+cloud-login container, new identity or standalone CSI installation is added.
+Native configuration references:
+[AKS static volumes](https://learn.microsoft.com/en-us/azure/aks/create-volume-azure-blob-storage)
+and [token-only workload identity](https://github.com/kubernetes-sigs/blob-csi-driver/blob/master/docs/workload-identity-static-pv-mount.md).
+
+`cluster.py down` suspends credential issuers, waits for the restore Job to stop,
+and records stable owner IDs before consumer revocation/cleanup. It observes the
+single proxy worker's native shutdown, rejecting restart/lost-process, flush-error,
+incomplete-drain or missing-completion evidence. Process exit alone is insufficient:
+the pinned proxy catches some accounting flush failures and continues shutdown.
+Raw observed logs stay in a private temporary file and are never printed or retained.
+
+The suspended backup CronJob is only an on-demand template; the lifecycle creates
+one fixed-name final Job and waits for completion before deleting the database.
+The backup checks SQL quiescence and known owners, runs native `pg_dump`, verifies
+its archive and copies it to the CSI mount. Synchronous BlobFuse close is required;
+lazy writes, writeback caching and file/attribute cache timeouts are disabled.
+The script checks the mounted readback checksum before publishing `head.json`,
+then prunes all but the latest two verified generations. The same drained source
+can retry pruning without making another snapshot. No custom Azure transfer,
+ETag protocol or credential acquisition remains.
+
+The restore is a fixed-name Argo Sync hook, serialized by the recovery Application;
+`BeforeHookCreation` removes a previous hook before another can run. Teardown
+suspends that Application and waits for its restore Job before starting backup.
+This is a single-writer package lifecycle, not a concurrent backup API.
+Wave37 completes restoration before the proxy's wave40 PreSync migrations.
+An empty database requires a clean integrity-checked snapshot, except for a pristine
+store's first initialization. A populated database is never overwritten.
+`pg_restore --single-transaction --no-owner --no-acl` preserves IDs/spend/reset dates;
+marking the handoff active before serving prevents reuse after unexpected loss.
+Keep the existing Key Vault master/salt. Failed writes, invalid recovery data or
+failed shutdown checks stop teardown/startup; they do not reset consumer allowances.
+
+One digest-pinned PostgreSQL18.6 image runs the single recovery container, non-root
+with a read-only root filesystem and disposable work volume. Tool failures expose
+only `ACCOUNTING_RECOVERY_FAILED`; SQL/credential-bearing stderr is captured rather
+than logged. This is clean-cycle continuity, not point-in-time recovery from
+arbitrary loss. Local SQL preservation is verified; real CSI close/readback across
+a fresh mount, proxy flush, driver compatibility and a full cold-cycle still require
+live acceptance. A local filesystem substitute does not prove Azure persistence.
 
 ## Dependencies and ownership
 
@@ -73,6 +126,7 @@ permissions remain unchanged until SRE also validates its gateway path.
 | 30 | postgres | CNPG database, role and PostgreSQL client certificate |
 | 30 | redis | Dedicated certificate-to-ACL user limited to `litellm:*` |
 | 35 | litellm-credentials | Runtime ServiceAccount; read-only ESO delivery of vault keys, PostgreSQL leaf and public server CA |
+| 37 | litellm-accounting | ASO container, static CSI volume, ordered restore and final backup |
 | 40 | litellm | Upstream proxy and PreSync Prisma migration Job |
 
 The credentials Application creates the token-unmounted `litellm` ServiceAccount
@@ -158,7 +212,9 @@ writable filesystem/default user; capabilities are dropped, privilege escalation
 is disabled, the seccomp profile is RuntimeDefault and the ServiceAccount does
 not mount an API token. The chart's standard migration container is used unchanged.
 
-Teardown removes the proxy before credentials, backing services and controllers.
+Teardown verifies the final accounting backup before removing the proxy,
+credentials, backing services and controllers. The accounting container remains;
+the existing general PostgreSQL backup container remains disposable.
 The writer identity, federation and role grant are removed after the consumers
 and credentials; the vault itself is never owned or deleted. The database uses
 the existing `retain` reclaim convention; disabling the package

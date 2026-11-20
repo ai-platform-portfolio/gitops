@@ -1,0 +1,188 @@
+{{- $accounting := .Values.litellm.accounting -}}
+{{- $account := required "runtime.AZURE_STORAGE_ACCOUNT is required" .Values.runtime.AZURE_STORAGE_ACCOUNT -}}
+{{- $scope := printf "/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s" (required "runtime.AZURE_SUBSCRIPTION_ID is required" .Values.runtime.AZURE_SUBSCRIPTION_ID) $accounting.storageResourceGroup $account -}}
+apiVersion: storage.azure.com/v20230101
+kind: StorageAccountsBlobServicesContainer
+metadata:
+  name: litellm-accounting
+  namespace: azure-resources
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+    serviceoperator.azure.com/reconcile-policy: detach-on-delete
+spec:
+  azureName: {{ printf "%s-litellm-accounting" .Values.cluster.name }}
+  owner: {armId: {{ printf "%s/blobServices/default" $scope | quote }}}
+  publicAccess: None
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-accounting
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+data:
+  accounting.py: |
+{{ .Files.Get "packages/litellm/accounting.py" | indent 4 }}
+  # Existing lifecycle records teardown evidence here after suspending this App.
+  expected-owners.json: '[]'
+  shutdown.json: '{}'
+
+# Bind the ASO-owned container; the CSI driver never creates or deletes it.
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.cluster.name }}-litellm-accounting
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  capacity: {storage: 1Gi} # Claim matching only; Blob storage has no filesystem quota.
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ''
+  claimRef: {name: litellm-accounting, namespace: postgres}
+  mountOptions:
+    - -o allow_other
+    - -o attr_timeout=0
+    - -o entry_timeout=0
+    - -o negative_timeout=0
+    - --uid=26
+    - --gid=26
+    - --file-cache-timeout-in-seconds=0
+    - --use-attr-cache=false
+    - --disable-writeback-cache=true
+    - --lazy-write=false
+  csi:
+    driver: blob.csi.azure.com
+    volumeHandle: {{ printf "%s_%s-litellm-accounting" $account .Values.cluster.name | quote }}
+    volumeAttributes:
+      storageAccount: {{ $account | quote }}
+      containerName: {{ printf "%s-litellm-accounting" .Values.cluster.name | quote }}
+      resourceGroup: {{ $accounting.storageResourceGroup | quote }}
+      protocol: fuse2
+      ClientID: {{ required "runtime.POSTGRES_AZURE_CLIENT_ID is required" .Values.runtime.POSTGRES_AZURE_CLIENT_ID | quote }}
+      mountWithWorkloadIdentityToken: 'true'
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: litellm-accounting
+  namespace: postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  storageClassName: ''
+  volumeName: {{ .Values.cluster.name }}-litellm-accounting
+  accessModes: [ReadWriteMany]
+  resources: {requests: {storage: 1Gi}}
+
+{{- range $operation := list "restore" "backup" }}
+---
+{{- if eq $operation "backup" }}
+apiVersion: batch/v1
+kind: CronJob
+{{- else }}
+apiVersion: batch/v1
+kind: Job
+{{- end }}
+metadata:
+  name: litellm-accounting-{{ $operation }}
+  namespace: postgres
+{{- if eq $operation "restore" }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+{{- end }}
+  labels:
+    platform.ai-platform-portfolio/accounting: {{ $operation }}
+spec:
+{{- if eq $operation "backup" }}
+  schedule: '0 0 1 1 *'
+  suspend: true # Native on-demand Job template; no scheduled snapshots.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+{{- end }}
+{{- $indent := 2 -}}{{- if eq $operation "backup" -}}{{- $indent = 6 -}}{{- end }}
+{{ include "platform.litellmAccountingJob" (dict "root" $ "operation" $operation) | indent $indent }}
+{{- end }}
+
+{{- define "platform.litellmAccountingJob" -}}
+{{- $root := .root -}}
+{{- $accounting := $root.Values.litellm.accounting -}}
+backoffLimit: 1
+activeDeadlineSeconds: 900
+template:
+  spec:
+    serviceAccountName: platform # Reuse CNPG's existing Azure backup federation.
+    automountServiceAccountToken: false
+    restartPolicy: Never
+    nodeSelector: {agentpool: platform}
+    securityContext:
+      runAsUser: 26
+      runAsGroup: 26
+      runAsNonRoot: true
+      fsGroup: 26
+      seccompProfile: {type: RuntimeDefault}
+    containers:
+      - name: accounting
+{{ include "platform.litellmAccountingContainer" (dict "root" $root "operation" .operation) | indent 8 }}
+
+    volumes:
+      - name: work
+        emptyDir: {sizeLimit: 4Gi}
+      - name: scripts
+        configMap: {name: litellm-accounting}
+      - name: postgres-client
+        secret:
+          secretName: litellm-postgres-client
+          defaultMode: 0440
+          items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}]
+      - name: postgres-ca
+        secret:
+          secretName: platform-ca
+          defaultMode: 0440
+          items: [{key: ca.crt, path: ca.crt}]
+      - name: accounting
+        persistentVolumeClaim: {claimName: litellm-accounting}
+{{- end -}}
+
+{{- define "platform.litellmAccountingContainer" -}}
+{{- $root := .root -}}
+image: {{ $root.Values.litellm.accounting.postgresImage | quote }}
+command: [python3, /scripts/accounting.py, {{ .operation }}]
+env:
+  - {name: TMPDIR, value: /work}
+  - {name: OPERATION, value: {{ .operation | quote }}}
+  - {name: ACCOUNTING_PLATFORM, value: {{ $root.Values.cluster.name | quote }}}
+  - {name: PROXY_IMAGE, value: {{ printf "%s:%s" $root.Values.litellm.image.repository $root.Values.litellm.image.tag | quote }}}
+  - name: POD_UID
+    valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+  - {name: PGHOST, value: platform-rw.postgres.svc.cluster.local}
+  - {name: PGDATABASE, value: litellm}
+  - {name: PGUSER, value: litellm}
+  - {name: PGSSLMODE, value: verify-full}
+  - {name: PGSSLCERT, value: /postgres/tls.crt}
+  - {name: PGSSLKEY, value: /postgres/tls.key}
+  - {name: PGSSLROOTCERT, value: /postgres-ca/ca.crt}
+  - {name: PGCONNECT_TIMEOUT, value: '10'}
+  - {name: PGOPTIONS, value: '-c statement_timeout=600000 -c lock_timeout=10000'}
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 512Mi}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: [ALL]}
+volumeMounts:
+  - {name: work, mountPath: /work}
+  - {name: scripts, mountPath: /scripts, readOnly: true}
+  - {name: postgres-client, mountPath: /postgres, readOnly: true}
+  - {name: postgres-ca, mountPath: /postgres-ca, readOnly: true}
+  - {name: accounting, mountPath: /accounting}
+{{- end -}}

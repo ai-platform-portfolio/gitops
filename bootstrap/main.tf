@@ -181,13 +181,14 @@ removed {
 }
 
 module "aks" {
-  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=d2c8a5391b4935fda9cbde79a828b905a8f500b6"
+  source                 = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/aks-cluster?ref=0a707e09849bbf9c426cfb0014083dd14c34fded"
   name                   = var.aks.name
   location               = var.azure.location
   resource_group_name    = azurerm_resource_group.this.name
   tenant_id              = sensitive(data.azurerm_client_config.current.tenant_id)
   kubernetes_version     = var.aks.kubernetes_version
   sku_tier               = var.aks.sku_tier
+  blob_driver_enabled    = var.aks.blob_driver_enabled
   admin_group_object_ids = [data.azuread_group.aks_admin.object_id]
   authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
   container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }

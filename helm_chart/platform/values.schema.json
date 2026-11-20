@@ -106,6 +106,14 @@
           "type": "object", "additionalProperties": false, "required": ["enabled", "hostname", "policies"],
           "properties": {"enabled": {"type": "boolean"}, "hostname": {"type": "string", "minLength": 1}, "policies": {"type": "object"}}
         },
+        "accounting": {
+          "type": "object", "additionalProperties": false,
+          "required": ["storageResourceGroup", "postgresImage"],
+          "properties": {
+            "storageResourceGroup": {"type": "string", "minLength": 1},
+            "postgresImage": {"type": "string", "pattern": "^ghcr\\.io/cloudnative-pg/postgresql:18\\.[^@]+@sha256:[a-f0-9]{64}$"}
+          }
+        },
         "keyVault": {
           "type": "object", "additionalProperties": false,
           "required": ["resourceGroup", "identityLocation"],

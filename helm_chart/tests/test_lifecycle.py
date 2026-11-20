@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -547,13 +548,14 @@ class TeardownTests(unittest.TestCase):
         sleep.assert_called_once()
 
     def test_registration_drain_precedes_guards_and_leaves_other_sets_untouched(self):
-        for already_drained in [False, True]:
-            with self.subTest(retry=already_drained):
+        for already_drained, policy in [(False, {'preserveResourcesOnDeletion': False}), (False, {}), (True, {})]:
+            with self.subTest(retry=already_drained, policy=policy):
                 cluster = Cluster.__new__(Cluster)
                 cluster.kube = ['kubectl']
                 cluster.hub = None
                 cluster.settings = {'cluster': {'role': 'management'}}
                 root, appset = self.onboarding()
+                appset['spec']['syncPolicy'] = policy
                 postgres = {'metadata': {'name': 'postgres', 'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
                 foreign = {'metadata': {'name': 'unrelated-discovery', 'labels': appset['metadata']['labels']}}
                 drained = already_drained
@@ -1736,3 +1738,184 @@ class CertificateLifecycleOrderingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AccountingLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.cluster = Cluster.__new__(Cluster)
+        self.cluster.kube = ['kubectl']
+        self.cluster.delete = Mock()
+        self.cluster.manifest = Mock()
+
+    def test_prepare_preserves_owner_inventory_and_stops_issuance_before_cleanup(self):
+        checkpoint = {'data': {'expected-owners.json': json.dumps(['consumer-' + 'a'*64])}}
+        consumer = {'metadata': {'name': 'credentials', 'labels': {
+            'platform.ai-platform-portfolio/gateway-release': 'consumer'}, 'annotations': {
+            'argocd.argoproj.io/tracking-id': 'consumer:/ConfigMap:litellm/credentials'}},
+            'data': {'policy.json': json.dumps({'identity': 'other/repository/release/hosted'})}}
+        renewal = {'metadata': {'name': 'renew', 'labels': {
+            'platform.ai-platform-portfolio/gateway-consumer': 'true'}}}
+        self.cluster.object = Mock(return_value=checkpoint)
+        self.cluster.objects = Mock(side_effect=lambda kind, namespace=None:
+                                    [consumer] if kind == 'configmaps' else [renewal] if kind == 'cronjobs.batch' else [])
+        apps = [{'metadata': {'name': name}} for name in ['litellm-accounting', 'litellm', 'consumer']]
+        suspend = Mock()
+        with patch('helm_chart.scripts.cluster.run') as command:
+            self.assertTrue(self.cluster.prepare_accounting(apps, suspend))
+        self.assertEqual(suspend.call_args.args[0], apps)
+        saved = json.loads(command.call_args_list[0].args[-1])['data']['expected-owners.json']
+        self.assertEqual(len(json.loads(saved)), 2)
+        self.assertIn('consumer-' + 'a'*64, saved)
+        self.assertIn('"suspend":true', command.call_args_list[1].args[-1])
+        self.cluster.delete.assert_not_called()
+
+    def test_missing_package_or_shutdown_proof_blocks_destruction(self):
+        with self.assertRaisesRegex(RuntimeError, 'Reconcile'):
+            self.cluster.prepare_accounting([{'metadata': {'name': 'litellm'}}], Mock())
+        self.cluster.object = Mock(side_effect=lambda kind, *args:
+                                   {'data': {'shutdown.json': '{}'}} if kind == 'configmaps' else None)
+        self.cluster.objects = Mock(return_value=[])
+        with self.assertRaisesRegex(RuntimeError, 'No verified accounting shutdown'):
+            self.cluster.backup_accounting()
+        self.cluster.delete.assert_not_called()
+        self.cluster.manifest.assert_not_called()
+
+    def test_native_flush_errors_block_even_when_server_reports_shutdown_complete(self):
+        uid = '00000000-0000-0000-0000-000000000001'
+        pod = {'metadata': {'name': 'proxy', 'uid': uid, 'labels': {'app': 'proxy'}},
+               'spec': {'containers': [{'image': 'proxy@sha256:' + 'a'*64}]},
+               'status': {'containerStatuses': [{'ready': True, 'restartCount': 0, 'state': {'running': {'startedAt': '2026-11-20T00:00:00Z'}}}]}}
+        for failed in (False, True):
+            with self.subTest(failed=failed):
+                deployment = {'spec': {'selector': {'matchLabels': {'app': 'proxy'}}}}
+                complete = {'metadata': {'annotations': {'platform.ai-platform-portfolio/source-pod': uid}},
+                            'status': {'conditions': [{'type': 'Complete', 'status': 'True'}]}}
+                self.cluster.object = Mock(side_effect=lambda kind, *args:
+                    {'data': {'shutdown.json': '{}'}} if kind == 'configmaps' else
+                    deployment if kind == 'deployments.apps' else complete)
+                self.cluster.objects = Mock(side_effect=[[pod], []])
+                def spawn(*args, stdout, **kwargs):
+                    stdout.write(b'last existing log\n')
+                    stdout.flush()
+                    process = Mock(returncode=None)
+                    process.poll.side_effect = lambda: process.returncode
+                    def finish(**kwargs):
+                        stdout.write((b'Error flushing spend counters on shutdown\n' if failed else b'') +
+                                     b'Application shutdown complete.\n')
+                        stdout.flush()
+                        process.returncode = 0
+                    process.wait.side_effect = finish
+                    return process
+                with patch('helm_chart.scripts.cluster.run') as command, \
+                     patch('helm_chart.scripts.cluster.subprocess.Popen', side_effect=spawn):
+                    if failed:
+                        with self.assertRaisesRegex(RuntimeError, 'not clean'):
+                            self.cluster.backup_accounting()
+                    else:
+                        self.cluster.backup_accounting()
+                proofs = [json.loads(json.loads(c.args[-1])['data']['shutdown.json'])
+                          for c in command.call_args_list if c.args[1] == 'patch']
+                self.assertEqual(any(proof.get('clean') is True for proof in proofs), not failed)
+                self.cluster.delete.assert_not_called()
+
+
+class AccountingRecoveryTests(unittest.TestCase):
+    """Exercise recovery decisions on a local substitute for the CSI mount.
+
+    Native PostgreSQL acceptance is separate; no simulated cloud transfer layer.
+    """
+    script = Path(__file__).resolve().parents[1] / 'platform/packages/litellm/accounting.py'
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        for name in ('store', 'tools', 'scripts', 'work'):
+            (self.root / name).mkdir()
+        self.store = self.root / 'store'
+        self.head = {'platform': 'example', 'state': 'active', 'snapshots': []}
+        self.save_head()
+        self.proof = {'clean': True, 'pod_uid': '11111111-1111-1111-1111-111111111111',
+                      'image': 'example/proxy@sha256:' + 'a'*64, 'completed_at': '2026-11-20T00:00:00Z'}
+        self.save_proof()
+        (self.root / 'scripts/expected-owners.json').write_text(json.dumps(['consumer-' + 'a'*64]))
+        tools = {
+            'psql': 'case "$*" in\n*pg_class*) echo "${SQL_TABLES:-1}";;\n*pg_stat_activity*) echo "${SQL_CONNECTIONS:-0}";;\n*LiteLLM_UserTable*) echo "${SQL_OWNERS:-1}";;\n*) exit 1;;\nesac',
+            'pg_dump': '[ "${FAIL_DUMP:-false}" = false ] || { echo synthetic-secret >&2; exit 1; }\nwhile [ "$1" != --file ]; do shift; done\nprintf "%s" "${DUMP_CONTENT:-synthetic-accounting}" > "$2"',
+            'pg_restore': 'if [ "$1" = --list ]; then echo archive; else touch "$ACCOUNTING_WORK/restored"; fi',
+        }
+        for name, content in tools.items():
+            path = self.root / 'tools' / name
+            path.write_text('#!/bin/sh\n' + content + '\n')
+            path.chmod(0o755)
+        self.env = {**os.environ, 'PATH': str(self.root / 'tools') + os.pathsep + os.environ['PATH'],
+                    'ACCOUNTING_STORE': str(self.store), 'ACCOUNTING_SCRIPTS': str(self.root / 'scripts'),
+                    'ACCOUNTING_WORK': str(self.root / 'work'), 'ACCOUNTING_PLATFORM': 'example',
+                    'PROXY_IMAGE': self.proof['image'], 'PGDATABASE': 'litellm',
+                    'POD_UID': '22222222-2222-2222-2222-222222222222'}
+
+    def save_head(self):
+        (self.store / 'head.json').write_text(json.dumps(self.head))
+
+    def save_proof(self):
+        (self.root / 'scripts/shutdown.json').write_text(json.dumps(self.proof))
+
+    def run_recovery(self, operation='backup', ok=True, **extra):
+        result = subprocess.run([sys.executable, str(self.script), operation],
+                                env={**self.env, **extra}, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode == 0, ok, result.stderr)
+        self.assertNotIn('synthetic-secret', result.stdout + result.stderr)
+        return json.loads((self.store / 'head.json').read_text())
+
+    def test_two_snapshot_retention_and_repeated_backup_prunes_orphans(self):
+        for i in range(3):
+            self.env['POD_UID'] = f'{i:08x}-2222-2222-2222-222222222222'
+            self.proof['pod_uid'] = self.env['POD_UID']
+            self.save_proof()
+            head = self.run_recovery()
+            self.assertEqual(head['state'], 'clean')
+            self.assertEqual(len(head['snapshots']), min(i + 1, 2))
+            self.assertEqual(len(list(self.store.glob('*.dump'))), min(i + 1, 2))
+            if i == 2:
+                (self.store / '33333333-3333-3333-3333-333333333333.dump').write_text('orphan')
+                self.run_recovery()  # Same drained source reuses the published generation.
+                self.assertEqual(len(list(self.store.glob('*.dump'))), 2)
+            self.run_recovery('restore')
+            self.assertFalse((self.root / 'work/restored').exists())
+
+    def test_missing_activated_accounting_and_corrupt_snapshot_fail_closed(self):
+        self.run_recovery('restore', ok=False, SQL_TABLES='0')
+        head = self.run_recovery()
+        (self.store / (head['snapshots'][0]['id'] + '.dump')).write_text('corrupt')
+        self.run_recovery('restore', ok=False, SQL_TABLES='0')
+        self.assertFalse((self.root / 'work/restored').exists())
+
+    def test_missing_owner_incomplete_flush_and_failed_dump_cannot_publish(self):
+        for extra in ({'SQL_OWNERS': '0'}, {'SQL_CONNECTIONS': '1'}, {'FAIL_DUMP': 'true'}):
+            self.run_recovery(ok=False, **extra)
+            self.assertFalse(list(self.store.glob('*.dump')))
+        self.proof['clean'] = False
+        self.save_proof()
+        self.assertEqual(self.run_recovery(ok=False)['state'], 'active')
+
+    def test_fresh_initialization_clean_restore_and_populated_reapply(self):
+        (self.store / 'head.json').unlink()
+        self.assertEqual(self.run_recovery('restore', SQL_TABLES='0')['state'], 'active')
+        self.assertFalse((self.root / 'work/restored').exists())
+        self.run_recovery()
+        self.assertEqual(self.run_recovery('restore', SQL_TABLES='0')['state'], 'active')
+        self.assertTrue((self.root / 'work/restored').exists())
+        (self.root / 'work/restored').unlink()
+        self.run_recovery('restore')
+        self.assertFalse((self.root / 'work/restored').exists())
+
+    def test_foreign_checkpoint_and_unreferenced_dump_cannot_initialize(self):
+        self.head['platform'] = 'another-platform'
+        self.save_head()
+        self.run_recovery('restore', ok=False)
+        (self.store / 'head.json').unlink()
+        (self.store / 'uncommitted.dump').write_text('orphan')
+        result = subprocess.run([sys.executable, str(self.script), 'restore'],
+                                env={**self.env, 'SQL_TABLES': '0'}, capture_output=True, timeout=20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.store / 'head.json').exists())

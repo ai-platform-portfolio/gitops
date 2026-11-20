@@ -1,4 +1,13 @@
 {{- if and (eq .Values.cluster.role "management") .Values.events.enabled }}
+# Public defaults for any consumer; subscriptions stay in application repos.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: event-consumer-defaults
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: "20"}
+data:
+  values.json: {{ toJson (dict "namespace" "cluster-onboarding" "eventBus" "platform" "github" .Values.argocd.github) | quote }}
 {{- range $name, $spec := .Values.events.sources }}
 {{- if and $.Values.clusterOnboarding.enabled (eq $name "onboarding") }}
 {{- fail "events.sources.onboarding is reserved while cluster onboarding is enabled" }}
