@@ -164,6 +164,7 @@ variable "aks" {
     kubernetes_version  = string
     sku_tier            = optional(string, "Free")
     blob_driver_enabled = optional(bool, false)
+    azure_rbac_enabled  = optional(bool, false)
 
     # Existing, operator-owned Entra group; not part of disposable teardown.
     admin_group = object({
