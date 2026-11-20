@@ -51,4 +51,29 @@ subjects:
   - kind: User
     apiGroup: rbac.authorization.k8s.io
     name: {{ .Values.runtime.CI_PUBLISHER_PRINCIPAL_ID | quote }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: event-delivery-observer
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: "45"}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [sensors]
+    verbs: [get, list, watch]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: event-delivery-observer
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: "45"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: event-delivery-observer}
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: {{ .Values.runtime.CI_PUBLISHER_PRINCIPAL_ID | quote }}
 {{- end }}
