@@ -1271,17 +1271,20 @@ def main():
         assert {m['model_name'] for m in disabled_values['proxy_config']['model_list']} == {'chat', 'reasoning', 'coding', 'embedding'}
         assert not any(v['name'] in {'aws-identity', 'google-identity'} for v in disabled_values['volumes'])
 
-        # Exact, explicitly privileged CI admission boundary; no secret/cluster-wide API grant.
+        # Exact Kubernetes permissions granted by the platform delivery roles.
         values.write_text(json.dumps({'runtime': runtime}))
         delivery = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values), '--show-only', 'templates/delivery-rbac.yaml')) if d]
-        assert len(delivery) == 4
+        assert len(delivery) == 6
         assert all(d["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "45" for d in delivery)
         roles = {d['metadata']['namespace']: d for d in delivery if d['kind'] == 'Role'}
         assert roles['litellm']['rules'] == [{'apiGroups': [''], 'resources': ['configmaps'], 'resourceNames': ['litellm-consumer-defaults'], 'verbs': ['get']}]
         assert roles['argocd']['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['applications'], 'verbs': ['get', 'list', 'watch', 'create', 'patch']}]
+        assert roles['cluster-onboarding']['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['sensors'], 'verbs': ['get', 'list', 'watch']}]
+        observer = next(d for d in delivery if d['kind'] == 'RoleBinding' and d['metadata']['namespace'] == 'cluster-onboarding')
+        assert observer['roleRef'] == {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Role', 'name': roles['cluster-onboarding']['metadata']['name']}
         assert all(d['subjects'] == [{'kind': 'User', 'apiGroup': 'rbac.authorization.k8s.io', 'name': runtime['CI_PUBLISHER_PRINCIPAL_ID']}] for d in delivery if d['kind'] == 'RoleBinding')
         values.write_text(json.dumps({'runtime': {**runtime, 'CI_PUBLISHER_PRINCIPAL_ID': ''}}))
-        assert not [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d and d['metadata']['name'].startswith('gateway-delivery-')]
+        assert not [d for d in yaml.safe_load_all(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))) if d and d['metadata']['name'].startswith(('gateway-delivery-', 'event-delivery-'))]
         route = next(d for d in gateway_resources if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'litellm-inference')
         assert route['spec']['rules'][0]['matches'] == [
             {'path': {'type': 'Exact', 'value': path}, 'method': 'POST'}
