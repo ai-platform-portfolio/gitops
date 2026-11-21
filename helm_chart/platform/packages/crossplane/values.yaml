@@ -1,6 +1,14 @@
 # Core and provider packages remain separate Applications for health ordering.
 replicas: 1
 
+# Unused Usage protection installs a wildcard deletion webhook that blocks AKS stop.
+args:
+  - --enable-usages=false
+
+# Disable its init-time installation and core webhook readiness probes as well.
+webhooks:
+  enabled: false
+
 # Activate only the AzureAD resource types used by this package.
 provider:
   defaultActivations:
