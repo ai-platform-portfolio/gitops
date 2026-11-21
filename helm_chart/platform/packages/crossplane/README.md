@@ -8,6 +8,16 @@ dependencies share its existing template. There is no Azure ARM provider or SQL
 provider in this change. ASO keeps ownership
 of Azure service dependencies; CloudNativePG keeps ownership of PostgreSQL.
 
+Usage deletion protection is disabled because this package does not declare
+`Usage` or `ClusterUsage` resources, and its wildcard `crossplane-no-usages`
+webhook blocks native AKS stop/start. Crossplane 2.4.3 needs both
+`--enable-usages=false` and `webhooks.enabled: false`: the flag disables Usage
+controllers, while the chart setting disables core webhook installation and
+readiness probes. Existing clusters also need the previously installed
+`crossplane-no-usages` configuration removed once, after confirming no Usage
+resources remain. Verify the settings and webhook absence after a controller
+restart; deleting the webhook alone does not survive another default init.
+
 ## Argo and Crossplane ownership
 
 | Stage | Parent wave | Responsibility |
