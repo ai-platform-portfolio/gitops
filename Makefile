@@ -15,7 +15,7 @@ AKS_TARGETS := -target=module.aks -target=module.argocd -target=module.foundry \
   -target=module.identities -target=module.aso_identity -target=module.google_gateway -target=module.aws_gateway \
   -target=azurerm_storage_container.platform
 
-.PHONY: help init plan foundry-plan foundry-up foundry-agents-up postgres-plan postgres-up aks-plan aks-up up down portfolio-up portfolio-down context validate preflight
+.PHONY: help init plan foundry-plan foundry-up foundry-agents-up postgres-plan postgres-up aks-plan aks-up up down portfolio-web-up portfolio-web-down context validate preflight
 
 PYTHON ?= python3
 export TERRAFORM
@@ -62,8 +62,8 @@ help:
 	  'make postgres-up  Provision the private PostgreSQL server and its dependencies' \
 	  'make aks-plan  Preview AKS, Argo and platform bootstrap prerequisites' \
 	  'make aks-up  Provision AKS/Foundry and install packages and preview automation' \
-	  'make portfolio-up    Keep one portfolio Container App replica warm' \
-	  'make portfolio-down  Allow the portfolio Container App to scale to zero' \
+	  'make portfolio-web-up    Keep one portfolio website replica warm' \
+	  'make portfolio-web-down  Allow the portfolio website to scale to zero' \
 	  'make context  Select the management cluster with Azure CLI authentication' \
 	  'Override the root with BOOTSTRAP_DIR=/path/to/bootstrap'
 
@@ -127,7 +127,7 @@ aks-up: preflight init
 	$(PYTHON) helm_chart/scripts/cluster.py up --infra-dir "$(BOOTSTRAP_DIR)"
 	$(MAKE) context
 	$(MAKE) foundry-agents-up
-	$(MAKE) portfolio-up
+	$(MAKE) portfolio-web-up
 
 up: preflight init
 	@command -v openssl >/dev/null || { printf 'Missing tool: openssl\n' >&2; exit 1; }
@@ -151,12 +151,12 @@ context: preflight init
 down: preflight init
 	$(PYTHON) helm_chart/scripts/cluster.py down --infra-dir "$(BOOTSTRAP_DIR)" --tfvars "$(TFVARS)"
 	$(call run_terraform,destroy -input=false -auto-approve -var-file="$(TFVARS)")
-	$(MAKE) portfolio-down
+	$(MAKE) portfolio-web-down
 
-portfolio-up:
+portfolio-web-up:
 	$(call set_portfolio_min_replicas,1)
 
-portfolio-down:
+portfolio-web-down:
 	$(call set_portfolio_min_replicas,0)
 
 validate:
