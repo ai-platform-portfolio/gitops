@@ -94,7 +94,11 @@ grafana:
         url: http://mimir-gateway.lgtm.svc.cluster.local/prometheus
         isDefault: true
       - name: Loki
-        uid: loki
+        type: loki
+        url: http://loki-gateway.lgtm.svc.cluster.local
+      # Keep the existing Loki data source and its Grafana-generated UID.
+      - name: Loki Readiness
+        uid: loki-readiness
         type: loki
         url: http://loki-gateway.lgtm.svc.cluster.local
       - name: Tempo
@@ -131,7 +135,7 @@ grafana:
               condition: threshold
               data:
                 - refId: readiness
-                  datasourceUid: loki
+                  datasourceUid: loki-readiness
                   relativeTimeRange: {from: 300, to: 0}
                   model:
                     refId: readiness
@@ -156,7 +160,7 @@ grafana:
               annotations:
                 summary: Repeated pod readiness failures in a Kubernetes namespace
                 description: Inspect Kubernetes Events and container logs for the affected cluster and namespace.
-                runbook_url: 'https://grafana.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}/explore?schemaVersion=1&panes={{ dict "events" (dict "datasource" "loki" "queries" (list (dict "refId" "A" "expr" $readinessFailures "queryType" "range")) "range" (dict "from" "now-30m" "to" "now")) | toJson | urlquery }}'
+                runbook_url: 'https://grafana.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}/explore?schemaVersion=1&panes={{ dict "events" (dict "datasource" "loki-readiness" "queries" (list (dict "refId" "A" "expr" $readinessFailures "queryType" "range")) "range" (dict "from" "now-30m" "to" "now")) | toJson | urlquery }}'
   serviceAccount:
     create: false
     name: lgtm
