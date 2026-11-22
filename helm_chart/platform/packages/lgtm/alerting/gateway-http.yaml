@@ -1,0 +1,39 @@
+{{- $gatewayFailures := `{namespace="envoy-gateway-system",container="envoy"} | json status="response_code", route="route_name" | __error__="" | status=~"5[0-9]{2}" | route=~"httproute/.+"` -}}
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: Gateway HTTP
+    folder: Platform
+    interval: 1m
+    rules:
+      - uid: gateway-http-5xx
+        title: Repeated HTTP 5xx responses
+        condition: threshold
+        data:
+          - refId: failures
+            datasourceUid: loki-readiness
+            relativeTimeRange: {from: 300, to: 0}
+            model:
+              refId: failures
+              queryType: instant
+              editorMode: code
+              expr: >-
+                sum by (cluster, route) (
+                  count_over_time({{ $gatewayFailures }} [5m])
+                )
+          - refId: threshold
+            datasourceUid: __expr__
+            relativeTimeRange: {from: 0, to: 0}
+            model:
+              refId: threshold
+              type: threshold
+              expression: failures
+              conditions:
+                - evaluator: {type: gt, params: [4]}
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: At least five HTTP 5xx responses on a route in five minutes
+          description: Inspect the named HTTPRoute and its upstream service in the gateway logs.
+          runbook_url: 'https://grafana.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}/explore?schemaVersion=1&panes={{ dict "errors" (dict "datasource" "loki-readiness" "queries" (list (dict "refId" "A" "expr" $gatewayFailures "queryType" "range")) "range" (dict "from" "now-30m" "to" "now")) | toJson | urlquery }}'
