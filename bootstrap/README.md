@@ -405,6 +405,12 @@ Its value is a JSON array of IPv4 CIDRs. The bootstrap reads it through the
 AzureRM secret data source and passes the decoded sensitive value to AKS.
 The deployment identity needs permission to read that Key Vault secret.
 
+When `foundry.aks_api_egress_enabled` is enabled, bootstrap attaches a NAT
+Gateway and static public IP to the delegated Foundry agent subnet. The AKS API
+allowlist includes that IP as one /32 alongside the existing Key Vault ranges.
+Foundry's existing private routes remain available. The NAT Gateway and its
+public IP follow the disposable bootstrap lifecycle.
+
 The value is redacted from normal Terraform output, but persists in state and
 saved plans. Keep state in the encrypted Azure backend, restrict its access, and
 do not publish raw plan JSON or enable Terraform/provider debug logs for real

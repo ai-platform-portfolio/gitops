@@ -94,6 +94,7 @@ variable "foundry" {
     private_endpoint_subnet_key = string
     agent_subnet_key            = string
     private_dns_zone_keys       = set(string)
+    aks_api_egress_enabled      = optional(bool, false)
 
     network_access = optional(object({
       public_network_access_enabled = optional(bool, false)

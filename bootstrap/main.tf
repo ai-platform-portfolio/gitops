@@ -151,6 +151,44 @@ module "network" {
   }
 }
 
+# The delegated hosted-agent subnet needs a stable source for the AKS API allowlist.
+resource "azurerm_public_ip" "foundry_aks_egress" {
+  count = var.foundry.aks_api_egress_enabled ? 1 : 0
+
+  name                = "pip-${var.foundry.network.name}-egress"
+  location            = var.foundry.location
+  resource_group_name = azurerm_resource_group.this.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = var.azure.tags
+}
+
+resource "azurerm_nat_gateway" "foundry_aks_egress" {
+  count = var.foundry.aks_api_egress_enabled ? 1 : 0
+
+  name                = "nat-${var.foundry.network.name}"
+  location            = var.foundry.location
+  resource_group_name = azurerm_resource_group.this.name
+  sku_name            = "Standard"
+  tags                = var.azure.tags
+}
+
+resource "azurerm_nat_gateway_public_ip_association" "foundry_aks_egress" {
+  count = var.foundry.aks_api_egress_enabled ? 1 : 0
+
+  nat_gateway_id       = azurerm_nat_gateway.foundry_aks_egress[count.index].id
+  public_ip_address_id = azurerm_public_ip.foundry_aks_egress[count.index].id
+}
+
+resource "azurerm_subnet_nat_gateway_association" "foundry_aks_egress" {
+  count = var.foundry.aks_api_egress_enabled ? 1 : 0
+
+  subnet_id      = module.network["foundry"].subnet_ids[var.foundry.agent_subnet_key]
+  nat_gateway_id = azurerm_nat_gateway.foundry_aks_egress[count.index].id
+
+  depends_on = [azurerm_nat_gateway_public_ip_association.foundry_aks_egress]
+}
+
 resource "azurerm_virtual_network_peering" "management_to_foundry" {
   name                      = "management-to-foundry"
   resource_group_name       = azurerm_resource_group.this.name
@@ -191,9 +229,12 @@ module "aks" {
   blob_driver_enabled    = var.aks.blob_driver_enabled
   azure_rbac_enabled     = var.aks.azure_rbac_enabled
   admin_group_object_ids = [data.azuread_group.aks_admin.object_id]
-  authorized_ip_ranges   = jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value)
-  container_registries   = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
-  vnet_subnet_id         = module.network["management"].subnet_ids[var.aks.system_node_pool.subnet_key]
+  authorized_ip_ranges = distinct(concat(
+    jsondecode(data.azurerm_key_vault_secret.aks_api_ranges.value),
+    [for address in azurerm_public_ip.foundry_aks_egress : "${address.ip_address}/32"],
+  ))
+  container_registries = { for name, registry in data.azurerm_container_registry.existing : name => registry.id }
+  vnet_subnet_id       = module.network["management"].subnet_ids[var.aks.system_node_pool.subnet_key]
 
   system_node_pool = {
     vm_size         = var.aks.system_node_pool.vm_size

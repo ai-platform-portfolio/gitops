@@ -125,6 +125,7 @@ foundry = {
   private_endpoint_subnet_key = "snet-pe-foundry"
   agent_subnet_key            = "snet-agent-foundry"
   private_dns_zone_keys       = ["openai", "cognitiveservices", "services_ai"]
+  aks_api_egress_enabled      = true
 
   # Demonstrate private connectivity while allowing authenticated public clients.
   network_access = {
