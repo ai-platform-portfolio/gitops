@@ -1785,8 +1785,11 @@ class AccountingLifecycleTests(unittest.TestCase):
         pod = {'metadata': {'name': 'proxy', 'uid': uid, 'labels': {'app': 'proxy'}},
                'spec': {'containers': [{'image': 'proxy@sha256:' + 'a'*64}]},
                'status': {'containerStatuses': [{'ready': True, 'restartCount': 0, 'state': {'running': {'startedAt': '2026-11-20T00:00:00Z'}}}]}}
-        for failed in (False, True):
-            with self.subTest(failed=failed):
+        for failure in (b'', b'Error flushing spend counters on shutdown\n',
+                        b'graceful_shutdown_timeout in_flight_requests=1\n',
+                        b'TimeoutError flushing spend counters\n'):
+            failed = bool(failure)
+            with self.subTest(failure=failure):
                 deployment = {'spec': {'selector': {'matchLabels': {'app': 'proxy'}}}}
                 complete = {'metadata': {'annotations': {'platform.ai-platform-portfolio/source-pod': uid}},
                             'status': {'conditions': [{'type': 'Complete', 'status': 'True'}]}}
@@ -1800,7 +1803,8 @@ class AccountingLifecycleTests(unittest.TestCase):
                     process = Mock(returncode=None)
                     process.poll.side_effect = lambda: process.returncode
                     def finish(**kwargs):
-                        stdout.write((b'Error flushing spend counters on shutdown\n' if failed else b'') +
+                        stdout.write(failure +
+                                     b'Draining success callbacks before the final spend flush remaining_s=89.000 callback_timeout_s=84.000\n' +
                                      b'Application shutdown complete.\n')
                         stdout.flush()
                         process.returncode = 0
