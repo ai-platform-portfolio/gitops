@@ -21,6 +21,12 @@ annotationAutodiscovery:
 
 podLogsViaKubernetesApi:
   enabled: true
+
+clusterEvents:
+  enabled: true
+  collector: telemetry
+  destinations: [loki]
+
 collectors:
   telemetry:
     controller:
