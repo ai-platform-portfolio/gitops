@@ -1,3 +1,4 @@
+{{- $readinessFailures := `{source="kubernetes-events",reason="Unhealthy"} |= "Readiness probe failed:"` -}}
 loki:
   loki:
     auth_enabled: false
@@ -93,6 +94,7 @@ grafana:
         url: http://mimir-gateway.lgtm.svc.cluster.local/prometheus
         isDefault: true
       - name: Loki
+        uid: loki
         type: loki
         url: http://loki-gateway.lgtm.svc.cluster.local
       - name: Tempo
@@ -115,6 +117,46 @@ grafana:
           password: $DEVLAKE_POSTGRES_PASSWORD
           tlsCACert: $DEVLAKE_POSTGRES_CA
 {{- end }}
+  alerting:
+    kubernetes-readiness.yaml:
+      apiVersion: 1
+      groups:
+        - orgId: 1
+          name: Kubernetes readiness
+          folder: Platform
+          interval: 1m
+          rules:
+            - uid: kubernetes-readiness-failures
+              title: Repeated Kubernetes readiness failures
+              condition: threshold
+              data:
+                - refId: readiness
+                  datasourceUid: loki
+                  relativeTimeRange: {from: 300, to: 0}
+                  model:
+                    refId: readiness
+                    queryType: instant
+                    editorMode: code
+                    expr: >-
+                      sum by (cluster, namespace) (
+                        count_over_time({{ $readinessFailures }} [5m])
+                      )
+                - refId: threshold
+                  datasourceUid: __expr__
+                  relativeTimeRange: {from: 0, to: 0}
+                  model:
+                    refId: threshold
+                    type: threshold
+                    expression: readiness
+                    conditions:
+                      - evaluator: {type: gt, params: [1]}
+              for: 1m
+              noDataState: OK
+              execErrState: Error
+              annotations:
+                summary: Repeated pod readiness failures in a Kubernetes namespace
+                description: Inspect Kubernetes Events and container logs for the affected cluster and namespace.
+                runbook_url: 'https://grafana.{{ required "runtime.DNS_ZONE is required" .Values.runtime.DNS_ZONE }}/explore?schemaVersion=1&panes={{ dict "events" (dict "datasource" "loki" "queries" (list (dict "refId" "A" "expr" $readinessFailures "queryType" "range")) "range" (dict "from" "now-30m" "to" "now")) | toJson | urlquery }}'
   serviceAccount:
     create: false
     name: lgtm
