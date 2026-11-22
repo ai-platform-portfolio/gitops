@@ -1869,6 +1869,8 @@ class AccountingRecoveryTests(unittest.TestCase):
                                 env={**self.env, **extra}, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode == 0, ok, result.stderr)
         self.assertNotIn('synthetic-secret', result.stdout + result.stderr)
+        if not ok:
+            self.assertRegex(result.stderr, r'^ACCOUNTING_RECOVERY_FAILED line=[0-9]+\n$')
         return json.loads((self.store / 'head.json').read_text())
 
     def test_two_snapshot_retention_and_repeated_backup_prunes_orphans(self):

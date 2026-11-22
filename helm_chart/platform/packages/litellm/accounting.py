@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import traceback
 
 
 store = Path(os.environ.get('ACCOUNTING_STORE', '/accounting'))
@@ -103,4 +104,4 @@ if __name__ == '__main__':
         main(sys.argv[1])
     except Exception:
         # SQL, credentials and storage responses must not escape through Job logs.
-        sys.exit('ACCOUNTING_RECOVERY_FAILED')
+        sys.exit('ACCOUNTING_RECOVERY_FAILED line=' + str(traceback.extract_tb(sys.exc_info()[2])[-1].lineno))
