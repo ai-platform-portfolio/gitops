@@ -48,8 +48,8 @@ spec:
     - -o attr_timeout=0
     - -o entry_timeout=0
     - -o negative_timeout=0
-    - --uid=26
-    - --gid=26
+    - -o uid=26
+    - -o gid=26
     - --file-cache-timeout-in-seconds=0
     - --use-attr-cache=false
     - --disable-writeback-cache=true

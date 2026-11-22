@@ -574,9 +574,13 @@ class Cluster:
                     process.wait(timeout=180)
                     logs.seek(start)
                     observed = logs.read(1048577)
+                    # Native shutdown reports its configured callback budget; this
+                    # field is not a timeout failure. Keep scanning the whole log
+                    # for actual failures, including graceful_shutdown_timeout.
+                    checked = re.sub(rb'callback_timeout_s=[0-9]+\.[0-9]+', b'callback_budget', observed)
                     if (process.returncode != 0 or len(observed) > 1048576
                             or b'Application shutdown complete.' not in observed
-                            or re.search(rb'error|exception|incomplete|timed out|timeout|cancelled|discard', observed, re.I)):
+                            or re.search(rb'error|exception|incomplete|timed out|timeout|cancelled|discard', checked, re.I)):
                         raise RuntimeError('Native accounting shutdown was not clean; database preserved')
                 finally:
                     if process.poll() is None:
