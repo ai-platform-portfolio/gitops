@@ -44,8 +44,7 @@ cert-manager issues a per-host certificate.
 ## Native Microsoft sign-in
 
 On management, `langfuse.sso` in platform values enables the native Entra OIDC
-provider. `disableUsernamePassword` remains false for recovery until the profile
-email prerequisite and interactive Entra login are verified; set it true afterwards. The callback is
+provider and disables password authentication. The callback is
 `https://langfuse.<DNS_ZONE>/api/auth/callback/azure-ad`. Workload clusters do not
 install the management identity controllers or inherit this identity; their
 Langfuse password login stays enabled until a child-specific SSO design is added.
@@ -60,11 +59,17 @@ virtue of sharing the tenant. Out-of-band assignments must not be added: Crosspl
 manages the declared assignment resources, not an authoritative inventory of all
 assignments on the principal.
 
-The provider requests an email ID-token claim, but that does not create a missing
-Entra profile email. Every assigned user needs a usable `mail` attribute. The
-current portfolio user's attribute was empty during research; updating that profile
-requires the user's explicit approval and remains a deployment prerequisite.
-The controller has no permission to edit user profiles.
+The provider requests an email ID-token claim. Assigned users need a usable
+email in their Entra profile, and the controller does not edit user profiles.
+
+On rebuild, GitOps reconciles the Entra identity, PostgreSQL and credentials
+before Langfuse initializes `platform/agents` from `langfuse.bootstrap`. On the
+first Entra sign-in to a fresh database, Langfuse grants `VIEWER` on the
+bootstrapped organization. This covers every project in that organization.
+Automatic Viewer provisioning is enabled only with password authentication
+disabled. It applies to new Langfuse accounts and leaves existing memberships
+alone. After a rebuild, sign in via Entra and open a newly ingested smoke trace
+to verify access.
 
 The composition delivers `langfuse-sso` directly as a Kubernetes Secret with
 `client-id`, `client-secret` and `tenant-id`. No lifecycle Graph script, Key Vault

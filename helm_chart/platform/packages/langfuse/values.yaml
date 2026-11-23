@@ -1,3 +1,4 @@
+{{- $ssoEnabled := and (eq .Values.cluster.role "management") .Values.langfuse.sso.enabled }}
 langfuse:
   image:
     tag: "4.76.0"
@@ -58,8 +59,16 @@ langfuse:
   web:
     deployment:
       annotations:
-        secret.reloader.stakater.com/reload: langfuse-postgres{{ if .Values.langfuse.redis.useShared }},langfuse-redis{{ end }}{{ if .Values.langfuse.sso.enabled }},langfuse-sso{{ end }}
-{{- if .Values.langfuse.sso.enabled }}
+        secret.reloader.stakater.com/reload: langfuse-postgres{{ if .Values.langfuse.redis.useShared }},langfuse-redis{{ end }}{{ if $ssoEnabled }},langfuse-sso{{ end }}
+{{- if and $ssoEnabled .Values.langfuse.sso.disableUsernamePassword }}
+    pod:
+      additionalEnv:
+        - name: LANGFUSE_DEFAULT_ORG_ID
+          value: {{ .Values.langfuse.bootstrap.organization | quote }}
+        - name: LANGFUSE_DEFAULT_ORG_ROLE
+          value: VIEWER
+{{- end }}
+{{- if $ssoEnabled }}
   auth:
     disableUsernamePassword: {{ .Values.langfuse.sso.disableUsernamePassword }}
     providers:

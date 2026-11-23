@@ -947,6 +947,11 @@ def main():
                 'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
         assert not {'backstage', 'backstage-credentials', 'backstage-reloader'} & workload_names
+        workload_langfuse = next(a for a in workload if a['metadata']['name'] == 'langfuse')
+        workload_langfuse_values = workload_langfuse['spec']['source']['helm']['valuesObject']['langfuse']
+        assert 'auth' not in workload_langfuse_values
+        assert not workload_langfuse_values['web'].get('pod', {}).get('additionalEnv')
+        assert 'langfuse-sso' not in workload_langfuse_values['web']['deployment']['annotations']['secret.reloader.stakater.com/reload'].split(',')
         assert waves['configuration'] < waves['atlantis-azure'] < waves['atlantis'] < waves['routes']
         assert waves['azure-service-operator'] < waves['atlantis-azure']
         assert waves['crossplane'] < waves['crossplane-packages'] < waves['crossplane-identity-api'] < waves['service-identities'] < waves['langfuse']
@@ -1608,7 +1613,9 @@ def main():
                         assert any(v['mountPath'] == '/etc/langfuse-postgres' and v['readOnly'] for v in container['volumeMounts'])
                     assert web['metadata']['annotations']['secret.reloader.stakater.com/reload'] == ('langfuse-postgres,langfuse-redis,langfuse-sso' if database_values['redis'].get('deploy') is False else 'langfuse-postgres,langfuse-sso')
                     env = {e['name']: e for e in web['spec']['template']['spec']['containers'][0]['env']}
-                    assert env.get('AUTH_DISABLE_USERNAME_PASSWORD', {}).get('value', 'false') == 'false', 'Keep recovery login until interactive Entra verification'
+                    assert env['AUTH_DISABLE_USERNAME_PASSWORD']['value'] == 'true'
+                    assert env['LANGFUSE_DEFAULT_ORG_ID']['value'] == env['LANGFUSE_INIT_ORG_ID']['value']
+                    assert env['LANGFUSE_DEFAULT_ORG_ROLE']['value'] == 'VIEWER'
                     for env_name, key in [('AUTH_AZURE_AD_CLIENT_ID', 'client-id'), ('AUTH_AZURE_AD_CLIENT_SECRET', 'client-secret'), ('AUTH_AZURE_AD_TENANT_ID', 'tenant-id')]:
                         assert env[env_name]['valueFrom']['secretKeyRef'] == {'name': 'langfuse-sso', 'key': key}
                     assert env['AUTH_AZURE_AD_ALLOW_ACCOUNT_LINKING']['value'] == 'true'
