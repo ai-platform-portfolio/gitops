@@ -61,3 +61,59 @@ spec:
       requestRedirect:
         scheme: https
         statusCode: 301
+{{- if and .Values.gateway.private.enabled (eq .Values.cluster.role "management") }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: telemetry
+  namespace: opentelemetry
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.gateway.private.clusterIssuer | quote }}
+spec:
+  parentRef: {name: private, namespace: envoy-gateway-system}
+  listeners:
+    - name: telemetry-https
+      hostname: {{ tpl .Values.gateway.telemetry.hostname . | quote }}
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs: [{name: telemetry-private-tls}]
+      allowedRoutes:
+        namespaces: {from: Same}
+---
+# Deny even when a consumer's route is present without its own policy.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: telemetry-default
+  namespace: opentelemetry
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: ListenerSet, name: telemetry}
+  authorization:
+    defaultAction: Deny
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: private-telemetry
+  namespace: lgtm
+spec:
+  from:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: opentelemetry}
+  to:
+    - {group: "", kind: Service, name: mimir-gateway}
+    - {group: "", kind: Service, name: loki-gateway}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telemetry-query-defaults
+  namespace: opentelemetry
+data:
+  values.json: {{ merge (dict "hostname" (tpl .Values.gateway.telemetry.hostname .)) .Values.gateway.telemetry | toJson | quote }}
+{{- end }}

@@ -909,9 +909,17 @@ def main():
                     }
                 if app['metadata']['name'] == 'routes':
                     listeners = [d for d in documents if d['kind'] == 'ListenerSet']
-                    assert len(listeners) == 8
-                    public_listeners = [d for d in listeners if d['metadata']['namespace'] != 'litellm']
+                    assert len(listeners) == 9
+                    public_listeners = [d for d in listeners if d['spec']['parentRef']['name'] == 'public']
                     assert len(public_listeners) == 7
+                    telemetry = next(d for d in listeners if d['metadata']['name'] == 'telemetry')
+                    assert telemetry['spec']['parentRef']['name'] == 'private'
+                    assert telemetry['spec']['listeners'][0]['allowedRoutes'] == {'namespaces': {'from': 'Same'}}
+                    deny = next(d for d in documents if d['metadata']['name'] == 'telemetry-default')
+                    assert deny['spec']['authorization'] == {'defaultAction': 'Deny'}
+                    grant = next(d for d in documents if d['metadata']['name'] == 'private-telemetry')
+                    assert grant['spec']['from'][0]['namespace'] == 'opentelemetry'
+                    assert {ref['name'] for ref in grant['spec']['to']} == {'mimir-gateway', 'loki-gateway'}
                     kargo_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'kargo')
                     assert kargo_route['spec']['rules'][0]['backendRefs'] == [{'name': 'kargo-api', 'port': 80}]
                     portal_route = next(d for d in documents if d['kind'] == 'HTTPRoute' and d['metadata']['name'] == 'backstage')

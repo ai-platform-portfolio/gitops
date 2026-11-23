@@ -48,6 +48,12 @@ gateway:
     hostname: 'otel.internal.{{ .Values.runtime.DNS_ZONE }}'
     clusterIssuer: letsencrypt-azuredns
 
+  telemetry:
+    hostname: 'telemetry.internal.{{ .Values.runtime.DNS_ZONE }}'
+    audience: 1d466303-938a-41c0-9106-bef82c684818 # Existing aks-mcp-localdev registration.
+    apiPrincipalId: eed76404-52cc-421c-a298-defe2cb983df
+    roleId: 25b3bb97-a1fe-487c-9c52-4ae0d5fa7574
+
   preview:
     enabled: true
     hostname: '*.previews.{{ .Values.runtime.DNS_ZONE }}'
