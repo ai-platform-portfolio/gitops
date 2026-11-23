@@ -61,12 +61,14 @@ spec:
         cloneProtocol: https
         github:
           organization: {{ $.Values.events.github.organization | quote }}
-          allBranches: false
           tokenRef: {secretName: argocd-github-api, key: token}
         filters:
           - pathsExist: [{{ printf "deploy/%s.yaml" $profile | quote }}]
-  syncPolicy:
-    preserveResourcesOnDeletion: false
+        # Match the controller's serialized empty override and false defaults.
+        template:
+          metadata: {}
+          spec: {destination: {}, project: ""}
+  syncPolicy: {}
   template:
     metadata:
       finalizers: [resources-finalizer.argocd.argoproj.io]

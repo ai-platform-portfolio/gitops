@@ -89,9 +89,12 @@ class EventTemplateTests(unittest.TestCase):
             generator = appset['spec']['generators'][0]['scmProvider']
             self.assertEqual(generator['requeueAfterSeconds'], 0)
             self.assertEqual(generator['github']['organization'], 'second-org')
-            self.assertFalse(generator['github']['allBranches'])
+            self.assertNotIn('allBranches', generator['github'])
+            self.assertEqual(appset['spec']['syncPolicy'], {})
+            self.assertEqual(generator['template'], {'metadata': {}, 'spec': {'destination': {}, 'project': ''}})
             self.assertEqual(generator['filters'], [{'pathsExist': [f'deploy/{profile}.yaml']}])
             template = appset['spec']['template']
+            self.assertEqual(template['metadata']['finalizers'], ['resources-finalizer.argocd.argoproj.io'])
             self.assertEqual(template['spec']['sources'][0]['helm']['valueFiles'], [f'$intent/deploy/{profile}.yaml'])
             pin = template['spec']['sources'][0]['targetRevision']
             self.assertRegex(pin, r'^[0-9a-f]{40}$')
