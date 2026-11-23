@@ -204,8 +204,8 @@ langfuse:
 
   sso:
     enabled: true
-    # Keep recovery login until the profile email and browser SSO are verified.
-    disableUsernamePassword: false
+    # Entra assignment gates first-sign-in Viewer provisioning.
+    disableUsernamePassword: true
     # Entra object IDs, not email addresses; direct assignments need no group licence.
     users:
       portfolio-owner: 13d45074-e2b1-4c98-9c95-e246f2abb575
