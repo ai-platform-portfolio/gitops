@@ -1,0 +1,116 @@
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: grafana-alerts
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: '-10'}
+spec:
+  length: 48
+  digits: 12
+  symbols: 0
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-alerts
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: '-9'}
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: grafana-alerts
+    template:
+      data:
+        token: {{ "{{ .password }}" | quote }}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: grafana-alerts
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-alert-secret-reader
+  namespace: lgtm
+  annotations: {argocd.argoproj.io/sync-wave: '-10'}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-alert-secret-reader
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: '-10'}
+rules:
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [grafana-alerts]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-alert-secret-reader
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: '-10'}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: grafana-alert-secret-reader
+subjects:
+  - {kind: ServiceAccount, name: grafana-alert-secret-reader, namespace: lgtm}
+  - {kind: ServiceAccount, name: platform-event-source, namespace: cluster-onboarding}
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: grafana-alerts
+  namespace: lgtm
+  annotations: {argocd.argoproj.io/sync-wave: '-8'}
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: cluster-onboarding
+      server:
+        url: https://kubernetes.default.svc
+        caProvider: {type: ConfigMap, name: kube-root-ca.crt, key: ca.crt}
+      auth:
+        serviceAccount: {name: grafana-alert-secret-reader}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-alerts
+  namespace: lgtm
+  annotations: {argocd.argoproj.io/sync-wave: '-7'}
+spec:
+  refreshInterval: 1m
+  secretStoreRef: {kind: SecretStore, name: grafana-alerts}
+  target: {name: grafana-alerts}
+  data:
+    - secretKey: GRAFANA_ALERT_WEBHOOK_TOKEN
+      remoteRef: {key: grafana-alerts, property: token}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: grafana-alerts
+  namespace: cluster-onboarding
+  annotations: {argocd.argoproj.io/sync-wave: '1'}
+spec:
+{{ include "platform.eventDefaults" "platform-event-source" | indent 2 }}
+  service:
+    ports:
+      - {name: webhook, port: 12000, targetPort: 12000}
+  webhook:
+    alert:
+      port: '12000'
+      endpoint: /alerts
+      method: POST
+      authSecret: {name: grafana-alerts, key: token}
+      metadata: {cluster: {{ required "runtime.CLUSTER_NAME is required" .Values.runtime.CLUSTER_NAME | quote }}}
+      maxPayloadSize: 16384

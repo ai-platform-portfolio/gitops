@@ -1,0 +1,13 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: platform-alert-events
+    receivers:
+      - uid: platform-alert-events
+        type: webhook
+        disableResolveMessage: true
+        settings:
+          url: http://grafana-alerts-eventsource-svc.cluster-onboarding.svc.cluster.local:12000/alerts
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $GRAFANA_ALERT_WEBHOOK_TOKEN

@@ -52,6 +52,9 @@ grafana:
     type: Recreate
   envFromSecrets:
   - name: grafana-azuread-app
+{{- if and (eq .Values.cluster.role "management") .Values.events.enabled }}
+  - name: grafana-alerts
+{{- end }}
 {{- if .Values.devlake.enabled }}
   - name: devlake-grafana-database
   dashboardProviders:
@@ -121,6 +124,10 @@ grafana:
           tlsCACert: $DEVLAKE_POSTGRES_CA
 {{- end }}
   alerting:
+{{- if and (eq .Values.cluster.role "management") .Values.events.enabled }}
+    platform-alert-events.yaml:
+{{ tpl (.Files.Get "packages/lgtm/alerting/event-contact.yaml") . | indent 6 }}
+{{- end }}
     kubernetes-readiness.yaml:
 {{ tpl (.Files.Get "packages/lgtm/alerting/kubernetes-readiness.yaml") . | indent 6 }}
     gateway-http.yaml:

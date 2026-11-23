@@ -305,6 +305,29 @@ def main():
         assert watch['eventTypes'] == ['ADD', 'UPDATE'] and watch['filter']['afterStart'] is False
         bus = next(d for d in event_docs if d['kind'] == 'EventBus')['spec']['jetstream']
         assert bus['replicas'] == 1 and bus['persistence']['volumeSize'] == '1Gi'
+        receiver = next(d for d in event_docs if d['kind'] == 'EventSource' and d['metadata']['name'] == 'grafana-alerts')
+        webhook = receiver['spec']['webhook']['alert']
+        assert receiver['spec']['eventBusName'] == 'platform'
+        assert receiver['spec']['service']['ports'] == [{'name': 'webhook', 'port': 12000, 'targetPort': 12000}]
+        assert webhook['authSecret'] == {'name': 'grafana-alerts', 'key': 'token'}
+        assert webhook['metadata'] == {'cluster': runtime['CLUSTER_NAME']}
+        alert_secrets = {d['metadata']['namespace']: d for d in event_docs
+                         if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'grafana-alerts'}
+        assert alert_secrets['cluster-onboarding']['spec']['refreshPolicy'] == 'CreatedOnce'
+        assert alert_secrets['lgtm']['spec']['data'] == [{
+            'secretKey': 'GRAFANA_ALERT_WEBHOOK_TOKEN', 'remoteRef': {'key': 'grafana-alerts', 'property': 'token'},
+        }]
+        grafana = next(app for app in applications if app['metadata']['name'] == 'grafana')
+        grafana_settings = grafana['spec']['source']['helm']['valuesObject']
+        assert {'name': 'grafana-alerts'} in grafana_settings['envFromSecrets']
+        contact = grafana_settings['alerting']['platform-alert-events.yaml']['contactPoints'][0]
+        contact_settings = contact['receivers'][0]['settings']
+        assert contact_settings['authorization_credentials'] == '$GRAFANA_ALERT_WEBHOOK_TOKEN'
+        assert contact_settings['url'] == 'http://grafana-alerts-eventsource-svc.cluster-onboarding.svc.cluster.local:12000/alerts'
+        readiness = grafana_settings['alerting']['kubernetes-readiness.yaml']['groups'][0]['rules'][0]
+        assert readiness['notification_settings'] == {
+            'receiver': contact['name'], 'group_by': ['alertname', 'cluster', 'namespace'],
+        }
         # GitHub delivery is active; consumers can still disable the shared receiver.
         assert any(d['kind'] == 'EventSource' and d['metadata']['name'] == 'github' for d in event_docs)
         disabled_render = [d for d in yaml.safe_load_all(command('helm', 'template', 'platform',
@@ -349,7 +372,7 @@ def main():
         startup_source = next(d for d in delivery if d['kind'] == 'EventSource' and d['metadata']['name'] == 'preview-startup')
         assert 'github' not in startup_source['spec']
         assert startup_source['spec']['resource']['startup']['filter']['afterStart'] is False
-        hmac = next(d for d in delivery if d['kind'] == 'ExternalSecret')
+        hmac = next(d for d in delivery if d['kind'] == 'ExternalSecret' and d['metadata']['name'] == 'github-event-auth')
         assert hmac['spec']['data'] == [{'secretKey': 'webhook-secret', 'remoteRef': {'key': 'cluster-github-webhook-secret'}}]
         refresh = next(d for d in delivery if d['kind'] == 'Sensor' and d['metadata']['name'] == 'preview-refresh')
         dependencies = {d['name']: d for d in refresh['spec']['dependencies']}
@@ -395,7 +418,7 @@ def main():
             assert '@sha256:' in container['image'] and container['securityContext']['readOnlyRootFilesystem']
             assert container['env'] == [{'name': 'KUBECONFIG', 'value': '/etc/preview-refresh/config'}]
             assert {'name': 'kubeconfig', 'mountPath': '/etc/preview-refresh', 'readOnly': True} in container['volumeMounts']
-        refresh_role = next(d for d in delivery if d['kind'] == 'Role')
+        refresh_role = next(d for d in delivery if d['kind'] == 'Role' and d['metadata']['name'] == 'preview-refresh')
         assert refresh_role['metadata']['namespace'] == 'argocd'
         assert refresh_role['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['applications', 'applicationsets'], 'verbs': ['get', 'list', 'patch']}]
         listener = next(d for d in delivery if d['kind'] == 'ListenerSet')
@@ -947,6 +970,9 @@ def main():
                 'service-identities',
                 'langfuse-reloader', 'federation', 'testkube', 'devlake'} <= workload_names
         assert not {'backstage', 'backstage-credentials', 'backstage-reloader'} & workload_names
+        workload_grafana = next(a for a in workload if a['metadata']['name'] == 'grafana')['spec']['source']['helm']['valuesObject']
+        assert 'platform-alert-events.yaml' not in workload_grafana['alerting']
+        assert {'name': 'grafana-alerts'} not in workload_grafana['envFromSecrets']
         workload_langfuse = next(a for a in workload if a['metadata']['name'] == 'langfuse')
         workload_langfuse_values = workload_langfuse['spec']['source']['helm']['valuesObject']['langfuse']
         assert 'auth' not in workload_langfuse_values
