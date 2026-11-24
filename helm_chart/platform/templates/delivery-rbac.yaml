@@ -64,6 +64,11 @@ rules:
     resources: [sensors]
     verbs: [get, list, watch]
 
+  - apiGroups: [argoproj.io]
+    resources: [eventsources]
+    resourceNames: [grafana-alerts]
+    verbs: [get]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

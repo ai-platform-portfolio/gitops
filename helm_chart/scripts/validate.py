@@ -1318,7 +1318,10 @@ def main():
         roles = {d['metadata']['namespace']: d for d in delivery if d['kind'] == 'Role'}
         assert roles['litellm']['rules'] == [{'apiGroups': [''], 'resources': ['configmaps'], 'resourceNames': ['litellm-consumer-defaults'], 'verbs': ['get']}]
         assert roles['argocd']['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['applications'], 'verbs': ['get', 'list', 'watch', 'create', 'patch']}]
-        assert roles['cluster-onboarding']['rules'] == [{'apiGroups': ['argoproj.io'], 'resources': ['sensors'], 'verbs': ['get', 'list', 'watch']}]
+        assert roles['cluster-onboarding']['rules'] == [
+            {'apiGroups': ['argoproj.io'], 'resources': ['sensors'], 'verbs': ['get', 'list', 'watch']},
+            {'apiGroups': ['argoproj.io'], 'resources': ['eventsources'], 'resourceNames': ['grafana-alerts'], 'verbs': ['get']},
+        ]
         observer = next(d for d in delivery if d['kind'] == 'RoleBinding' and d['metadata']['namespace'] == 'cluster-onboarding')
         assert observer['roleRef'] == {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Role', 'name': roles['cluster-onboarding']['metadata']['name']}
         assert all(d['subjects'] == [{'kind': 'User', 'apiGroup': 'rbac.authorization.k8s.io', 'name': runtime['CI_PUBLISHER_PRINCIPAL_ID']}] for d in delivery if d['kind'] == 'RoleBinding')
