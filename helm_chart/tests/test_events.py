@@ -84,7 +84,9 @@ class EventTemplateTests(unittest.TestCase):
                              atlas={'azurePostgres': {'enabled': True}})
         self.assertEqual(result.returncode, 0, result.stderr)
         sets = [d for d in yaml.safe_load_all(result.stdout) if d and d['kind'] == 'ApplicationSet']
-        self.assertEqual(len(sets), 2)
+        by_name = {d['metadata']['name']: d for d in sets}
+        self.assertEqual(set(by_name), {'application-environments', 'application-hosted', 'application-previews'})
+        sets = [by_name[name] for name in ('application-environments', 'application-previews')]
         for appset, profile in zip(sorted(sets, key=lambda d: d['metadata']['name']), ['environments', 'previews']):
             generator = appset['spec']['generators'][0]['scmProvider']
             self.assertEqual(generator['requeueAfterSeconds'], 0)
@@ -136,7 +138,8 @@ class EventTemplateTests(unittest.TestCase):
                         self.assertIn('onboarding with azure requires atlas.azurePostgres.enabled', result.stderr)
                         continue
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    sets = [d for d in yaml.safe_load_all(result.stdout) if d and d['kind'] == 'ApplicationSet']
+                    sets = [d for d in yaml.safe_load_all(result.stdout) if d and d['kind'] == 'ApplicationSet'
+                            and d['metadata']['name'] in {'application-environments', 'application-previews'}]
                     self.assertEqual(len(sets), 2)
                     for appset in sets:
                         platform = appset['spec']['template']['spec']['sources'][0]['helm']['valuesObject']['platform']

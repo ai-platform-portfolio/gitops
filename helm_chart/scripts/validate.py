@@ -91,7 +91,7 @@ def main():
         postgres = next(d for d in hba_render if d and d['kind'] == 'Application' and d['metadata']['name'] == 'postgres')
         cluster = next(d for d in yaml.safe_load_all(postgres['spec']['source']['helm']['valuesObject']['manifests']) if d and d['kind'] == 'Cluster')
         assert cluster['spec']['postgresql']['pg_hba'][-2:] == [hba_rule, 'host all all all reject']
-        assert {d['metadata']['name'] for d in hba_render if d and d['kind'] == 'ApplicationSet'} == {'application-previews'}
+        assert {d['metadata']['name'] for d in hba_render if d and d['kind'] == 'ApplicationSet'} == {'application-hosted', 'application-previews'}
         atlas_azure = next(d for d in hba_render if d and d['metadata']['name'] == 'atlas-azure')
         azure_docs = [d for d in yaml.safe_load_all(atlas_azure['spec']['source']['helm']['valuesObject']['manifests']) if d]
         assert {d['kind'] for d in azure_docs} == {'UserAssignedIdentity', 'FederatedIdentityCredential'}, 'Deferred server must not block Atlas identity setup'
@@ -130,12 +130,37 @@ def main():
                     assert labels == {'gitops.platform/gateway': 'public', 'gitops.platform/preview': 'true'}
                     assert gateway['metadata']['annotations']['cert-manager.io/cluster-issuer'] == 'letsencrypt-azuredns'
                     if role == 'management':
-                        registrations = [d for d in apps if d and d.get('kind') == 'ApplicationSet']
+                        registrations = [d for d in apps if d and d.get('kind') == 'ApplicationSet'
+                                         and d['metadata']['name'].startswith('application-preview')]
                         assert {r['metadata']['name'] for r in registrations} == {'application-previews'}
                         for registration in registrations:
                             source = registration['spec']['template']['spec']['sources'][0]
                             previews = source['helm']['valuesObject']['platform']['argocd']['previews']
                             assert previews['domain'] == hostname.removeprefix('*.'), 'Preview routes must match the shared certificate domain'
+        hosted_paths = []
+        for issuer in ('https://issuer.example.test/first', 'https://issuer.example.test/rebuilt'):
+            values.write_text(json.dumps({'runtime': {**runtime, 'AKS_OIDC_ISSUER_URL': issuer}}))
+            hosted = yaml.safe_load(command('helm', 'template', 'platform', str(HELM_CHART / 'platform'),
+                                             '-f', str(values), '--show-only', 'templates/hosted-onboarding.yaml'))
+            spec = hosted['spec']
+            github, publication = spec['generators'][0]['matrix']['generators']
+            selection = github['scmProvider']['filters'][0]
+            assert selection['branchMatch'] == '^delivery$'
+            base, = selection['pathsExist']
+            assert re.fullmatch(r'deploy/hosted/[a-f0-9]{24}', base)
+            assert publication['git']['files'] == [{'path': base + '/*.json'}]
+            assert publication['git']['repoURL'] == '{{.url}}' and publication['git']['revision'] == '{{.sha}}'
+            hosted_paths.append(base)
+            application = spec['template']
+            assert application['metadata']['name'] == application['spec']['destination']['namespace']
+            assert application['metadata']['finalizers'] == ['resources-finalizer.argocd.argoproj.io']
+            chart, intent = application['spec']['sources']
+            assert intent == {'repoURL': '{{.url}}', 'targetRevision': '{{.sourceRevision}}', 'ref': 'application'}
+            assert chart['helm']['valueFiles'] == ['$application/agents/{{.agent}}/config/agent.yaml']
+            assert '{{ if eq .alerts true }}' in chart['helm']['values']
+            assert 'agent-catalog' not in json.dumps(hosted)
+        assert len(set(hosted_paths)) == 2, 'Cold start must exclude publications from the previous AKS issuer'
+
         values.write_text(json.dumps({'runtime': runtime, 'gateway': {'preview': {'hostname': 'not-a-wildcard.test'}}}))
         try:
             command('helm', 'template', 'platform', str(HELM_CHART / 'platform'), '-f', str(values))
