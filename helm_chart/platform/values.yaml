@@ -29,6 +29,7 @@ argocd:
       telemetryEndpoint: http://opentelemetry-collector.opentelemetry.svc.cluster.local:4318
     chartRepository: https://github.com/ai-platform-portfolio/application-helm-chart.git
     chartRevision: 67cbdf5811ad66263fded8c60d1531bc4ed3acd7
+    hostedChartRevision: 75f80cccd6ce6e2e566d60a70c60ed54a3e58084 # Pin the shared chart for Git-published hosted consumers.
 
   registry:
     name: localacrk8s

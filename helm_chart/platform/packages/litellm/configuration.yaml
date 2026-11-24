@@ -1,13 +1,5 @@
 {{- $google := and .Values.litellm.google.enabled (not (empty .Values.runtime.GOOGLE_GATEWAY_PROVIDER)) (not (empty .Values.runtime.GOOGLE_GATEWAY_PROJECT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_ACCOUNT)) (not (empty .Values.runtime.GOOGLE_GATEWAY_AUDIENCE)) -}}
 {{- $bedrock := and .Values.litellm.bedrock.enabled (not (empty .Values.runtime.AWS_GATEWAY_ROLE_ARN)) -}}
-{{- $policies := deepCopy .Values.litellm.access.policies -}}
-{{- if not $bedrock -}}
-{{- $_ := unset $policies "bounded-claude" -}}
-{{- $_ := unset $policies "bounded-reasoning-coding" -}}
-{{- end -}}
-{{- if not $google -}}
-{{- $_ := unset $policies "bounded-gemini" -}}
-{{- end -}}
 # The PreSync migration needs this account before the upstream chart's Sync phase.
 apiVersion: v1
 kind: ServiceAccount
@@ -68,7 +60,13 @@ metadata:
   name: litellm-consumer-defaults
   namespace: litellm
 data:
-  values.json: {{ toJson (dict "modelGateway" (dict "endpoint" (printf "https://%s/v1" (tpl .Values.litellm.access.hostname .)) "vaultUri" (trimSuffix "/" .Values.runtime.AZURE_KEY_VAULT_URI) "masterSecret" (printf "platform-%s-litellm-master" .Values.cluster.name) "namespace" "litellm" "issuerServiceAccount" "litellm-key-writer" "issuerIdentitySecret" "litellm-key-writer" "image" (printf "%s:%s" .Values.litellm.image.repository .Values.litellm.image.tag) "policies" $policies) "azure" (dict "subscriptionId" .Values.runtime.AZURE_SUBSCRIPTION_ID "tenantId" .Values.runtime.AZURE_TENANT_ID "resourceNamespace" "azure-resources" "keyVault" (dict "name" (first (splitList "." (trimPrefix "https://" .Values.runtime.AZURE_KEY_VAULT_URI))) "resourceGroup" .Values.litellm.keyVault.resourceGroup))) | quote }}
+  values.json: {{ include "platform.hostedGatewayDefaults" . | fromYaml | toJson | quote }}
+{{- if eq .Values.cluster.role "management" }}
+  hosted-generation: {{ include "platform.hostedGeneration" . | quote }}
+{{- if .Values.gateway.private.enabled }}
+  traces-endpoint: {{ printf "https://%s/v1/traces" (tpl .Values.gateway.private.hostname .) | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- if $google }}

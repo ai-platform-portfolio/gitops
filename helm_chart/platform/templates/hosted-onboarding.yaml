@@ -1,0 +1,107 @@
+{{- $onboarding := .Values.argocd.onboarding -}}
+{{- if and (eq .Values.cluster.role "management") $onboarding.enabled $onboarding.hostedChartRevision .Values.litellm.enabled .Values.litellm.access.enabled -}}
+{{- if not (and .Values.events.enabled .Values.events.github.enabled) -}}
+{{- fail "Hosted onboarding requires GitHub events for discovery refresh" -}}
+{{- end -}}
+{{- $path := printf "deploy/hosted/%s" (include "platform.hostedGeneration" .) -}}
+{{- $platform := include "platform.hostedGatewayDefaults" . | fromYaml -}}
+{{- $name := `{{ printf "%s/%s/%s-%s" .organization .repository .repository .agent | lower | sha256sum | trunc 24 | printf "hosted-%s" }}` -}}
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: application-hosted
+  namespace: argocd
+  labels:
+    platform.ai-platform-portfolio/onboarding: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "80"
+spec:
+  goTemplate: true
+  goTemplateOptions: [missingkey=error]
+  generators:
+    - matrix:
+        generators:
+          - scmProvider:
+              requeueAfterSeconds: 0
+              cloneProtocol: https
+              github:
+                organization: {{ .Values.events.github.organization | quote }}
+                allBranches: true
+                tokenRef: {secretName: argocd-github-api, key: token}
+              filters:
+                - branchMatch: "^delivery$"
+                  pathsExist: [{{ $path | quote }}]
+              template:
+                metadata: {}
+                spec: {destination: {}, project: ""}
+          - git:
+              repoURL: {{ "{{.url}}" | quote }}
+              revision: {{ "{{.sha}}" | quote }}
+              requeueAfterSeconds: 0
+              files:
+                - path: {{ printf "%s/*.json" $path | quote }}
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  template:
+    metadata:
+      {{- /* Preserve the application and cloud resource identity during adoption. */}}
+      name: {{ $name | quote }}
+      finalizers: [resources-finalizer.argocd.argoproj.io]
+      labels:
+        platform.ai-platform-portfolio/registration: "true"
+      annotations:
+        platform.ai-platform-portfolio/hosted-principal: {{ "{{.principalId}}" | quote }}
+        platform.ai-platform-portfolio/hosted-source: {{ "{{.sourceRevision}}" | quote }}
+        platform.ai-platform-portfolio/hosted-version: {{ "{{.version}}" | quote }}
+        platform.ai-platform-portfolio/hosted-alerts: {{ "{{.alerts}}" | quote }}
+    spec:
+      project: default
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: {{ $name | quote }}
+      sources:
+        - repoURL: {{ $onboarding.chartRepository | quote }}
+          targetRevision: {{ $onboarding.hostedChartRevision | quote }}
+          path: .
+          helm:
+            releaseName: {{ $name | quote }}
+            valueFiles:
+              - {{ `$application/agents/{{.agent}}/config/agent.yaml` | quote }}
+            values: |
+              {{ `{{ if not (and (regexMatch "^[a-z0-9][a-z0-9-]{0,62}$" .agent) (regexMatch "^[a-f0-9]{40}$" .sourceRevision) (regexMatch "^[0-9a-fA-F-]{36}$" .principalId)) }}{{ fail "Invalid hosted release record" }}{{ end }}` }}
+              name: {{ $name }}
+              platform:
+                modelGateway:
+                  {{- $platform.modelGateway | toYaml | nindent 18 }}
+                  consumerIdentity: {{ `{{ printf "%s/%s" .organization .repository | lower }}` }}
+                  principalId: {{ "{{.principalId}}" | quote }}
+                azure: {{ $platform.azure | toJson }}
+                argocd: {enabled: false}
+                lifecycle:
+                  cleanup: {enabled: true}
+                {{ "{{ with .telemetry }}" }}
+                telemetry:
+                  {{- merge (dict "hostname" (tpl .Values.gateway.telemetry.hostname .) "tenantId" .Values.runtime.AZURE_TENANT_ID) .Values.gateway.telemetry | toYaml | nindent 18 }}
+                  namespace: {{ "{{.namespace}}" | quote }}
+                  workload: {{ "{{.workload}}" | quote }}
+                {{ "{{ end }}" }}
+                {{ "{{ if eq .alerts true }}" }}
+                events:
+                  github: {{ .Values.argocd.github | toJson }}
+                hostedReadiness:
+                  agent: {{ "{{.agent}}" | quote }}
+                  repository: {{ `{{ printf "%s/%s" .organization .repository | lower }}` }}
+                  cluster: {{ .Values.runtime.CLUSTER_NAME | quote }}
+                  namespace: {{ "{{.telemetry.namespace}}" | quote }}
+                  workload: {{ "{{.telemetry.workload}}" | quote }}
+                {{ "{{ end }}" }}
+        - repoURL: {{ "{{.url}}" | quote }}
+          targetRevision: {{ "{{.sourceRevision}}" | quote }}
+          ref: application
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        retry:
+          limit: 3
+          backoff: {duration: 10s, factor: 2, maxDuration: 1m}
+        syncOptions: [ServerSideApply=true, PruneLast=true, RespectIgnoreDifferences=true]
+{{- end -}}
