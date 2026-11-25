@@ -267,7 +267,7 @@ module "aso_identity" {
 # Bootstrap grants the operator group Foundry access; application consumers
 # retain separate ownership of their runtime identities and role assignments.
 module "foundry" {
-  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=1521beb828b5b0b4dbb5bf2ca7745f96eb757710"
+  source                     = "git::https://github.com/ai-platform-portfolio/terraform.git//modules/azure/foundry?ref=b1043ce5ddf6b1fe441163736d2ce530602ffe44"
   name                       = local.foundry_name
   resource_group_name        = azurerm_resource_group.this.name
   location                   = var.foundry.location
