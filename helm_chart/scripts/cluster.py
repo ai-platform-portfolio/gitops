@@ -113,9 +113,10 @@ def cleanup_stale_dns(account, config):
         raise RuntimeError('Owned DNS records remain after stale-record cleanup')
 
 
-def already_down(infra, tfvars):
+def already_down(infra, tfvars, outputs=None):
     tf = [os.environ.get('TERRAFORM', 'terraform'), f'-chdir={infra}']
-    outputs = json.loads(run(*tf, 'output', '-json', capture=True, timeout=30))
+    if outputs is None:
+        outputs = json.loads(run(*tf, 'output', '-json', capture=True, timeout=60))
     if 'aks_connection' in outputs:
         return False
     if run(*tf, 'state', 'list', capture=True).strip():
@@ -161,10 +162,11 @@ def teardown_connection(tf):
 
 
 class Cluster:
-    def __init__(self, infra, kubeconfig, teardown=False):
+    def __init__(self, infra, kubeconfig, teardown=False, outputs=None):
         self.tf = [os.environ.get('TERRAFORM', 'terraform'), f'-chdir={infra}']
         if teardown:
-            outputs = json.loads(run(*self.tf, 'output', '-json', capture=True, timeout=30))
+            if outputs is None:
+                outputs = json.loads(run(*self.tf, 'output', '-json', capture=True, timeout=60))
             complete = {'aks_connection', 'platform_settings'} <= outputs.keys()
             self.connection = outputs['aks_connection']['value'] if complete else teardown_connection(self.tf)
             self.settings = outputs['platform_settings']['value'] if complete else None
@@ -741,7 +743,8 @@ class Cluster:
 
                     applications_gone()  # Capture descendants before deleting their parents.
                     self.delete('applicationsets.argoproj.io', onboarding, 'argocd', foreground=True)
-                    wait_for(applications_gone, 'Waiting for registered applications and PostDelete cleanup')
+                    wait_for(applications_gone, 'Waiting for registered applications and PostDelete cleanup',
+                             retry_command_errors=True)
                 apps = self.objects('applications.argoproj.io', 'argocd')
 
         # Hosted consumers register directly rather than through an ApplicationSet.
@@ -874,10 +877,15 @@ def main():
     infra = args.infra_dir.resolve()
     tfvars = args.tfvars or Path('terraform.tfvars')
     tfvars = (tfvars if tfvars.is_absolute() else infra / tfvars).resolve()
-    if args.action == 'down' and already_down(infra, tfvars):
-        return
+    outputs = None
+    if args.action == 'down':
+        # Share one bounded backend read across both teardown checks.
+        outputs = json.loads(run(os.environ.get('TERRAFORM', 'terraform'), f'-chdir={infra}',
+                                 'output', '-json', capture=True, timeout=60))
+        if already_down(infra, tfvars, outputs):
+            return
     with tempfile.TemporaryDirectory(prefix='platform-aks-') as directory:
-        cluster = Cluster(args.infra_dir.resolve(), Path(directory) / 'kubeconfig', teardown=args.action == 'down')
+        cluster = Cluster(infra, Path(directory) / 'kubeconfig', teardown=args.action == 'down', outputs=outputs)
         if args.action == 'down':
             if cluster.settings is not None:
                 try:

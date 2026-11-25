@@ -2,6 +2,9 @@
 fullnameOverride: argocd
 
 global:
+  image:
+    tag: v3.5.9@sha256:3b7416d6a448f3cb9c445fb72f90b4f76be204f4541cd146115e53c8534a8d5a
+
   networkPolicy:
     create: false
 
@@ -16,7 +19,7 @@ applicationSet:
 controller:
   replicas: 1
 
-  # Temporary upstream backports; remove after adopting releases with both fixes.
+  # Release includes CRD refresh and deletion-hook fixes; retain watch backoff.
   image:
     repository: localacrk8s.azurecr.io/platform/argocd
     tag: preview-argocd-v3.5.5-ai167-335527a924e088420f15b501ec4750f2f4d4b8cb@sha256:66750b523da747958c91c8776985fd77860dee1f6483be974a9164f8f6072ead

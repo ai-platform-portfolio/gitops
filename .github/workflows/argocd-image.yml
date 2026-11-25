@@ -13,13 +13,14 @@ permissions:
 
 jobs:
   image:
-    uses: ai-platform-portfolio/ops-shared/.github/workflows/docker.yml@7ed775ef5c3077a99f49e859816ffc095c54d18a
+    uses: ai-platform-portfolio/ops-shared/.github/workflows/docker.yml@dc2eea27bc3741d07906b8a1c519b929848ddac5
     with:
       image: platform/argocd
       context: bootstrap/argocd-image
       revision: ${{ github.event.pull_request.head.sha || github.sha }}
       publish-preview: true
-      tag: ${{ github.event_name == 'pull_request' && format('preview-argocd-v3.5.5-ai167-{0}', github.event.pull_request.head.sha) || format('argocd-v3.5.5-ai167-{0}', github.sha) }}
+      scan: true
+      tag: ${{ github.event_name == 'pull_request' && format('preview-argocd-v3.5.9-ai292-{0}', github.event.pull_request.head.sha) || format('argocd-v3.5.9-ai292-{0}', github.sha) }}
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}

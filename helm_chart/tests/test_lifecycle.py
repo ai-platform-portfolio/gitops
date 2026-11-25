@@ -638,8 +638,9 @@ class TeardownTests(unittest.TestCase):
                 apps.remove(registration)
                 leaf['metadata']['deletionTimestamp'] = 'now'
 
-        def wait(check, description):
+        def wait(check, description, retry_command_errors=False):
             if 'registered applications' in description:
+                self.assertTrue(retry_command_errors)
                 self.assertFalse(check(), 'Parent disappearance must not end descendant cleanup')
                 self.assertNotIn('postgres', deleted)
                 apps.remove(leaf)
@@ -797,6 +798,47 @@ class TeardownTests(unittest.TestCase):
                 with patch('helm_chart.scripts.cluster.run'), self.assertRaises(error):
                     cluster.cleanup()
                 cluster.delete.assert_not_called()
+
+    def test_registration_read_retry_preserves_dependency_order_and_failure_bound(self):
+        for failures in [1, 6]:
+            with self.subTest(failures=failures):
+                cluster = Cluster.__new__(Cluster)
+                cluster.kube, cluster.hub = ['kubectl'], None
+                cluster.settings = {'cluster': {'role': 'management'}}
+                root, appset = self.onboarding()
+                postgres = {'metadata': {'name': 'postgres', 'labels': {'platform.ai-platform-portfolio/managed': 'true'}}}
+                draining = False
+                remaining = failures
+
+                def objects(kind, namespace=None):
+                    nonlocal remaining
+                    if kind == 'applications.argoproj.io':
+                        if draining and remaining:
+                            remaining -= 1
+                            raise subprocess.CalledProcessError(1, ['kubectl', 'get'])
+                        return [root, postgres]
+                    if kind == 'applicationsets.argoproj.io':
+                        return [] if draining else [appset]
+                    return []
+
+                def delete(kind, names, namespace=None, foreground=False):
+                    nonlocal draining
+                    if kind == 'applicationsets.argoproj.io':
+                        draining = True
+
+                cluster.objects = Mock(side_effect=objects)
+                cluster.delete = Mock(side_effect=delete)
+                with patch('helm_chart.scripts.cluster.run', return_value=''), \
+                     patch('helm_chart.scripts.cluster.time.sleep') as sleep:
+                    if failures == 6:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            cluster.cleanup()
+                    else:
+                        cluster.cleanup()
+                self.assertEqual(sleep.call_count, min(failures, 5))
+                deleted = [c.args[1] for c in cluster.delete.call_args_list]
+                self.assertEqual(deleted, [['repository-discovery']] if failures == 6 else
+                                 [['repository-discovery'], ['postgres'], ['platform']])
 
     def test_registration_cleanup_timeout_preserves_platform_services(self):
         cluster = Cluster.__new__(Cluster)
@@ -1404,6 +1446,7 @@ class NodeUpgradeTeardownTests(unittest.TestCase):
         cluster = Mock()
         with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap']), \
              patch('helm_chart.scripts.cluster.already_down', return_value=False), \
+             patch('helm_chart.scripts.cluster.run', return_value='{}'), \
              patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
              patch('helm_chart.scripts.cluster.certificates.save'):
             main()
@@ -1537,10 +1580,53 @@ class DNSLifecycleTests(unittest.TestCase):
             account.assert_not_called()
         with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap', '--tfvars', 'custom.tfvars']), \
              patch('helm_chart.scripts.cluster.already_down', return_value=True) as down, \
+             patch('helm_chart.scripts.cluster.run', return_value='{}'), \
              patch('helm_chart.scripts.cluster.Cluster') as cluster:
             main()
-        down.assert_called_once_with(Path('/bootstrap'), Path('/bootstrap/custom.tfvars'))
+        down.assert_called_once_with(Path('/bootstrap'), Path('/bootstrap/custom.tfvars'), {})
         cluster.assert_not_called()
+
+
+class SharedTeardownOutputTests(unittest.TestCase):
+    def test_main_reads_outputs_once_and_passes_the_same_snapshot_to_both_checks(self):
+        outputs = {'aks_connection': {'value': {'name': 'test'}},
+                   'platform_settings': {'value': {'cluster': {'role': 'management'}}}}
+        cluster = Mock()
+        with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap']), \
+             patch('helm_chart.scripts.cluster.run', return_value=json.dumps(outputs)) as run, \
+             patch('helm_chart.scripts.cluster.already_down', return_value=False) as down, \
+             patch('helm_chart.scripts.cluster.Cluster', return_value=cluster) as constructor, \
+             patch('helm_chart.scripts.cluster.certificates.save'):
+            main()
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[-2:], ('output', '-json'))
+        self.assertEqual(run.call_args.kwargs, {'capture': True, 'timeout': 60})
+        snapshot = down.call_args.args[2]
+        self.assertEqual(snapshot, outputs)
+        self.assertIs(constructor.call_args.kwargs['outputs'], snapshot)
+
+    def test_supplied_partial_snapshot_is_not_read_again_and_retains_recovery_guards(self):
+        with patch('helm_chart.scripts.cluster.run', return_value='remaining-resource') as run:
+            self.assertFalse(already_down(Path('/bootstrap'), Path('/inputs.tfvars'), {}))
+        self.assertEqual(run.call_args.args[-2:], ('state', 'list'))
+        self.assertEqual(run.call_count, 1)
+        with patch('helm_chart.scripts.cluster.run') as run, \
+             patch('helm_chart.scripts.cluster.teardown_connection', side_effect=RuntimeError('unsafe state')):
+            with self.assertRaisesRegex(RuntimeError, 'unsafe state'):
+                Cluster(Path('/bootstrap'), Path('/temporary/kubeconfig'), teardown=True, outputs={})
+        run.assert_not_called()
+
+    def test_failed_or_invalid_output_read_stops_before_cleanup(self):
+        for value in [subprocess.TimeoutExpired(['terraform', 'output'], 60),
+                      subprocess.CalledProcessError(1, ['terraform', 'output']), 'invalid-json']:
+            with self.subTest(value=type(value)), \
+                 patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap']), \
+                 patch('helm_chart.scripts.cluster.run', side_effect=value if isinstance(value, Exception) else None,
+                       return_value=value), \
+                 patch('helm_chart.scripts.cluster.Cluster') as cluster:
+                with self.assertRaises((subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError)):
+                    main()
+                cluster.assert_not_called()
 
 
 class ArgoIngressTests(unittest.TestCase):
@@ -1706,6 +1792,7 @@ class CertificateLifecycleOrderingTests(unittest.TestCase):
         cluster.cancel_node_upgrades.side_effect = lambda: events.append('upgrades')
         with patch('sys.argv', ['cluster.py', 'down', '--infra-dir', '/bootstrap']), \
              patch('helm_chart.scripts.cluster.already_down', return_value=False), \
+             patch('helm_chart.scripts.cluster.run', return_value='{}'), \
              patch('helm_chart.scripts.cluster.Cluster', return_value=cluster), \
              patch('helm_chart.scripts.cluster.certificates.save', side_effect=OSError('private diagnostic')) as save, \
              patch('builtins.print') as output:
