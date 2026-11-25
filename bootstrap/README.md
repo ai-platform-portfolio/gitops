@@ -520,8 +520,14 @@ The controller still carries the existing adaptation of
 [watch backoff PR29886](https://github.com/argoproj/argo-cd/pull/29886), which remains
 unmerged. Source/runtime digests and the source archive checksum are pinned. The
 existing image workflow runs CRD notification, deletion-hook and watch regressions
-before building and publishing the controller. Remove the remaining backport only
-when a selected release includes it and those regressions pass.
+before building and publishing the controller. The controller build pins Go
+1.26.10 and x/net 0.62.0 to address the scanned compiler/library findings. Its
+runtime removes unused Pebble, Git LFS, Helm and Kustomize binaries inherited
+from the upstream image; repo-server retains its separate upstream image and
+rendering tools. The build verifies the non-root Argo CLI, controller/auth aliases
+and tini, and the shared workflow blocks success on HIGH/CRITICAL vulnerabilities.
+Remove the remaining watch backport only when a selected release includes it
+and those regressions pass.
 
 ### Recovery settings and acceptance
 

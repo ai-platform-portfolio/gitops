@@ -20,6 +20,7 @@ jobs:
       revision: ${{ github.event.pull_request.head.sha || github.sha }}
       publish-preview: true
       scan: true
+      artifact-name: image-argocd
       tag: ${{ github.event_name == 'pull_request' && format('preview-argocd-v3.5.9-ai292-{0}', github.event.pull_request.head.sha) || format('argocd-v3.5.9-ai292-{0}', github.sha) }}
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}

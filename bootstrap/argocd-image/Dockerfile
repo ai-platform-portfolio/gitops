@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM golang:1.26.9@sha256:f1f0bcc2c524a3ced375fcb4d1ecb7aa371aa7070e112599aaca45cc02d0101b AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.10@sha256:cfa27959837144bf4649802ba38e59daffd0dd2a7994aa83daaf113285b0f551 AS build
 
 WORKDIR /src
 
@@ -13,6 +13,10 @@ COPY watch-retry-backoff.patch /tmp/watch-retry-backoff.patch
 RUN git apply --check /tmp/watch-retry-backoff.patch && git apply /tmp/watch-retry-backoff.patch
 
 ENV GOMAXPROCS=2 CGO_ENABLED=0
+
+# Fix the scanned HTTP/HTML dependency findings before tests and compilation.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go get golang.org/x/net@v0.62.0 && go mod tidy
 
 # Includes upstream's AlreadyExists ownership, health and retry regressions.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
@@ -33,4 +37,14 @@ FROM quay.io/argoproj/argocd:v3.5.9@sha256:3b7416d6a448f3cb9c445fb72f90b4f76be20
 LABEL org.opencontainers.image.version="v3.5.9-ai292" \
       org.opencontainers.image.description="Argo CD 3.5.9 with watch-retry backoff (#29886)"
 
+# This image is used only by the application controller. Manifest rendering and
+# Git checkout tools stay in the separate upstream repo-server image.
+USER root
+RUN rm -f /usr/bin/pebble /usr/local/bin/git-lfs /usr/local/bin/helm /usr/local/bin/kustomize
+
 COPY --from=build --chown=0:0 --chmod=0555 /src/dist/argocd /usr/local/bin/argocd
+
+USER $ARGOCD_USER_ID
+RUN argocd version --client && \
+    test -x /usr/local/bin/argocd-application-controller && \
+    test -x /usr/local/bin/argocd-k8s-auth && test -x /usr/bin/tini
