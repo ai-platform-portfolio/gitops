@@ -386,6 +386,17 @@ ETags. Mixed ownership, unsupported registry formats, missing ETags, read errors
 or concurrent changes stop cleanup. Unrelated records and the backend remain
 untouched. This path creates no cluster and performs no Terraform apply.
 
+### Bounded teardown reads
+
+Teardown shares one Terraform output snapshot between the already-down and
+cluster checks, allowing up to 60 seconds for that backend read. Partial state
+still follows the existing recovery guards, and failed or invalid reads stop
+cleanup. The registration/PostDelete inventory wait reuses the existing bounded
+command-error retries so a transient API reset does not abort ordered cleanup;
+persistent failures stop before platform dependencies are deleted.
+
+
+
 ## Deployment inputs
 
 `terraform.tfvars` is the default deployment configuration. Environment metadata
@@ -498,32 +509,25 @@ each module call. Review the plan for zero management-network replacements.
 
 ## Argo API request recovery
 
-The controller image retains the delete-hook race backport and adds an adaptation
-of [upstream watch backoff PR29886](https://github.com/argoproj/argo-cd/pull/29886)
-to the pinned3.5.5 source (upstream proposal head
-`d774715c74dde47687f02dc561e1db0d8829341d`). The upstream proposal is unmerged; this is a temporary
-maintained backport, not a released native capability. Remove each patch only
-when the selected upstream release includes its fix and regression tests pass.
+Bootstrap pins Argo CD 3.5.9 for all components. The release includes
+[CRD-driven application refresh](https://github.com/argoproj/argo-cd/pull/30599)
+and the [deletion-hook AlreadyExists fix](https://github.com/argoproj/argo-cd/pull/29687).
+CRDs deliberately lack application tracking metadata; the new controller index
+notifies their managing applications when CRDs change, avoiding stale readiness
+that holds dependent sync waves. The deletion-hook backport is therefore removed.
 
-### Released-image alternatives checked
-
-Source comparison on 2026-11-05 covered upstream 3.6.1, 3.5.7, 3.4.13,
-3.3.19, 3.2.12 and 2.14.21. All retain the flat one-second RetryWatcher path,
-and their selected client-go versions bypass QPS limiting for WATCH requests.
-Downgrading these images would therefore retain the observed retry storm.
-
-| Versions | Deletion-hook behaviour in inspected source |
-| --- | --- |
-| 3.3.19–3.6.1 listed above | `AlreadyExists` is skipped without checking the live hook; the existing cleanup patch remains relevant. |
-| 3.2.12 and 2.14.21 | Creation conflicts return an error instead of silently completing; the watch-retry issue remains. |
-
-This was source verification, not a live downgrade/compatibility test. No inspected
-released image resolves both requirements, which is why this image retains the
-existing cleanup fix and adds watch backoff. Reassess when the upstream fixes ship.
-See [older engine retry code](https://github.com/argoproj/gitops-engine/blob/c08b0a72c1f1/pkg/cache/cluster.go),
-[older client WATCH limiter bypass](https://github.com/kubernetes/client-go/blob/v0.31.0/rest/request.go),
-[3.4.13 hook handling](https://github.com/argoproj/argo-cd/blob/v3.4.13/controller/hook.go)
-and [3.2.12 hook handling](https://github.com/argoproj/argo-cd/blob/v3.2.12/controller/hook.go).
+The controller still carries the existing adaptation of
+[watch backoff PR29886](https://github.com/argoproj/argo-cd/pull/29886), which remains
+unmerged. Source/runtime digests and the source archive checksum are pinned. The
+existing image workflow runs CRD notification, deletion-hook and watch regressions
+before building and publishing the controller. The controller build pins Go
+1.26.10 and x/net 0.62.0 to address the scanned compiler/library findings. Its
+runtime removes unused Pebble, Git LFS, Helm and Kustomize binaries inherited
+from the upstream image; repo-server retains its separate upstream image and
+rendering tools. The build verifies the non-root Argo CLI, controller/auth aliases
+and tini, and the shared workflow blocks success on HIGH/CRITICAL vulnerabilities.
+Remove the remaining watch backport only when a selected release includes it
+and those regressions pass.
 
 ### Recovery settings and acceptance
 
