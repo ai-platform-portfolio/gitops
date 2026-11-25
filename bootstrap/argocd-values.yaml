@@ -22,7 +22,7 @@ controller:
   # Release includes CRD refresh and deletion-hook fixes; retain watch backoff.
   image:
     repository: localacrk8s.azurecr.io/platform/argocd
-    tag: preview-argocd-v3.5.5-ai167-335527a924e088420f15b501ec4750f2f4d4b8cb@sha256:66750b523da747958c91c8776985fd77860dee1f6483be974a9164f8f6072ead
+    tag: preview-argocd-v3.5.9-ai292-667c2c6ca0559831f349919019cd3530437fa6d1@sha256:85035b2f6d7c60f1c3bacb29524989f3a84ab2613ece4114a358e12c98de1228
 
   env:
     # WATCH bypasses client-go QPS limiting; the pinned backport adds backoff/jitter.
