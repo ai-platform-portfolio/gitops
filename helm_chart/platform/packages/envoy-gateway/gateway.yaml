@@ -109,4 +109,34 @@ spec:
         selector:
           matchLabels:
             gitops.platform/gateway: private
+{{- if and .Values.litellm.enabled .Values.litellm.access.enabled }}
+{{- $service := "private-envoy-internal" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $service }}
+  namespace: envoy-gateway-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: proxy
+    gateway.envoyproxy.io/owning-gateway-name: private
+    gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway-system
+  ports:
+    - name: https
+      port: 443
+      targetPort: 10443 # Envoy Gateway's container port for the HTTPS listener.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  model-gateway.override: |
+    rewrite name exact {{ tpl .Values.litellm.access.hostname . }} {{ $service }}.envoy-gateway-system.svc.cluster.local
+{{- end }}
 {{- end }}

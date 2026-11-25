@@ -45,6 +45,37 @@ class EventTemplateTests(unittest.TestCase):
         result = self.render({}, gateway={'private': {'sourceRanges': []}})
         self.assertNotEqual(result.returncode, 0)
 
+    def test_model_hostname_uses_private_envoy_service_inside_aks(self):
+        for settings, enabled in [
+            ({}, True),
+            ({'litellm': {'access': {'enabled': False}}}, False),
+            ({'gateway': {'private': {'enabled': False}}}, False),
+        ]:
+            with self.subTest(settings=settings):
+                result = self.render({}, **settings)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                gateway = next(d for d in yaml.safe_load_all(result.stdout) if d
+                               and d['kind'] == 'Application' and d['metadata']['name'] == 'gateway')
+                manifests = list(yaml.safe_load_all(gateway['spec']['source']['helm']['valuesObject']['manifests']))
+                resources = {d['metadata']['name']: d for d in manifests if d['kind'] in ('Service', 'ConfigMap')}
+                if not enabled:
+                    self.assertEqual(resources, {})
+                    continue
+                service = resources['private-envoy-internal']
+                self.assertEqual(service['spec']['type'], 'ClusterIP')
+                self.assertEqual(service['spec']['selector'], {
+                    'app.kubernetes.io/component': 'proxy',
+                    'gateway.envoyproxy.io/owning-gateway-name': 'private',
+                    'gateway.envoyproxy.io/owning-gateway-namespace': 'envoy-gateway-system',
+                })
+                self.assertEqual(service['spec']['ports'], [{'name': 'https', 'port': 443, 'targetPort': 10443}])
+                dns = resources['coredns-custom']
+                self.assertEqual(dns['metadata']['namespace'], 'kube-system')
+                self.assertEqual(dns['metadata']['annotations']['argocd.argoproj.io/sync-wave'], '1')
+                target = f"{service['metadata']['name']}.{service['metadata']['namespace']}.svc.cluster.local"
+                self.assertEqual(dns['data'], {'model-gateway.override':
+                    f'rewrite name exact models.internal.example.test {target}\n'})
+
     def render(self, events, **settings):
         runtime = {key: 'example' for p in CHART.rglob('*') if p.is_file()
                    for key in re.findall(r'\.Values.runtime\.([A-Z_]+)', p.read_text())}
