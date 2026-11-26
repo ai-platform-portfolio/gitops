@@ -1834,6 +1834,33 @@ class AccountingLifecycleTests(unittest.TestCase):
         self.cluster.delete = Mock()
         self.cluster.manifest = Mock()
 
+    def test_accounting_failures_do_not_veto_ordered_teardown_or_expose_details(self):
+        for phase in ['prepare', 'backup']:
+            for error in [RuntimeError('synthetic-secret'), TimeoutError('synthetic-secret'),
+                          subprocess.CalledProcessError(1, ['private-command'])]:
+                with self.subTest(phase=phase, error=type(error)):
+                    cluster = Cluster.__new__(Cluster)
+                    cluster.kube, cluster.hub = ['kubectl'], None
+                    cluster.settings = {'cluster': {'role': 'management'}}
+                    root = {'metadata': {'name': 'platform'}, 'status': {'resources': []}}
+                    postgres = {'metadata': {'name': 'postgres', 'labels': {
+                        'platform.ai-platform-portfolio/managed': 'true'}}}
+                    cluster.objects = Mock(side_effect=lambda kind, namespace=None:
+                                           [root, postgres] if kind == 'applications.argoproj.io' else [])
+                    cluster.prepare_accounting = Mock(return_value=True,
+                        side_effect=error if phase == 'prepare' else None)
+                    cluster.backup_accounting = Mock(side_effect=error if phase == 'backup' else None)
+                    cluster.delete, cluster.manifest = Mock(), Mock()
+                    with patch('helm_chart.scripts.cluster.run', return_value=''), \
+                         patch('builtins.print') as output:
+                        cluster.cleanup()
+                    self.assertEqual([c.args[1] for c in cluster.delete.call_args_list],
+                                     [['postgres'], ['platform']])
+                    self.assertIn('continuing teardown', str(output.call_args_list))
+                    self.assertNotIn('synthetic-secret', str(output.call_args_list))
+                    self.assertNotIn('private-command', str(output.call_args_list))
+                    cluster.manifest.assert_not_called()
+
     def test_prepare_preserves_owner_inventory_and_stops_issuance_before_cleanup(self):
         checkpoint = {'data': {'expected-owners.json': json.dumps(['consumer-' + 'a'*64])}}
         consumer = {'metadata': {'name': 'credentials', 'labels': {
@@ -1856,22 +1883,21 @@ class AccountingLifecycleTests(unittest.TestCase):
         self.assertIn('"suspend":true', command.call_args_list[1].args[-1])
         self.cluster.delete.assert_not_called()
 
-    def test_missing_package_or_shutdown_proof_blocks_destruction(self):
-        with self.assertRaisesRegex(RuntimeError, 'Reconcile'):
-            self.cluster.prepare_accounting([{'metadata': {'name': 'litellm'}}], Mock())
+    def test_missing_package_or_shutdown_proof_only_skips_preservation(self):
+        self.assertFalse(self.cluster.accounting_attempt(
+            self.cluster.prepare_accounting, [{'metadata': {'name': 'litellm'}}], Mock()))
         self.cluster.object = Mock(side_effect=lambda kind, *args:
                                    {'data': {'shutdown.json': '{}'}} if kind == 'configmaps' else None)
         self.cluster.objects = Mock(return_value=[])
-        with self.assertRaisesRegex(RuntimeError, 'No verified accounting shutdown'):
-            self.cluster.backup_accounting()
+        self.assertFalse(self.cluster.accounting_attempt(self.cluster.backup_accounting))
         self.cluster.delete.assert_not_called()
         self.cluster.manifest.assert_not_called()
 
-    def test_native_flush_errors_block_even_when_server_reports_shutdown_complete(self):
+    def test_failed_flush_never_certifies_a_final_snapshot(self):
         uid = '00000000-0000-0000-0000-000000000001'
         pod = {'metadata': {'name': 'proxy', 'uid': uid, 'labels': {'app': 'proxy'}},
                'spec': {'containers': [{'image': 'proxy@sha256:' + 'a'*64}]},
-               'status': {'containerStatuses': [{'ready': True, 'restartCount': 0, 'state': {'running': {'startedAt': '2026-11-20T00:00:00Z'}}}]}}
+               'status': {'containerStatuses': [{'ready': True, 'restartCount': 1, 'state': {'running': {'startedAt': '2026-11-20T00:00:00Z'}}}]}}
         for failure in (b'', b'Error flushing spend counters on shutdown\n',
                         b'graceful_shutdown_timeout in_flight_requests=1\n',
                         b'TimeoutError flushing spend counters\n'):

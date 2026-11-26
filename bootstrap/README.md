@@ -349,6 +349,15 @@ Platform packages are then removed in reverse wave order before Terraform
 destroys this disposable server and the other bootstrap resources. The remote
 Terraform backend remains persistent.
 
+Accounting preservation is best-effort during an explicitly requested teardown.
+Preparation/restore/backup waits are bounded; missing checkpoints, proxy restart
+history, failed shutdown verification or a failed final backup must not veto
+cluster deletion. Preservation failures emit a redacted warning and teardown
+continues in dependency order. Existing retained Storage Account backups stay
+outside the disposable lifecycle; a failed final attempt may leave them older
+than the last live usage. Failed work is never marked as a verified clean backup.
+
+
 After package cleanup, native teardown checks the AKS node resource group's
 `managedBy` link and requires every scale set's `aks-managed-poolName` tag to
 match an AKS-reported pool. It cancels active rolling upgrades through the native

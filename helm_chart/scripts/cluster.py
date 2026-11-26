@@ -490,6 +490,17 @@ class Cluster:
                 raise RuntimeError(f'Operator/application consumers remain ({kind}); teardown stopped')
         print('Partial teardown: live workloads and application/operator consumers are drained.', flush=True)
 
+    def accounting_attempt(self, operation, *args):
+        # External retained backups must never veto an explicitly requested down.
+        # Keep backup validation strict internally so failed work is not certified.
+        try:
+            return operation(*args)
+        except Exception:
+            # Error details can contain credentials or SQL; keep diagnostics private.
+            print('WARNING: Final accounting preservation did not complete; continuing teardown. '
+                  'Existing retained backups remain; recent usage may not be saved.', flush=True)
+            return False
+
     def prepare_accounting(self, apps, suspend):
         recovery = next((a for a in apps if a['metadata']['name'] == 'litellm-accounting'), None)
         proxy = next((a for a in apps if a['metadata']['name'] == 'litellm'), None)
@@ -535,11 +546,11 @@ class Cluster:
                 or any(r.get('kind') == 'CronJob' and r.get('name') in renewals
                        for r in job['metadata'].get('ownerReferences', [])))
                 for job in self.objects('jobs.batch', 'litellm'))
-        wait_for(issuance_stopped, 'Waiting for gateway credential issuance to stop', timeout=360)
+        wait_for(issuance_stopped, 'Waiting for gateway credential issuance to stop', timeout=120)
         wait_for(lambda: not any(job.get('status', {}).get('active', 0)
                                 and job['metadata'].get('labels', {}).get('platform.ai-platform-portfolio/accounting') == 'restore'
                                 for job in self.objects('jobs.batch', 'postgres')),
-                 'Waiting for accounting restore to stop before backup', timeout=960)
+                 'Waiting for accounting restore to stop before backup', timeout=120)
         return True
 
     def backup_accounting(self):
@@ -554,9 +565,9 @@ class Cluster:
                 raise RuntimeError('Accounting shutdown requires the configured single proxy worker')
             pod = pods[0]
             statuses = pod.get('status', {}).get('containerStatuses', [])
-            if (len(statuses) != 1 or not statuses[0].get('ready') or statuses[0].get('restartCount') != 0
+            if (len(statuses) != 1 or not statuses[0].get('ready')
                     or not statuses[0].get('state', {}).get('running')):
-                raise RuntimeError('Proxy has unverified runtime loss; reconcile accounting before teardown')
+                raise RuntimeError('Proxy is not ready for final accounting preservation')
             proof = {'clean': False}
             run(*self.kube, 'patch', 'configmap', 'litellm-accounting', '-n', 'postgres',
                 '--type=merge', '-p', json.dumps({'data': {'shutdown.json': json.dumps(proof)}}))
@@ -583,7 +594,7 @@ class Cluster:
                     if (process.returncode != 0 or len(observed) > 1048576
                             or b'Application shutdown complete.' not in observed
                             or re.search(rb'error|exception|incomplete|timed out|timeout|cancelled|discard', checked, re.I)):
-                        raise RuntimeError('Native accounting shutdown was not clean; database preserved')
+                        raise RuntimeError('Native accounting shutdown was not clean; final snapshot not certified')
                 finally:
                     if process.poll() is None:
                         process.terminate()
@@ -596,7 +607,7 @@ class Cluster:
             run(*self.kube, 'patch', 'configmap', 'litellm-accounting', '-n', 'postgres',
                 '--type=merge', '-p', json.dumps({'data': {'shutdown.json': json.dumps(proof)}}))
         if proof.get('clean') is not True:
-            raise RuntimeError('No verified accounting shutdown checkpoint; database preserved')
+            raise RuntimeError('No verified accounting shutdown checkpoint; final snapshot not certified')
         job = self.object('jobs.batch', 'litellm-accounting-final', 'postgres')
         if job and (job['metadata'].get('annotations', {}).get('platform.ai-platform-portfolio/source-pod') != proof['pod_uid']
                     or any(c['type'] == 'Failed' and c['status'] == 'True'
@@ -613,9 +624,9 @@ class Cluster:
             result = self.object('jobs.batch', 'litellm-accounting-final', 'postgres')
             conditions = result.get('status', {}).get('conditions', []) if result else []
             if any(c['type'] == 'Failed' and c['status'] == 'True' for c in conditions):
-                raise RuntimeError('Accounting backup failed; database preserved. Inspect the safe Job stage code')
+                raise RuntimeError('Accounting backup failed; final snapshot not certified. Inspect the safe Job stage code')
             return any(c['type'] == 'Complete' and c['status'] == 'True' for c in conditions)
-        wait_for(completed, 'Waiting for verified LiteLLM accounting backup', timeout=960)
+        wait_for(completed, 'Waiting for verified LiteLLM accounting backup', timeout=120)
 
     def cleanup(self):
         if self.settings is None:
@@ -689,7 +700,7 @@ class Cluster:
                     for namespace, names in sensors.items():
                         self.delete('sensors.argoproj.io', names, namespace)
 
-            accounting = self.prepare_accounting(apps, suspend)
+            accounting = self.accounting_attempt(self.prepare_accounting, apps, suspend)
 
             registrations = {r['name'] for r in root.get('status', {}).get('resources', [])
                              if r.get('group') == 'argoproj.io' and r.get('kind') == 'ApplicationSet'
@@ -766,9 +777,9 @@ class Cluster:
             apps = self.objects('applications.argoproj.io', 'argocd')
 
         if not roots:
-            accounting = self.prepare_accounting(apps, suspend)
+            accounting = self.accounting_attempt(self.prepare_accounting, apps, suspend)
         if accounting:
-            self.backup_accounting()
+            self.accounting_attempt(self.backup_accounting)
 
         if any(a['metadata']['name'] in {'postgres', 'atlas-operator'} for a in apps):
             apis = set(run(*self.kube, 'api-resources', '-o', 'name', capture=True).splitlines())
